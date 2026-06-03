@@ -1,6 +1,6 @@
 # Shelfie 📚
 
-**Shelfie** es un sistema backend de código abierto diseñado para la gestión integrada de bibliotecas modernas. Utilizando un enfoque arquitectónico modular y escalable, este sistema provee herramientas completas para administrar catálogos bibliográficos, flujos transaccionales de circulación y portales de consulta pública para usuarios finales.
+**Shelfie** es un sistema diseñado para la gestión integrada de bibliotecas modernas. Utilizando un enfoque arquitectónico modular y escalable, este sistema provee herramientas completas para administrar catálogos bibliográficos, flujos transaccionales de circulación y portales de consulta pública para usuarios finales.
 
 ## 🚀 Módulos Core del Sistema
 
