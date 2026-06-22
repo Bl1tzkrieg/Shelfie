@@ -1,115 +1,44 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { AppLayout } from "@/components/layout/app-layout"
 import { Header } from "@/components/layout/header"
-import { CatalogFilters } from "@/components/catalogo/catalog-filters"
-import { BookCard, Book } from "@/components/catalogo/book-card"
+import { BookCard } from "@/components/catalogo/book-card"
 import { Button } from "@/components/ui/button"
-import { Plus } from "lucide-react"
-import Link from "next/link"
+import { Plus, SlidersHorizontal } from "lucide-react"
 
-const books: Book[] = [
-  {
-    id: "1",
-    title: "Fisiología Vegetal",
-    author: "Lincoln Taiz & Eduardo Zeiger",
-    year: 2022,
-    category: "Fitotecnia",
-    type: "Libro",
-    isbn: "978-84-9035-123-4",
-    location: "A-101",
-    copies: 5,
-    available: 3,
-  },
-  {
-    id: "2",
-    title: "Introducción a la Ciencia del Suelo",
-    author: "Roberto Núñez Escobar",
-    year: 2021,
-    category: "Ciencias del Suelo",
-    type: "Libro",
-    isbn: "978-607-32-4567-8",
-    location: "B-203",
-    copies: 3,
-    available: 0,
-  },
-  {
-    id: "3",
-    title: "Manejo Integrado de Plagas",
-    author: "Marcos Kogan",
-    year: 2020,
-    category: "Entomología",
-    type: "Libro",
-    isbn: "978-1-4020-8991-3",
-    location: "C-105",
-    copies: 4,
-    available: 2,
-  },
-  {
-    id: "4",
-    title: "Sistemas de Riego: Diseño y Manejo",
-    author: "Fernando Pizarro Cabello",
-    year: 2019,
-    category: "Agronomía General",
-    type: "Libro",
-    isbn: "978-84-7114-456-7",
-    location: "A-205",
-    copies: 2,
-    available: 1,
-  },
-  {
-    id: "5",
-    title: "Nutrición Animal Aplicada",
-    author: "Peter McDonald",
-    year: 2023,
-    category: "Zootecnia",
-    type: "Libro",
-    isbn: "978-84-200-1234-5",
-    location: "D-102",
-    copies: 6,
-    available: 4,
-  },
-  {
-    id: "6",
-    title: "Genética Vegetal",
-    author: "María Teresa Martínez",
-    year: 2021,
-    category: "Fitotecnia",
-    type: "Libro",
-    isbn: "978-84-9035-789-1",
-    location: "A-103",
-    copies: 3,
-    available: 3,
-  },
-  {
-    id: "7",
-    title: "Botánica Sistemática: Fundamentos",
-    author: "Walter S. Judd",
-    year: 2018,
-    category: "Botánica",
-    type: "Libro",
-    isbn: "978-0-87893-407-2",
-    location: "B-101",
-    copies: 4,
-    available: 2,
-  },
-  {
-    id: "8",
-    title: "Economía Agrícola",
-    author: "Carlos Alberto Pérez",
-    year: 2022,
-    category: "Agronomía General",
-    type: "Libro",
-    isbn: "978-607-15-0987-6",
-    location: "E-201",
-    copies: 5,
-    available: 5,
-  },
-]
+interface Book {
+  id: string
+  title: string
+  author: string
+  isbn: string
+  status: "disponible" | "prestado" | "reservado"
+  coverImage: string
+}
 
 export default function CatalogoPage() {
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
+  const [books, setBooks] = useState<Book[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    async function fetchCatalog() {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/catalog/items`)
+        if (response.ok) {
+          const data = await response.json()
+          setBooks(data)
+        } else {
+          setBooks([])
+        }
+      } catch (error) {
+        print("Error en el fetch del catálogo:", error)
+        setBooks([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    fetchCatalog()
+  }, [])
 
   return (
     <AppLayout>
@@ -119,52 +48,51 @@ export default function CatalogoPage() {
       />
       
       <div className="p-6">
-        {/* Action Bar */}
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <p className="text-sm text-muted-foreground">
-              Mostrando <span className="font-medium text-foreground">8</span> de{" "}
-              <span className="font-medium text-foreground">12,847</span> resultados
-            </p>
+        {/* Contador Real */}
+        <div className="mb-4 text-sm text-muted-foreground">
+          Mostrando <span className="font-medium">{books.length}</span> resultados reales
+        </div>
+
+        {/* Barra de herramientas simplificada temporalmente para evitar mocks */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+          <div className="relative w-full max-w-md">
+            <input 
+              type="text" 
+              placeholder="Buscar por título, autor, ISBN..." 
+              className="w-full px-4 py-2 border rounded-lg bg-background text-sm"
+              disabled
+            />
           </div>
-          <Link href="/catalogo/nuevo">
-            <Button>
+          
+          <div className="flex gap-2 w-full sm:w-auto justify-end">
+            <Button variant="outline" size="sm">
+              <SlidersHorizontal className="mr-2 h-4 w-4" />
+              Filtros
+            </Button>
+            <Button size="sm" className="bg-emerald-700 hover:bg-emerald-800 text-white">
               <Plus className="mr-2 h-4 w-4" />
               Agregar Material
             </Button>
-          </Link>
-        </div>
-
-        {/* Filters */}
-        <CatalogFilters viewMode={viewMode} onViewModeChange={setViewMode} />
-
-        {/* Results */}
-        <div className={
-          viewMode === "grid" 
-            ? "mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
-            : "mt-6 space-y-3"
-        }>
-          {books.map((book) => (
-            <BookCard key={book.id} book={book} viewMode={viewMode} />
-          ))}
-        </div>
-
-        {/* Pagination */}
-        <div className="mt-8 flex items-center justify-center gap-2">
-          <Button variant="outline" size="sm" disabled>
-            Anterior
-          </Button>
-          <div className="flex items-center gap-1">
-            <Button variant="default" size="sm">1</Button>
-            <Button variant="outline" size="sm">2</Button>
-            <Button variant="outline" size="sm">3</Button>
-            <span className="px-2 text-muted-foreground">...</span>
-            <Button variant="outline" size="sm">125</Button>
           </div>
-          <Button variant="outline" size="sm">
-            Siguiente
-          </Button>
         </div>
+
+        {/* Renderizado Condicional Estricto */}
+        {isLoading ? (
+          <div className="text-center py-12 bg-card border rounded-lg text-muted-foreground">
+            Cargando catálogo desde la base de datos...
+          </div>
+        ) : books.length === 0 ? (
+          <div className="text-center py-16 bg-card border rounded-lg border-dashed text-muted-foreground">
+            <p className="text-lg font-medium mb-1">El catálogo está vacío en la base de datos</p>
+            <p className="text-sm">Si ya corriste el script, verifica que el Backend esté encendido.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+            {books.map((book) => (
+              <BookCard key={book.id} book={book} />
+            ))}
+          </div>
+        )}
       </div>
     </AppLayout>
   )

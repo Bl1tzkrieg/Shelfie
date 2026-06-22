@@ -1,3 +1,6 @@
+"use client"
+
+import { useState, useEffect } from "react"
 import { AppLayout } from "@/components/layout/app-layout"
 import { Header } from "@/components/layout/header"
 import { Button } from "@/components/ui/button"
@@ -48,7 +51,39 @@ const reportTypes = [
   },
 ]
 
+interface Stats {
+  total_items: number
+  total_users: number
+  loans_this_month: number
+  growth_percentage: string
+}
+
 export default function ReportesPage() {
+  const [stats, setStats] = useState<Stats>({
+    total_items: 0,
+    total_users: 0,
+    loans_this_month: 0,
+    growth_percentage: "+0%"
+  })
+
+  // Carga dinámica de las estadísticas reales del backend
+  useEffect(() => {
+    async function fetchStats() {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/reports/stats`, {
+          cache: "no-store"
+        })
+        if (response.ok) {
+          const data = await response.json()
+          setStats(data)
+        }
+      } catch (error) {
+        console.error("Error al cargar estadísticas en reportes:", error)
+      }
+    }
+    fetchStats()
+  }, [])
+
   return (
     <AppLayout>
       <Header 
@@ -65,7 +100,9 @@ export default function ReportesPage() {
                 <BookOpen className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-semibold text-foreground">12,847</p>
+                <p className="text-2xl font-semibold text-foreground">
+                  {stats.total_items.toLocaleString()}
+                </p>
                 <p className="text-sm text-muted-foreground">Títulos en catálogo</p>
               </div>
             </div>
@@ -76,7 +113,9 @@ export default function ReportesPage() {
                 <Users className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-semibold text-foreground">2,456</p>
+                <p className="text-2xl font-semibold text-foreground">
+                  {stats.total_users.toLocaleString()}
+                </p>
                 <p className="text-sm text-muted-foreground">Usuarios registrados</p>
               </div>
             </div>
@@ -87,7 +126,9 @@ export default function ReportesPage() {
                 <BarChart3 className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-semibold text-foreground">1,234</p>
+                <p className="text-2xl font-semibold text-foreground">
+                  {stats.loans_this_month.toLocaleString()}
+                </p>
                 <p className="text-sm text-muted-foreground">Préstamos este mes</p>
               </div>
             </div>
@@ -98,7 +139,7 @@ export default function ReportesPage() {
                 <TrendingUp className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-semibold text-foreground">+12%</p>
+                <p className="text-2xl font-semibold text-foreground">{stats.growth_percentage}</p>
                 <p className="text-sm text-muted-foreground">vs mes anterior</p>
               </div>
             </div>

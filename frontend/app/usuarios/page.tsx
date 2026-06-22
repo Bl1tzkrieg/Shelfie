@@ -1,3 +1,6 @@
+"use client"
+
+import { useState, useEffect } from "react"
 import { AppLayout } from "@/components/layout/app-layout"
 import { Header } from "@/components/layout/header"
 import { UserFilters } from "@/components/usuarios/user-filters"
@@ -6,100 +9,68 @@ import { Button } from "@/components/ui/button"
 import { Plus, Download, Upload } from "lucide-react"
 import Link from "next/link"
 
-const users: User[] = [
-  {
-    id: "EST-2024-0145",
-    name: "Carlos Mendoza López",
-    email: "carlos.mendoza@unagro.edu",
-    type: "student",
-    department: "Ingeniería Agronómica",
-    status: "active",
-    activeLoans: 2,
-    totalLoans: 15,
-    registeredDate: "15 Ene 2024",
-  },
-  {
-    id: "EST-2023-0089",
-    name: "Ana García Pérez",
-    email: "ana.garcia@unagro.edu",
-    type: "student",
-    department: "Zootecnia",
-    status: "suspended",
-    activeLoans: 1,
-    totalLoans: 8,
-    registeredDate: "20 Ago 2023",
-  },
-  {
-    id: "DOC-2019-0023",
-    name: "Dr. Roberto Jiménez Vargas",
-    email: "r.jimenez@unagro.edu",
-    type: "teacher",
-    department: "Ciencias del Suelo",
-    status: "active",
-    activeLoans: 5,
-    totalLoans: 87,
-    registeredDate: "01 Mar 2019",
-  },
-  {
-    id: "EST-2024-0201",
-    name: "Laura Sánchez Mora",
-    email: "laura.sanchez@unagro.edu",
-    type: "student",
-    department: "Ingeniería Forestal",
-    status: "active",
-    activeLoans: 1,
-    totalLoans: 4,
-    registeredDate: "10 Feb 2024",
-  },
-  {
-    id: "DOC-2015-0012",
-    name: "Dra. María Fernández Castro",
-    email: "m.fernandez@unagro.edu",
-    type: "teacher",
-    department: "Botánica",
-    status: "active",
-    activeLoans: 3,
-    totalLoans: 124,
-    registeredDate: "15 Jun 2015",
-  },
-  {
-    id: "ADM-2020-0005",
-    name: "José Ramírez Torres",
-    email: "j.ramirez@unagro.edu",
-    type: "staff",
-    department: "Biblioteca Central",
-    status: "active",
-    activeLoans: 0,
-    totalLoans: 12,
-    registeredDate: "05 Sep 2020",
-  },
-  {
-    id: "EST-2022-0167",
-    name: "Miguel Torres Ruiz",
-    email: "miguel.torres@unagro.edu",
-    type: "student",
-    department: "Ciencias Ambientales",
-    status: "inactive",
-    activeLoans: 0,
-    totalLoans: 23,
-    registeredDate: "12 Mar 2022",
-  },
-  {
-    id: "EST-2023-0145",
-    name: "Pedro Ruiz García",
-    email: "pedro.ruiz@unagro.edu",
-    type: "student",
-    department: "Ingeniería Agronómica",
-    status: "active",
-    activeLoans: 0,
-    totalLoans: 11,
-    registeredDate: "28 Jul 2023",
-  },
-]
-
 export default function UsuariosPage() {
+  const [users, setUsers] = useState<User[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  // Carga de usuarios desde el Backend (FastAPI)
+  useEffect(() => {
+    async function fetchUsers() {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users`, {
+          cache: "no-store",
+        })
+        if (response.ok) {
+          const data = await response.json()
+          
+          // Mapeamos los datos del backend a la interfaz que espera tu UserTable
+          const mappedUsers = data.map((u: any) => {
+            // 1. Determinar el estado visual del prototipo
+            let calculatedStatus: "active" | "suspended" | "inactive" = "active"
+            if (!u.activo) {
+              calculatedStatus = "inactive"
+            } else if (u.saldo_multas > 0) {
+              calculatedStatus = "suspended"
+            }
+
+            // 2. Normalizar el tipo de usuario basado en el código de categoría obtenido
+            const rawCode = u.categoria?.codigo?.toLowerCase() || ""
+            let userType: "student" | "teacher" | "staff" = "student"
+            
+            if (rawCode === "doc" || rawCode === "docente") {
+              userType = "teacher"
+            } else if (rawCode === "adm" || rawCode === "staff") {
+              userType = "staff"
+            }
+
+            return {
+              id: u.nro_carnet,
+              name: `${u.nombre} ${u.apellido}`,
+              email: u.email,
+              type: userType,
+              department: u.departamento || "Ingeniería Agronómica",
+              status: calculatedStatus,
+              activeLoans: u.prestamos_activos_count || 0,
+              totalLoans: u.total_prestamos_count || 0,
+              registeredDate: u.fecha_registro ? new Date(u.fecha_registro).toLocaleDateString() : "2026",
+            }
+          })
+          
+          setUsers(mappedUsers)
+        }
+      } catch (error) {
+        console.error("Error al obtener los usuarios:", error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    fetchUsers()
+  }, [])
+
+  // Métricas calculadas dinámicamente de la base de datos
   const activeUsers = users.filter(u => u.status === "active").length
   const suspendedUsers = users.filter(u => u.status === "suspended").length
+  const usersWithActiveLoans = users.filter(u => u.activeLoans > 0).length
 
   return (
     <AppLayout>
@@ -125,9 +96,7 @@ export default function UsuariosPage() {
           </div>
           <div className="rounded-lg border border-border bg-card p-4">
             <p className="text-sm text-muted-foreground">Con Préstamos Activos</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">
-              {users.filter(u => u.activeLoans > 0).length}
-            </p>
+            <p className="mt-1 text-2xl font-semibold text-foreground">{usersWithActiveLoans}</p>
           </div>
         </div>
 
@@ -154,20 +123,26 @@ export default function UsuariosPage() {
           </div>
         </div>
 
-        {/* Table */}
-        <UserTable users={users} />
+        {/* Table con manejador de carga */}
+        {isLoading ? (
+          <div className="text-center py-10 bg-card border rounded-lg text-muted-foreground">
+            Cargando el padrón de usuarios...
+          </div>
+        ) : (
+          <UserTable users={users} />
+        )}
 
         {/* Pagination */}
         <div className="mt-6 flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
             Mostrando <span className="font-medium text-foreground">{users.length}</span> de{" "}
-            <span className="font-medium text-foreground">2,456</span> usuarios
+            <span className="font-medium text-foreground">{users.length}</span> usuarios reales
           </p>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" disabled>
               Anterior
             </Button>
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" disabled>
               Siguiente
             </Button>
           </div>

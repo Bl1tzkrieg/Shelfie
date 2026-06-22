@@ -1,3 +1,6 @@
+"use client"
+
+import { useState, useEffect } from "react"
 import { AppLayout } from "@/components/layout/app-layout"
 import { Header } from "@/components/layout/header"
 import { StatCard } from "@/components/dashboard/stat-card"
@@ -45,40 +48,67 @@ const quickActions = [
   },
 ]
 
+interface DashboardStats {
+  totalItems: number
+  totalUsers: number
+  activeLoans: number
+}
+
 export default function DashboardPage() {
+  const [stats, setStats] = useState<DashboardStats>({ totalItems: 0, totalUsers: 0, activeLoans: 0 })
+  const [isLoading, setIsLoading] = useState(true)
+
+useEffect(() => {
+    async function fetchStats() {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/catalog/dashboard-stats`, {
+          cache: "no-store"
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          setStats(data)
+        }
+      } catch (error) {
+        console.error("Error al cargar estadísticas:", error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    fetchStats()
+  }, [])
+
   return (
     <AppLayout>
       <Header 
         title="Dashboard" 
-        description="Bienvenido al sistema de biblioteca BiblioAgro"
+        description="Bienvenido al sistema de biblioteca Shelfie"
       />
       
       <div className="p-6">
         {/* Stats Grid */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
-            title="Total de Títulos"
-            value="12,847"
-            subtitle="En catálogo"
+            title="Total de Ítems"
+            value={isLoading ? "..." : stats.totalItems.toLocaleString()}
+            subtitle="En catálogo real"
             icon={BookOpen}
-            trend={{ value: 3.2, isPositive: true }}
           />
           <StatCard
             title="Usuarios Activos"
-            value="2,456"
-            subtitle="Estudiantes y docentes"
+            value={isLoading ? "..." : stats.totalUsers.toLocaleString()}
+            subtitle="Lectores registrados"
             icon={Users}
-            trend={{ value: 5.1, isPositive: true }}
           />
           <StatCard
             title="Préstamos Activos"
-            value="384"
+            value={isLoading ? "..." : stats.activeLoans.toLocaleString()}
             subtitle="En circulación"
             icon={ArrowRightLeft}
           />
           <StatCard
             title="Préstamos Vencidos"
-            value="23"
+            value={isLoading ? "..." : "0"}
             subtitle="Requieren atención"
             icon={AlertTriangle}
             className="border-destructive/30"

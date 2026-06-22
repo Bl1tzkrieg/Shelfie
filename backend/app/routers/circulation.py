@@ -89,3 +89,32 @@ def checkin_item(payload: schemas.CheckinRequest, db: Session = Depends(get_db))
         "multa_aplicada": multa_total,
         "nuevo_estado_item": nuevo_estado
     }
+
+
+@router.get("/loans")
+def get_all_loans(db: Session = Depends(get_db)):
+    # Traemos todos los préstamos uniendo las tablas para sacar los nombres
+    prestamos = db.query(models.Prestamo).all()
+    resultado = []
+
+    for p in prestamos:
+        usuario = db.query(models.Usuario).filter(models.Usuario.id == p.usuario_id).first()
+        item = db.query(models.Item).filter(models.Item.id == p.item_id).first()
+        biblio = db.query(models.RegistroBibliografico).filter(
+            models.RegistroBibliografico.id == item.biblio_id).first()
+
+        resultado.append({
+            "id": str(p.id),
+            "bookTitle": biblio.titulo if biblio else "Desconocido",
+            "bookCode": item.codigo_barras if item else "N/A",
+            "userName": f"{usuario.nombre} {usuario.apellido}" if usuario else "Desconocido",
+            "userId": usuario.nro_carnet if usuario else "N/A",
+            "loanDate": p.fecha_prestamo.strftime("%d %b %Y"),
+            "dueDate": p.fecha_vencimiento.strftime("%d %b %Y"),
+            "status": "returned" if p.fecha_devolucion else (
+                "overdue" if datetime.utcnow() > p.fecha_vencimiento else "active")
+        })
+
+    return resultado
+
+

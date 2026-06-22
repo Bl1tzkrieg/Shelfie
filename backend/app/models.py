@@ -27,6 +27,7 @@ class Usuario(Base):
     password_hash = Column(String(255), nullable=False)
     nombre = Column(String(100), nullable=False)
     apellido = Column(String(100), nullable=False)
+    email = Column(String(100), nullable=False, unique=True)  # <-- AGREGA ESTA LÍNEA EXACTAMENTE AQUÍ
     categoria_id = Column(Integer, ForeignKey("categorias_usuario.id"))
     saldo_multas = Column(Numeric(10, 2), default=0.00)
     activo = Column(Boolean, default=True)
@@ -42,7 +43,8 @@ class RegistroBibliografico(Base):
 class TipoItem(Base):
     __tablename__ = "tipos_item"
     id = Column(Integer, primary_key=True, index=True)
-    codigo = Column(String(10), unique=True, nullable=False)
+    codigo = Column(String(10), unique=True, nullable=False, index=True)
+    descripcion = Column(String(100), nullable=False)  # <-- AGREGA ESTA LÍNEA EXACTAMENTE AQUÍ
     es_prestable = Column(Boolean, default=True)
 
 class Item(Base):
