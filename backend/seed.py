@@ -1,6 +1,7 @@
 from datetime import datetime
 from app.database import SessionLocal, Base, engine
 from app import models
+from app.security import hash_password
 
 # Asegurar que las tablas existan
 Base.metadata.create_all(bind=engine)
@@ -36,11 +37,12 @@ try:
         u1 = models.Usuario(
             nro_carnet="20260001",
             username="douglas.worm",
-            password_hash="pbkdf2:sha256...",
+            password_hash=hash_password("20260001"),
             nombre="Douglas",
             apellido="Worm",
             email="douglas.worm@example.com",
             categoria_id=categoria.id,
+            departamento="Ingeniería Agronómica",
             saldo_multas=0.00,
             activo=True
         )
@@ -51,11 +53,12 @@ try:
         u2 = models.Usuario(
             nro_carnet="20260002",
             username="carlos.mendoza",
-            password_hash="pbkdf2:sha256...",
+            password_hash=hash_password("20260002"),
             nombre="Carlos",
             apellido="Mendoza López",
             email="carlos.mendoza@example.com",
             categoria_id=categoria.id,
+            departamento="Ingeniería Agronómica",
             saldo_multas=0.00,
             activo=True
         )
@@ -66,11 +69,12 @@ try:
         u3 = models.Usuario(
             nro_carnet="20260003",
             username="ana.garcia",
-            password_hash="pbkdf2:sha256...",
+            password_hash=hash_password("20260003"),
             nombre="Ana",
             apellido="García Pérez",
             email="ana.garcia@example.com",
             categoria_id=categoria.id,
+            departamento="Ingeniería Agronómica",
             saldo_multas=3.00,
             activo=True
         )
@@ -85,6 +89,8 @@ try:
             isbn="9780307474728",
             titulo="Cien años de soledad",
             autor="Gabriel García Márquez",
+            ano_publicacion=1967,
+            materia="Literatura",
             marc_json={
                 "leader": "00000cam a22000001a 4500",
                 "fields": [
@@ -102,6 +108,8 @@ try:
             isbn="9781111111111",
             titulo="Fisiología Vegetal",
             autor="Lincoln Taiz",
+            ano_publicacion=2010,
+            materia="Fitotecnia",
             marc_json={
                 "leader": "00000cam a22000001a 4500",
                 "fields": [
@@ -118,6 +126,8 @@ try:
             isbn="9782222222222",
             titulo="Introducción a la Ciencia del Suelo",
             autor="Nyle C. Brady",
+            ano_publicacion=2008,
+            materia="Ciencias del Suelo",
             marc_json={
                 "leader": "00000cam a22000001a 4500",
                 "fields": [
@@ -148,6 +158,7 @@ try:
             biblio_id=libro1.id,
             codigo_barras="SHELFIE-001",
             tipo_item_id=tipo_item.id,
+            signatura_topografica="PQ8180.17.A73",
             estado="Prestado"  # Douglas lo tiene prestado (Activo)
         )
         db.add(item1)
@@ -158,6 +169,7 @@ try:
             biblio_id=libro2.id,
             codigo_barras="SHELFIE-002",
             tipo_item_id=tipo_item.id,
+            signatura_topografica="QK711.2 T35",
             estado="Prestado"  # Carlos lo tiene prestado (Vencido)
         )
         db.add(item2)
@@ -168,6 +180,7 @@ try:
             biblio_id=libro3.id,
             codigo_barras="SHELFIE-003",
             tipo_item_id=tipo_item.id,
+            signatura_topografica="S591 B73",
             estado="Disponible"  # Ya fue devuelto por Ana
         )
         db.add(item3)

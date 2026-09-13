@@ -29,8 +29,10 @@ class Usuario(Base):
     apellido = Column(String(100), nullable=False)
     email = Column(String(100), nullable=False, unique=True)  # <-- AGREGA ESTA LÍNEA EXACTAMENTE AQUÍ
     categoria_id = Column(Integer, ForeignKey("categorias_usuario.id"))
+    departamento = Column(String(100), nullable=True)
     saldo_multas = Column(Numeric(10, 2), default=0.00)
     activo = Column(Boolean, default=True)
+    fecha_creacion = Column(DateTime, default=datetime.utcnow)
 
 class RegistroBibliografico(Base):
     __tablename__ = "registros_bibliograficos"
@@ -38,6 +40,8 @@ class RegistroBibliografico(Base):
     isbn = Column(String(20), nullable=True)
     titulo = Column(Text, nullable=False)
     autor = Column(Text, nullable=True)
+    ano_publicacion = Column(Integer, nullable=True)
+    materia = Column(String(100), nullable=True)
     marc_json = Column(JSONB, nullable=False)  # Estructura de etiquetas MARC21 variable
 
 class TipoItem(Base):
@@ -53,6 +57,7 @@ class Item(Base):
     biblio_id = Column(Integer, ForeignKey("registros_bibliograficos.id", ondelete="CASCADE"))
     codigo_barras = Column(String(50), unique=True, nullable=False, index=True)
     tipo_item_id = Column(Integer, ForeignKey("tipos_item.id"))
+    signatura_topografica = Column(String(100), nullable=True)  # Clasificación Dewey/LC
     estado = Column(String(20), default="Disponible")  # Disponible, Prestado, Reservado
 
 class Prestamo(Base):
@@ -63,6 +68,7 @@ class Prestamo(Base):
     fecha_prestamo = Column(DateTime, default=datetime.utcnow)
     fecha_vencimiento = Column(DateTime, nullable=False)
     fecha_devolucion = Column(DateTime, nullable=True)
+    renovaciones_realizadas = Column(Integer, default=0)
 
 class Reserva(Base):
     __tablename__ = "reservas"
@@ -80,3 +86,76 @@ class Multa(Base):
     usuario_id = Column(Integer, ForeignKey("usuarios.id"))
     monto = Column(Numeric(10, 2), nullable=False)
     estado_pago = Column(String(20), default="Pendiente")
+
+class Configuracion(Base):
+    """Ajustes del sistema guardados como pares clave/valor JSON."""
+    __tablename__ = "configuraciones"
+    __table_args__ = {'extend_existing': True}
+    id = Column(Integer, primary_key=True, index=True)
+    clave = Column(String(50), unique=True, nullable=False, index=True)
+    valor = Column(JSONB, nullable=False)
+    actualizado_en = Column(DateTime, default=datetime.utcnow)
+
+
+# ==========================================
+# MÓDULO DE ADQUISICIONES
+# ==========================================
+
+class Proveedor(Base):
+    __tablename__ = "proveedores"
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String(150), nullable=False)
+    contacto = Column(String(150), nullable=True)
+    email = Column(String(100), nullable=True)
+    telefono = Column(String(30), nullable=True)
+    activo = Column(Boolean, default=True)
+
+
+class OrdenCompra(Base):
+    __tablename__ = "ordenes_compra"
+    id = Column(Integer, primary_key=True, index=True)
+    proveedor_id = Column(Integer, ForeignKey("proveedores.id"))
+    fecha_emision = Column(DateTime, default=datetime.utcnow)
+    fecha_recepcion = Column(DateTime, nullable=True)
+    # Pendiente, Recibida, Cancelada
+    estado = Column(String(20), default="Pendiente")
+    observaciones = Column(Text, nullable=True)
+
+
+class LineaOrden(Base):
+    __tablename__ = "lineas_orden"
+    id = Column(Integer, primary_key=True, index=True)
+    orden_id = Column(Integer, ForeignKey("ordenes_compra.id", ondelete="CASCADE"))
+    titulo = Column(Text, nullable=False)
+    autor = Column(Text, nullable=True)
+    isbn = Column(String(20), nullable=True)
+    cantidad = Column(Integer, nullable=False, default=1)
+    precio_unitario = Column(Numeric(10, 2), nullable=False, default=0)
+
+
+# ==========================================
+# MÓDULO DE PUBLICACIONES SERIADAS
+# ==========================================
+
+class Suscripcion(Base):
+    __tablename__ = "suscripciones"
+    id = Column(Integer, primary_key=True, index=True)
+    titulo = Column(Text, nullable=False)
+    issn = Column(String(20), nullable=True)
+    proveedor_id = Column(Integer, ForeignKey("proveedores.id"), nullable=True)
+    # Diaria, Semanal, Mensual, Trimestral, Anual
+    periodicidad = Column(String(20), nullable=False, default="Mensual")
+    fecha_inicio = Column(Date, nullable=True)
+    fecha_fin = Column(Date, nullable=True)
+    # Activa, Vencida, Cancelada
+    estado = Column(String(20), default="Activa")
+
+
+class Fasciculo(Base):
+    __tablename__ = "fasciculos"
+    id = Column(Integer, primary_key=True, index=True)
+    suscripcion_id = Column(Integer, ForeignKey("suscripciones.id", ondelete="CASCADE"))
+    numero = Column(String(50), nullable=False)
+    fecha_esperada = Column(Date, nullable=True)
+    fecha_recepcion = Column(DateTime, nullable=True)
+    recibido = Column(Boolean, default=False)

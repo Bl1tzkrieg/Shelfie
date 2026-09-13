@@ -1,0 +1,32 @@
+# Entornos virtuales de Python
+backend/venv/
+backend/.venv/
+venv/
+.venv/
+
+# Bytecode de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Variables de entorno (usar los .env.example como plantilla)
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env.local
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Editores
+.idea/
+.vscode/
+*.swp
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

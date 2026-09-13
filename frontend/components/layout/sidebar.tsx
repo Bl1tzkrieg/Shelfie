@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation"
 import {
   LayoutDashboard,
   Search,
-  BookOpen,
   ArrowRightLeft,
   Users,
   BarChart3,
