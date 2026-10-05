@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { Search, Filter } from "lucide-react"
+import { Search, Filter, X } from "lucide-react"
+
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,17 +14,42 @@ import {
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
+export interface LoanFilterState {
+  estado: string
+  tipoUsuario: string
+}
+
+export const FILTROS_PRESTAMO_VACIOS: LoanFilterState = {
+  estado: "all",
+  tipoUsuario: "all",
+}
+
 interface LoanFiltersProps {
   activeTab: "active" | "history"
   onTabChange: (tab: "active" | "history") => void
+  searchQuery: string
+  onSearchChange: (q: string) => void
+  filtros: LoanFilterState
+  onFiltrosChange: (f: LoanFilterState) => void
 }
 
-export function LoanFilters({ activeTab, onTabChange }: LoanFiltersProps) {
+export function LoanFilters({
+  activeTab,
+  onTabChange,
+  searchQuery,
+  onSearchChange,
+  filtros,
+  onFiltrosChange,
+}: LoanFiltersProps) {
   const [showFilters, setShowFilters] = useState(false)
+  const activos = Object.values(filtros).filter((v) => v !== "all").length
+
+  function set(campo: keyof LoanFilterState, valor: string) {
+    onFiltrosChange({ ...filtros, [campo]: valor })
+  }
 
   return (
-    <div className="space-y-4">
-      {/* Tabs */}
+    <div className="w-full space-y-4">
       <div className="flex gap-1 rounded-lg border border-border bg-muted/50 p-1">
         <button
           onClick={() => onTabChange("active")}
@@ -49,14 +75,15 @@ export function LoanFilters({ activeTab, onTabChange }: LoanFiltersProps) {
         </button>
       </div>
 
-      {/* Search and Filters */}
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="search"
-            placeholder="Buscar por usuario, libro, código..."
+            placeholder="Buscar por lector, título o código..."
             className="pl-10"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
           />
         </div>
         <Button
@@ -66,54 +93,58 @@ export function LoanFilters({ activeTab, onTabChange }: LoanFiltersProps) {
         >
           <Filter className="mr-2 h-4 w-4" />
           Filtros
+          {activos > 0 && (
+            <span className="ml-2 rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
+              {activos}
+            </span>
+          )}
         </Button>
       </div>
 
-      {/* Filters Panel */}
       {showFilters && (
-        <div className="grid gap-4 rounded-lg border border-border bg-card p-4 sm:grid-cols-3">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Estado</label>
-            <Select>
-              <SelectTrigger>
-                <SelectValue placeholder="Todos los estados" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los estados</SelectItem>
-                <SelectItem value="active">Activo</SelectItem>
-                <SelectItem value="overdue">Vencido</SelectItem>
-                <SelectItem value="returned">Devuelto</SelectItem>
-              </SelectContent>
-            </Select>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Estado</label>
+              <Select value={filtros.estado} onValueChange={(v) => set("estado", v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los estados</SelectItem>
+                  <SelectItem value="active">Activo</SelectItem>
+                  <SelectItem value="overdue">Vencido</SelectItem>
+                  <SelectItem value="returned">Devuelto</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Tipo de Usuario</label>
+              <Select value={filtros.tipoUsuario} onValueChange={(v) => set("tipoUsuario", v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los usuarios</SelectItem>
+                  <SelectItem value="student">Estudiante</SelectItem>
+                  <SelectItem value="teacher">Docente</SelectItem>
+                  <SelectItem value="staff">Personal</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Tipo de Usuario</label>
-            <Select>
-              <SelectTrigger>
-                <SelectValue placeholder="Todos los usuarios" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los usuarios</SelectItem>
-                <SelectItem value="student">Estudiante</SelectItem>
-                <SelectItem value="teacher">Docente</SelectItem>
-                <SelectItem value="staff">Personal</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Período</label>
-            <Select>
-              <SelectTrigger>
-                <SelectValue placeholder="Cualquier fecha" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Cualquier fecha</SelectItem>
-                <SelectItem value="today">Hoy</SelectItem>
-                <SelectItem value="week">Esta semana</SelectItem>
-                <SelectItem value="month">Este mes</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+
+          {activos > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-4"
+              onClick={() => onFiltrosChange(FILTROS_PRESTAMO_VACIOS)}
+            >
+              <X className="mr-2 h-4 w-4" />
+              Limpiar filtros
+            </Button>
+          )}
         </div>
       )}
     </div>

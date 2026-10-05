@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { Search, Filter } from "lucide-react"
+import { Search, Filter, X } from "lucide-react"
+
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,19 +14,52 @@ import {
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
-export function UserFilters() {
+export interface UserFilterState {
+  tipo: string
+  estado: string
+  departamento: string
+}
+
+export const FILTROS_USUARIO_VACIOS: UserFilterState = {
+  tipo: "all",
+  estado: "all",
+  departamento: "all",
+}
+
+interface UserFiltersProps {
+  searchQuery: string
+  onSearchChange: (q: string) => void
+  filtros: UserFilterState
+  onFiltrosChange: (f: UserFilterState) => void
+  /** Departamentos presentes en el padrón real. */
+  departamentos: string[]
+}
+
+export function UserFilters({
+  searchQuery,
+  onSearchChange,
+  filtros,
+  onFiltrosChange,
+  departamentos,
+}: UserFiltersProps) {
   const [showFilters, setShowFilters] = useState(false)
+  const activos = Object.values(filtros).filter((v) => v !== "all").length
+
+  function set(campo: keyof UserFilterState, valor: string) {
+    onFiltrosChange({ ...filtros, [campo]: valor })
+  }
 
   return (
     <div className="space-y-4">
-      {/* Search and Filters */}
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="search"
-            placeholder="Buscar por nombre, ID, email..."
+            placeholder="Buscar por nombre, carnet o email..."
             className="pl-10"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
           />
         </div>
         <Button
@@ -35,55 +69,74 @@ export function UserFilters() {
         >
           <Filter className="mr-2 h-4 w-4" />
           Filtros
+          {activos > 0 && (
+            <span className="ml-2 rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
+              {activos}
+            </span>
+          )}
         </Button>
       </div>
 
-      {/* Filters Panel */}
       {showFilters && (
-        <div className="grid gap-4 rounded-lg border border-border bg-card p-4 sm:grid-cols-3">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Tipo de Usuario</label>
-            <Select>
-              <SelectTrigger>
-                <SelectValue placeholder="Todos los tipos" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los tipos</SelectItem>
-                <SelectItem value="student">Estudiante</SelectItem>
-                <SelectItem value="teacher">Docente</SelectItem>
-                <SelectItem value="staff">Personal Administrativo</SelectItem>
-              </SelectContent>
-            </Select>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Tipo de Usuario</label>
+              <Select value={filtros.tipo} onValueChange={(v) => set("tipo", v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los tipos</SelectItem>
+                  <SelectItem value="student">Estudiante</SelectItem>
+                  <SelectItem value="teacher">Docente</SelectItem>
+                  <SelectItem value="staff">Personal Administrativo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Estado</label>
+              <Select value={filtros.estado} onValueChange={(v) => set("estado", v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Cualquier estado</SelectItem>
+                  <SelectItem value="active">Activo</SelectItem>
+                  <SelectItem value="inactive">Inactivo</SelectItem>
+                  <SelectItem value="suspended">Con multas</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Departamento</label>
+              <Select value={filtros.departamento} onValueChange={(v) => set("departamento", v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {departamentos.map((d) => (
+                    <SelectItem key={d} value={d}>
+                      {d}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Estado</label>
-            <Select>
-              <SelectTrigger>
-                <SelectValue placeholder="Cualquier estado" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Cualquier estado</SelectItem>
-                <SelectItem value="active">Activo</SelectItem>
-                <SelectItem value="inactive">Inactivo</SelectItem>
-                <SelectItem value="suspended">Suspendido</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Carrera / Departamento</label>
-            <Select>
-              <SelectTrigger>
-                <SelectValue placeholder="Todos" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="agronomia">Ingeniería Agronómica</SelectItem>
-                <SelectItem value="zootecnia">Zootecnia</SelectItem>
-                <SelectItem value="forestal">Ingeniería Forestal</SelectItem>
-                <SelectItem value="ambiental">Ciencias Ambientales</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+
+          {activos > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-4"
+              onClick={() => onFiltrosChange(FILTROS_USUARIO_VACIOS)}
+            >
+              <X className="mr-2 h-4 w-4" />
+              Limpiar filtros
+            </Button>
+          )}
         </div>
       )}
     </div>

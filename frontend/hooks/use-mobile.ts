@@ -2,18 +2,26 @@ import * as React from 'react'
 
 const MOBILE_BREAKPOINT = 768
 
+const QUERY = `(max-width: ${MOBILE_BREAKPOINT - 1}px)`
+
 export function useIsMobile() {
-  const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined)
+  // useSyncExternalStore es el mecanismo previsto para leer de una fuente
+  // externa como matchMedia: evita el setState dentro del efecto y entrega
+  // el valor correcto ya en el primer render del cliente.
+  return React.useSyncExternalStore(suscribir, leerCliente, leerServidor)
+}
 
-  React.useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`)
-    const onChange = () => {
-      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    }
-    mql.addEventListener('change', onChange)
-    setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    return () => mql.removeEventListener('change', onChange)
-  }, [])
+function suscribir(alCambiar: () => void) {
+  const mql = window.matchMedia(QUERY)
+  mql.addEventListener('change', alCambiar)
+  return () => mql.removeEventListener('change', alCambiar)
+}
 
-  return !!isMobile
+function leerCliente() {
+  return window.matchMedia(QUERY).matches
+}
+
+function leerServidor() {
+  // Durante el render en servidor no hay viewport; se asume escritorio.
+  return false
 }

@@ -1,8 +1,19 @@
 "use client"
 
-import { Bell, Search } from "lucide-react"
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import Link from "next/link"
+import { Bell, Search, AlertTriangle } from "lucide-react"
+
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { apiGet } from "@/lib/api"
+import type { ApiLoan } from "@/lib/types"
 
 interface HeaderProps {
   title: string
@@ -10,32 +21,98 @@ interface HeaderProps {
 }
 
 export function Header({ title, description }: HeaderProps) {
+  const router = useRouter()
+  const [query, setQuery] = useState("")
+  const [vencidos, setVencidos] = useState<ApiLoan[]>([])
+
+  useEffect(() => {
+    // Las notificaciones son los préstamos vencidos: es la alerta que
+    // realmente necesita atención del personal.
+    apiGet<ApiLoan[]>("/circulation/loans")
+      .then((loans) => setVencidos(loans.filter((l) => l.status === "overdue")))
+      .catch(() => setVencidos([]))
+  }, [])
+
+  function buscar(e: React.FormEvent) {
+    e.preventDefault()
+    const q = query.trim()
+    if (!q) return
+    // El catálogo es el destino natural de la búsqueda global.
+    router.push(`/catalogo?q=${encodeURIComponent(q)}`)
+  }
+
   return (
     <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-border bg-card px-6">
       <div>
         <h1 className="text-lg font-semibold text-foreground">{title}</h1>
-        {description && (
-          <p className="text-sm text-muted-foreground">{description}</p>
-        )}
+        {description && <p className="text-sm text-muted-foreground">{description}</p>}
       </div>
 
       <div className="flex items-center gap-4">
-        {/* Search */}
-        <div className="relative hidden md:block">
+        <form onSubmit={buscar} className="relative hidden md:block">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="search"
-            placeholder="Buscar libros, usuarios..."
+            placeholder="Buscar en el catálogo..."
             className="w-64 bg-background pl-9"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
           />
-        </div>
+        </form>
 
-        {/* Notifications */}
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
-          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive" />
-          <span className="sr-only">Notificaciones</span>
-        </Button>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="icon" className="relative">
+              <Bell className="h-5 w-5" />
+              {vencidos.length > 0 && (
+                <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive" />
+              )}
+              <span className="sr-only">Notificaciones</span>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-80 p-0">
+            <div className="border-b border-border px-4 py-3">
+              <p className="font-medium text-foreground">Notificaciones</p>
+              <p className="text-sm text-muted-foreground">
+                {vencidos.length === 0
+                  ? "Todo al día"
+                  : `${vencidos.length} préstamo(s) vencido(s)`}
+              </p>
+            </div>
+
+            {vencidos.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                No hay préstamos vencidos.
+              </div>
+            ) : (
+              <>
+                <div className="max-h-72 divide-y divide-border overflow-y-auto">
+                  {vencidos.slice(0, 6).map((loan) => (
+                    <div key={loan.id} className="flex gap-3 px-4 py-3">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {loan.bookTitle}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {loan.userName} · venció el {loan.dueDate}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="border-t border-border p-2">
+                  <Link
+                    href="/circulacion"
+                    className="block rounded-md px-3 py-2 text-center text-sm font-medium text-primary hover:bg-muted"
+                  >
+                    Ver circulación
+                  </Link>
+                </div>
+              </>
+            )}
+          </PopoverContent>
+        </Popover>
       </div>
     </header>
   )
