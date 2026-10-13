@@ -4,6 +4,7 @@ import Link from "next/link"
 import { BookOpen, Calendar, User, MapPin } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useSesion } from "@/components/auth/sesion-provider"
 import { Button } from "@/components/ui/button"
 
 export interface Book {
@@ -20,6 +21,8 @@ export interface Book {
   cover?: string
   // Código de barras del primer ejemplar libre; es lo que consume /circulation/checkout.
   availableBarcode?: string | null
+  /** Reservas activas (pendientes o en espera) del título. */
+  holds?: number
 }
 
 interface BookCardProps {
@@ -33,6 +36,8 @@ export function BookCard({ book, viewMode, onPrestar, onReservar }: BookCardProp
   const isAvailable = book.available > 0
 
   // Prestar exige un ejemplar libre con código de barras; si no lo hay, se reserva.
+  const { tienePermiso } = useSesion()
+  const circula = tienePermiso("circulacion")
   const puedePrestar = isAvailable && Boolean(book.availableBarcode)
 
   function handleAccion() {
@@ -40,9 +45,9 @@ export function BookCard({ book, viewMode, onPrestar, onReservar }: BookCardProp
     else onReservar?.(book)
   }
 
-  const etiquetaDisponibilidad = isAvailable
-    ? `${book.available} de ${book.copies} disp.`
-    : "No disponible"
+  const enCola = book.holds ? ` · ${book.holds} en cola` : ""
+  const etiquetaDisponibilidad =
+    (isAvailable ? `${book.available} de ${book.copies} disp.` : "No disponible") + enCola
 
   if (viewMode === "list") {
     return (
@@ -90,13 +95,15 @@ export function BookCard({ book, viewMode, onPrestar, onReservar }: BookCardProp
               </span>
               <span className="text-xs text-muted-foreground">{book.category}</span>
             </div>
-            <Button
-              size="sm"
-              variant={puedePrestar ? "default" : "outline"}
-              onClick={handleAccion}
-            >
-              {puedePrestar ? "Prestar" : "Reservar"}
-            </Button>
+            {circula && (
+              <Button
+                size="sm"
+                variant={puedePrestar ? "default" : "outline"}
+                onClick={handleAccion}
+              >
+                {puedePrestar ? "Prestar" : "Reservar"}
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -133,14 +140,16 @@ export function BookCard({ book, viewMode, onPrestar, onReservar }: BookCardProp
               <span className="truncate text-xs text-muted-foreground">{book.location}</span>
             )}
           </div>
-          <Button
-            size="sm"
-            className="w-full"
-            variant={puedePrestar ? "default" : "outline"}
-            onClick={handleAccion}
-          >
-            {puedePrestar ? "Prestar" : "Reservar"}
-          </Button>
+          {circula && (
+            <Button
+              size="sm"
+              className="w-full"
+              variant={puedePrestar ? "default" : "outline"}
+              onClick={handleAccion}
+            >
+              {puedePrestar ? "Prestar" : "Reservar"}
+            </Button>
+          )}
         </div>
       </div>
     </div>

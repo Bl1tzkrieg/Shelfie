@@ -4,6 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { ArrowRight, Plus, UserPlus, BookPlus, FileText } from "lucide-react"
 
+import { useSesion } from "@/components/auth/sesion-provider"
 import { cn } from "@/lib/utils"
 import { NuevoPrestamoDialog } from "@/components/circulacion/nuevo-prestamo-dialog"
 import { AgregarMaterialDialog } from "@/components/catalogo/agregar-material-dialog"
@@ -26,6 +27,7 @@ const colorConfig = {
  */
 export function QuickActions({ onChange }: QuickActionsProps) {
   const [usuarioAbierto, setUsuarioAbierto] = useState(false)
+  const { tienePermiso } = useSesion()
 
   return (
     <div className="rounded-xl border border-border bg-card">
@@ -35,6 +37,7 @@ export function QuickActions({ onChange }: QuickActionsProps) {
       </div>
 
       <div className="grid gap-2 p-4">
+        {tienePermiso("circulacion") && (
         <NuevoPrestamoDialog
           onSuccess={onChange}
           trigger={
@@ -47,7 +50,9 @@ export function QuickActions({ onChange }: QuickActionsProps) {
             </button>
           }
         />
+        )}
 
+        {tienePermiso("lectores") && (
         <button
           onClick={() => setUsuarioAbierto(true)}
           className="group flex w-full items-center gap-4 rounded-lg p-3 text-left transition-colors hover:bg-muted"
@@ -58,11 +63,24 @@ export function QuickActions({ onChange }: QuickActionsProps) {
           <Texto titulo="Registrar Usuario" descripcion="Agregar nuevo lector al sistema" />
           <Flecha />
         </button>
+        )}
 
-        <div className="[&_button]:w-full">
-          <AgregarMaterialDialogWrapper onSuccess={onChange} />
-        </div>
+        {tienePermiso("catalogo") && (
+          <AgregarMaterialDialog
+            onSuccess={onChange}
+            trigger={
+              <button className="group flex w-full items-center gap-4 rounded-lg p-3 text-left transition-colors hover:bg-muted">
+                <Icono color="secondary">
+                  <BookPlus className="h-5 w-5" />
+                </Icono>
+                <Texto titulo="Agregar Material" descripcion="Catalogar nuevo libro o recurso" />
+                <Flecha />
+              </button>
+            }
+          />
+        )}
 
+        {tienePermiso("reportes") && (
         <Link
           href="/reportes"
           className="group flex items-center gap-4 rounded-lg p-3 transition-colors hover:bg-muted"
@@ -73,6 +91,7 @@ export function QuickActions({ onChange }: QuickActionsProps) {
           <Texto titulo="Generar Reporte" descripcion="Crear reporte de actividad" />
           <Flecha />
         </Link>
+        )}
       </div>
 
       <UsuarioDialog
@@ -115,24 +134,5 @@ function Texto({ titulo, descripcion }: { titulo: string; descripcion: string })
 function Flecha() {
   return (
     <ArrowRight className="h-5 w-5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-  )
-}
-
-/**
- * AgregarMaterialDialog trae su propio botón; aquí se reutiliza tal cual para no
- * duplicar el formulario de catalogación.
- */
-function AgregarMaterialDialogWrapper({ onSuccess }: { onSuccess?: () => void }) {
-  return (
-    <div className="flex items-center gap-4 rounded-lg p-3 transition-colors hover:bg-muted">
-      <Icono color="secondary">
-        <BookPlus className="h-5 w-5" />
-      </Icono>
-      <div className="flex-1">
-        <p className="font-medium text-foreground">Agregar Material</p>
-        <p className="text-sm text-muted-foreground">Catalogar nuevo libro o recurso</p>
-      </div>
-      <AgregarMaterialDialog onSuccess={onSuccess} />
-    </div>
   )
 }

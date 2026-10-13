@@ -11,6 +11,7 @@ import {
   XCircle,
   AlertCircle,
   Loader2,
+  KeyRound,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -45,18 +46,25 @@ export interface User {
   activeLoans: number
   totalLoans: number
   registeredDate: string
+  esPersonal?: boolean
 }
 
 interface UserTableProps {
   users: User[]
   onEditar?: (carnet: string) => void
   onChange?: () => void
+  /** Solo se pasa si quien mira puede gestionar permisos (superbibliotecario). */
+  onPermisos?: (carnet: string) => void
 }
 
 const statusConfig = {
   active: { icon: CheckCircle, label: "Activo", className: "text-primary bg-primary/10" },
-  inactive: { icon: XCircle, label: "Inactivo", className: "text-muted-foreground bg-muted" },
-  suspended: { icon: AlertCircle, label: "Con multas", className: "text-destructive bg-destructive/10" },
+  inactive: { icon: XCircle, label: "Suspendido", className: "text-muted-foreground bg-muted" },
+  suspended: {
+    icon: AlertCircle,
+    label: "Bloqueado por deuda",
+    className: "text-destructive bg-destructive/10",
+  },
 }
 
 const userTypeLabels = {
@@ -71,7 +79,7 @@ const userTypeColors = {
   staff: "bg-secondary text-secondary-foreground",
 }
 
-export function UserTable({ users, onEditar, onChange }: UserTableProps) {
+export function UserTable({ users, onEditar, onChange, onPermisos }: UserTableProps) {
   const [procesando, setProcesando] = useState<string | null>(null)
   const [aCambiar, setACambiar] = useState<User | null>(null)
 
@@ -79,8 +87,8 @@ export function UserTable({ users, onEditar, onChange }: UserTableProps) {
     const user = aCambiar
     if (!user) return
 
-    // "inactive" es el único estado que representa una cuenta desactivada;
-    // "suspended" en la UI solo refleja que el lector tiene multas pendientes.
+    // "inactive" es la cuenta suspendida por el personal; "suspended" solo refleja
+    // que la deuda del lector supera el umbral y se resuelve pagando.
     const reactivar = user.status === "inactive"
     setACambiar(null)
     setProcesando(user.id)
@@ -135,7 +143,14 @@ export function UserTable({ users, onEditar, onChange }: UserTableProps) {
                           {user.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
                         </div>
                         <div>
-                          <p className="font-medium text-foreground">{user.name}</p>
+                          <p className="flex items-center gap-2 font-medium text-foreground">
+                            {user.name}
+                            {user.esPersonal && (
+                              <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                                Personal
+                              </span>
+                            )}
+                          </p>
                           <p className="text-sm text-muted-foreground">{user.email}</p>
                         </div>
                       </div>
@@ -191,18 +206,30 @@ export function UserTable({ users, onEditar, onChange }: UserTableProps) {
                               Ver Perfil
                             </Link>
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => onEditar?.(user.id)}>
-                            <Edit className="mr-2 h-4 w-4" />
-                            Editar
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className={user.status === "inactive" ? "" : "text-destructive"}
-                            onClick={() => setACambiar(user)}
-                          >
-                            <Ban className="mr-2 h-4 w-4" />
-                            {user.status === "inactive" ? "Reactivar" : "Suspender"}
-                          </DropdownMenuItem>
+                          {onEditar && (
+                            <DropdownMenuItem onClick={() => onEditar(user.id)}>
+                              <Edit className="mr-2 h-4 w-4" />
+                              Editar
+                            </DropdownMenuItem>
+                          )}
+                          {onPermisos && (
+                            <DropdownMenuItem onClick={() => onPermisos(user.id)}>
+                              <KeyRound className="mr-2 h-4 w-4" />
+                              Acceso y permisos
+                            </DropdownMenuItem>
+                          )}
+                          {onEditar && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className={user.status === "inactive" ? "" : "text-destructive"}
+                                onClick={() => setACambiar(user)}
+                              >
+                                <Ban className="mr-2 h-4 w-4" />
+                                {user.status === "inactive" ? "Reactivar" : "Suspender"}
+                              </DropdownMenuItem>
+                            </>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </td>

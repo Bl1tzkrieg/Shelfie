@@ -1,185 +1,264 @@
-from datetime import datetime, timezone
-from typing import List
+"""Adquisiciones: proveedores, presupuestos y fondos, pedidos, facturas y sugerencias."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app import models, schemas
+from app.core.errores import ReglaIncumplida
+from app.core.permisos import Permiso
 from app.database import get_db
+from app.security import requiere
+from app.services import adquisiciones, presupuestos, sugerencias
 
-router = APIRouter(prefix="/api/v1/acquisitions", tags=["Adquisiciones"])
+ADQUIERE = requiere(Permiso.ADQUISICIONES)
 
-
-def _ahora() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _serializar_orden(db: Session, orden: models.OrdenCompra) -> dict:
-    lineas = db.query(models.LineaOrden).filter(
-        models.LineaOrden.orden_id == orden.id).all()
-    proveedor = db.query(models.Proveedor).filter(
-        models.Proveedor.id == orden.proveedor_id).first()
-
-    total = sum(float(l.precio_unitario) * l.cantidad for l in lineas)
-
-    return {
-        "id": orden.id,
-        "proveedor_id": orden.proveedor_id,
-        "proveedor_nombre": proveedor.nombre if proveedor else None,
-        "fecha_emision": orden.fecha_emision,
-        "fecha_recepcion": orden.fecha_recepcion,
-        "estado": orden.estado,
-        "observaciones": orden.observaciones,
-        "total": round(total, 2),
-        "lineas": [
-            {
-                "id": l.id,
-                "titulo": l.titulo,
-                "autor": l.autor,
-                "isbn": l.isbn,
-                "cantidad": l.cantidad,
-                "precio_unitario": float(l.precio_unitario),
-            }
-            for l in lineas
-        ],
-    }
+router = APIRouter(prefix="/api/v1/acquisitions", tags=["Adquisiciones"],
+                   dependencies=[Depends(ADQUIERE)])
 
 
-# --- Proveedores -----------------------------------------------------------
+def _datos(payload) -> dict:
+    return payload.model_dump(exclude_unset=True)
 
-@router.get("/suppliers", response_model=List[schemas.ProveedorResponse])
+
+@router.get("/summary")
+def resumen(db: Session = Depends(get_db)):
+    return adquisiciones.resumen(db)
+
+
+# --- Proveedores ----------------------------------------------------------------------
+
+@router.get("/suppliers")
 def listar_proveedores(db: Session = Depends(get_db)):
-    return db.query(models.Proveedor).order_by(models.Proveedor.nombre).all()
+    return adquisiciones.listar_proveedores(db)
 
 
-@router.post("/suppliers", response_model=schemas.ProveedorResponse, status_code=201)
+@router.post("/suppliers", status_code=201)
 def crear_proveedor(payload: schemas.ProveedorRequest, db: Session = Depends(get_db)):
-    proveedor = models.Proveedor(
-        nombre=payload.nombre,
-        contacto=payload.contacto,
-        email=payload.email,
-        telefono=payload.telefono,
-        activo=True,
-    )
-    db.add(proveedor)
-    db.commit()
-    db.refresh(proveedor)
-    return proveedor
+    return adquisiciones.crear_proveedor(db, _datos(payload))
 
 
-# --- Órdenes de compra -----------------------------------------------------
-
-@router.get("/orders", response_model=List[schemas.OrdenCompraResponse])
-def listar_ordenes(db: Session = Depends(get_db)):
-    ordenes = db.query(models.OrdenCompra).order_by(
-        models.OrdenCompra.id.desc()).all()
-    return [_serializar_orden(db, o) for o in ordenes]
+@router.put("/suppliers/{proveedor_id}")
+def actualizar_proveedor(proveedor_id: int, payload: schemas.ProveedorRequest,
+                         db: Session = Depends(get_db)):
+    return adquisiciones.actualizar_proveedor(db, proveedor_id, _datos(payload))
 
 
-@router.post("/orders", response_model=schemas.OrdenCompraResponse, status_code=201)
-def crear_orden(payload: schemas.OrdenCompraRequest, db: Session = Depends(get_db)):
-    proveedor = db.query(models.Proveedor).filter(
-        models.Proveedor.id == payload.proveedor_id).first()
-    if not proveedor:
-        raise HTTPException(status_code=404, detail="Proveedor no encontrado")
-
-    orden = models.OrdenCompra(
-        proveedor_id=proveedor.id,
-        fecha_emision=_ahora(),
-        estado="Pendiente",
-        observaciones=payload.observaciones,
-    )
-    db.add(orden)
-    db.flush()
-
-    for linea in payload.lineas:
-        db.add(models.LineaOrden(
-            orden_id=orden.id,
-            titulo=linea.titulo,
-            autor=linea.autor,
-            isbn=linea.isbn,
-            cantidad=linea.cantidad,
-            precio_unitario=linea.precio_unitario,
-        ))
-
-    db.commit()
-    db.refresh(orden)
-    return _serializar_orden(db, orden)
+@router.get("/suppliers/{proveedor_id}/receivable")
+def por_recibir(proveedor_id: int, db: Session = Depends(get_db)):
+    """Lo pendiente de todos los pedidos cerrados del proveedor."""
+    return adquisiciones.por_recibir(db, proveedor_id)
 
 
-@router.get("/orders/{orden_id}", response_model=schemas.OrdenCompraResponse)
-def get_orden(orden_id: int, db: Session = Depends(get_db)):
-    orden = db.query(models.OrdenCompra).filter(
-        models.OrdenCompra.id == orden_id).first()
-    if not orden:
-        raise HTTPException(status_code=404, detail="Orden de compra no encontrada")
-    return _serializar_orden(db, orden)
+# --- Presupuestos y fondos ------------------------------------------------------------
+
+@router.get("/budgets")
+def listar_presupuestos(db: Session = Depends(get_db)):
+    return presupuestos.listar(db)
 
 
-@router.post("/orders/{orden_id}/receive", response_model=schemas.OrdenCompraResponse)
-def recibir_orden(orden_id: int, db: Session = Depends(get_db)):
-    """Marca la orden como recibida y da de alta los ejemplares en el catálogo."""
-    orden = db.query(models.OrdenCompra).filter(
-        models.OrdenCompra.id == orden_id).first()
-    if not orden:
-        raise HTTPException(status_code=404, detail="Orden de compra no encontrada")
-    if orden.estado == "Recibida":
-        raise HTTPException(status_code=400, detail="La orden ya fue recibida")
-    if orden.estado == "Cancelada":
-        raise HTTPException(status_code=400, detail="La orden está cancelada")
-
-    tipo = db.query(models.TipoItem).filter(models.TipoItem.codigo == "LIB").first()
-    lineas = db.query(models.LineaOrden).filter(
-        models.LineaOrden.orden_id == orden.id).all()
-
-    for linea in lineas:
-        # Se reutiliza el registro bibliográfico si el ISBN ya existe.
-        biblio = None
-        if linea.isbn:
-            biblio = db.query(models.RegistroBibliografico).filter(
-                models.RegistroBibliografico.isbn == linea.isbn).first()
-        if not biblio:
-            biblio = models.RegistroBibliografico(
-                isbn=linea.isbn,
-                titulo=linea.titulo,
-                autor=linea.autor,
-                marc_json={
-                    "leader": "00000cam a22000001a 4500",
-                    "fields": [{"245": {"subfields": [{"a": linea.titulo}]}}],
-                },
-            )
-            db.add(biblio)
-            db.flush()
-
-        # Un ejemplar por unidad comprada, con código de barras derivado de la orden.
-        for n in range(linea.cantidad):
-            codigo = f"OC{orden.id:04d}-L{linea.id:03d}-{n + 1:02d}"
-            if db.query(models.Item).filter(models.Item.codigo_barras == codigo).first():
-                continue
-            db.add(models.Item(
-                biblio_id=biblio.id,
-                codigo_barras=codigo,
-                tipo_item_id=tipo.id if tipo else None,
-                estado="Disponible",
-            ))
-
-    orden.estado = "Recibida"
-    orden.fecha_recepcion = _ahora()
-    db.commit()
-    db.refresh(orden)
-    return _serializar_orden(db, orden)
+@router.post("/budgets", status_code=201)
+def crear_presupuesto(payload: schemas.PresupuestoRequest, db: Session = Depends(get_db)):
+    datos = _datos(payload)
+    for campo in ("nombre", "fecha_inicio", "fecha_fin", "monto_total"):
+        if datos.get(campo) is None:
+            raise ReglaIncumplida(f"Falta {campo.replace('_', ' ')}")
+    return presupuestos.crear(db, datos)
 
 
-@router.post("/orders/{orden_id}/cancel", response_model=schemas.OrdenCompraResponse)
+@router.get("/budgets/{presupuesto_id}")
+def obtener_presupuesto(presupuesto_id: int, db: Session = Depends(get_db)):
+    return presupuestos.obtener(db, presupuesto_id)
+
+
+@router.put("/budgets/{presupuesto_id}")
+def actualizar_presupuesto(presupuesto_id: int, payload: schemas.PresupuestoRequest,
+                           db: Session = Depends(get_db)):
+    return presupuestos.actualizar(db, presupuesto_id, _datos(payload))
+
+
+@router.delete("/budgets/{presupuesto_id}")
+def eliminar_presupuesto(presupuesto_id: int, db: Session = Depends(get_db)):
+    presupuestos.eliminar(db, presupuesto_id)
+    return {"mensaje": "Presupuesto eliminado"}
+
+
+@router.post("/budgets/{presupuesto_id}/funds", status_code=201)
+def crear_fondo(presupuesto_id: int, payload: schemas.FondoRequest, db: Session = Depends(get_db)):
+    return presupuestos.crear_fondo(db, presupuesto_id, _datos(payload))
+
+
+@router.get("/funds")
+def fondos_para_pedir(db: Session = Depends(get_db)):
+    """Fondos activos de presupuestos activos, con lo disponible."""
+    return presupuestos.fondos_para_pedir(db)
+
+
+@router.put("/funds/{fondo_id}")
+def actualizar_fondo(fondo_id: int, payload: schemas.FondoRequest, db: Session = Depends(get_db)):
+    return presupuestos.actualizar_fondo(db, fondo_id, _datos(payload))
+
+
+@router.delete("/funds/{fondo_id}")
+def eliminar_fondo(fondo_id: int, db: Session = Depends(get_db)):
+    presupuestos.eliminar_fondo(db, fondo_id)
+    return {"mensaje": "Fondo eliminado"}
+
+
+# --- Pedidos --------------------------------------------------------------------------
+
+@router.get("/orders")
+def listar_ordenes(estado: Optional[str] = None, proveedor_id: Optional[int] = None,
+                   db: Session = Depends(get_db)):
+    """`estado` acepta varios separados por coma (Abierta,Cerrada)."""
+    return adquisiciones.listar_ordenes(db, estado, proveedor_id)
+
+
+@router.post("/orders", status_code=201)
+def crear_orden(payload: schemas.OrdenCompraRequest, db: Session = Depends(get_db),
+                actor: models.Usuario = Depends(ADQUIERE)):
+    datos = payload.model_dump()
+    datos["lineas"] = [l.model_dump(exclude_unset=True) for l in payload.lineas]
+    return adquisiciones.crear_orden(db, datos, actor.id)
+
+
+@router.get("/orders/late")
+def pedidos_atrasados(db: Session = Depends(get_db)):
+    return adquisiciones.atrasados(db)
+
+
+@router.get("/orders/{orden_id}")
+def obtener_orden(orden_id: int, db: Session = Depends(get_db)):
+    return adquisiciones.obtener_orden(db, orden_id)
+
+
+@router.put("/orders/{orden_id}")
+def actualizar_orden(orden_id: int, payload: schemas.EditarOrdenRequest,
+                     db: Session = Depends(get_db)):
+    return adquisiciones.actualizar_orden(db, orden_id, _datos(payload))
+
+
+@router.post("/orders/{orden_id}/lines", status_code=201)
+def agregar_linea(orden_id: int, payload: schemas.LineaOrdenRequest, db: Session = Depends(get_db)):
+    return adquisiciones.agregar_linea(db, orden_id, _datos(payload))
+
+
+@router.put("/orders/{orden_id}/lines/{linea_id}")
+def actualizar_linea(orden_id: int, linea_id: int, payload: schemas.LineaOrdenRequest,
+                     db: Session = Depends(get_db)):
+    return adquisiciones.actualizar_linea(db, orden_id, linea_id, _datos(payload))
+
+
+@router.delete("/orders/{orden_id}/lines/{linea_id}")
+def eliminar_linea(orden_id: int, linea_id: int, db: Session = Depends(get_db)):
+    return adquisiciones.eliminar_linea(db, orden_id, linea_id)
+
+
+@router.post("/orders/{orden_id}/lines/{linea_id}/cancel")
+def cancelar_pendiente(orden_id: int, linea_id: int, db: Session = Depends(get_db)):
+    """Lo que falta recibir de la línea ya no llega."""
+    return adquisiciones.cancelar_pendiente(db, orden_id, linea_id)
+
+
+@router.post("/orders/{orden_id}/close")
+def cerrar_orden(orden_id: int, db: Session = Depends(get_db)):
+    """Se envía al proveedor: desde ahora se recibe."""
+    return adquisiciones.cerrar_orden(db, orden_id)
+
+
+@router.post("/orders/{orden_id}/reopen")
+def reabrir_orden(orden_id: int, db: Session = Depends(get_db)):
+    return adquisiciones.reabrir_orden(db, orden_id)
+
+
+@router.post("/orders/{orden_id}/cancel")
 def cancelar_orden(orden_id: int, db: Session = Depends(get_db)):
-    orden = db.query(models.OrdenCompra).filter(
-        models.OrdenCompra.id == orden_id).first()
-    if not orden:
-        raise HTTPException(status_code=404, detail="Orden de compra no encontrada")
-    if orden.estado == "Recibida":
-        raise HTTPException(
-            status_code=400, detail="No se puede cancelar una orden ya recibida")
-    orden.estado = "Cancelada"
-    db.commit()
-    db.refresh(orden)
-    return _serializar_orden(db, orden)
+    return adquisiciones.cancelar_orden(db, orden_id)
+
+
+# --- Facturas y recepción -------------------------------------------------------------
+
+@router.get("/invoices")
+def listar_facturas(proveedor_id: Optional[int] = None, abiertas: Optional[bool] = None,
+                    db: Session = Depends(get_db)):
+    return adquisiciones.listar_facturas(db, proveedor_id, abiertas)
+
+
+@router.post("/invoices", status_code=201)
+def crear_factura(payload: schemas.FacturaRequest, db: Session = Depends(get_db)):
+    if payload.proveedor_id is None:
+        raise ReglaIncumplida("Indica el proveedor de la factura")
+    return adquisiciones.crear_factura(db, _datos(payload))
+
+
+@router.get("/invoices/{factura_id}")
+def obtener_factura(factura_id: int, db: Session = Depends(get_db)):
+    return adquisiciones.obtener_factura(db, factura_id)
+
+
+@router.put("/invoices/{factura_id}")
+def actualizar_factura(factura_id: int, payload: schemas.FacturaRequest,
+                       db: Session = Depends(get_db)):
+    datos = _datos(payload)
+    datos.pop("proveedor_id", None)
+    return adquisiciones.actualizar_factura(db, factura_id, datos)
+
+
+@router.delete("/invoices/{factura_id}")
+def eliminar_factura(factura_id: int, db: Session = Depends(get_db)):
+    adquisiciones.eliminar_factura(db, factura_id)
+    return {"mensaje": "Factura eliminada"}
+
+
+@router.post("/invoices/{factura_id}/close")
+def cerrar_factura(factura_id: int, db: Session = Depends(get_db)):
+    return adquisiciones.cerrar_factura(db, factura_id, True)
+
+
+@router.post("/invoices/{factura_id}/reopen")
+def reabrir_factura(factura_id: int, db: Session = Depends(get_db)):
+    return adquisiciones.cerrar_factura(db, factura_id, False)
+
+
+@router.post("/invoices/{factura_id}/receive")
+def recibir(factura_id: int, payload: schemas.RecepcionRequest, db: Session = Depends(get_db),
+            actor: models.Usuario = Depends(ADQUIERE)):
+    """Recibe unidades de una línea contra la factura y da de alta los ejemplares."""
+    return adquisiciones.recibir(db, factura_id, _datos(payload), actor.id)
+
+
+@router.delete("/receipts/{recepcion_id}")
+def deshacer_recepcion(recepcion_id: int, db: Session = Depends(get_db)):
+    return adquisiciones.deshacer_recepcion(db, recepcion_id)
+
+
+# --- Sugerencias ----------------------------------------------------------------------
+
+@router.get("/suggestions")
+def listar_sugerencias(estado: Optional[str] = None, db: Session = Depends(get_db)):
+    return sugerencias.listar(db, estado)
+
+
+@router.post("/suggestions", status_code=201)
+def crear_sugerencia(payload: schemas.SugerenciaRequest, db: Session = Depends(get_db),
+                     actor: models.Usuario = Depends(ADQUIERE)):
+    return sugerencias.crear(db, _datos(payload), actor)
+
+
+@router.post("/suggestions/{sugerencia_id}/accept")
+def aceptar_sugerencia(sugerencia_id: int, payload: schemas.DecisionSugerenciaRequest,
+                       db: Session = Depends(get_db), actor: models.Usuario = Depends(ADQUIERE)):
+    return sugerencias.decidir(db, sugerencia_id, True, payload.motivo, actor.id)
+
+
+@router.post("/suggestions/{sugerencia_id}/reject")
+def rechazar_sugerencia(sugerencia_id: int, payload: schemas.DecisionSugerenciaRequest,
+                        db: Session = Depends(get_db), actor: models.Usuario = Depends(ADQUIERE)):
+    return sugerencias.decidir(db, sugerencia_id, False, payload.motivo, actor.id)
+
+
+@router.post("/suggestions/{sugerencia_id}/order")
+def pedir_sugerencia(sugerencia_id: int, payload: schemas.PedirSugerenciaRequest,
+                     db: Session = Depends(get_db), actor: models.Usuario = Depends(ADQUIERE)):
+    return sugerencias.pedir(db, sugerencia_id, _datos(payload), actor.id)

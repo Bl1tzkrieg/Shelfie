@@ -13,6 +13,8 @@ import {
 } from "@/components/usuarios/user-filters"
 import { UserTable } from "@/components/usuarios/user-table"
 import { UsuarioDialog } from "@/components/usuarios/usuario-dialog"
+import { PermisosDialog } from "@/components/usuarios/permisos-dialog"
+import { useSesion } from "@/components/auth/sesion-provider"
 import { Button } from "@/components/ui/button"
 import { apiDownload, apiGet, apiPost, mensajeDeError } from "@/lib/api"
 import { mapUsuario, type ApiUser } from "@/lib/types"
@@ -28,6 +30,10 @@ export default function UsuariosPage() {
 
   const [dialogAbierto, setDialogAbierto] = useState(false)
   const [enEdicion, setEnEdicion] = useState<ApiUser | null>(null)
+  const [enPermisos, setEnPermisos] = useState<ApiUser | null>(null)
+  const { tienePermiso } = useSesion()
+  const gestionaPermisos = tienePermiso("superbibliotecario")
+  const gestionaLectores = tienePermiso("lectores")
   const [exportando, setExportando] = useState(false)
   const [importando, setImportando] = useState(false)
   const inputArchivo = useRef<HTMLInputElement>(null)
@@ -194,6 +200,7 @@ export default function UsuariosPage() {
                 if (f) importar(f)
               }}
             />
+            {gestionaLectores && (
             <Button
               variant="outline"
               onClick={() => inputArchivo.current?.click()}
@@ -206,6 +213,7 @@ export default function UsuariosPage() {
               )}
               Importar
             </Button>
+            )}
             <Button variant="outline" onClick={exportar} disabled={exportando}>
               {exportando ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -214,10 +222,12 @@ export default function UsuariosPage() {
               )}
               Exportar
             </Button>
-            <Button onClick={abrirNuevo}>
-              <Plus className="mr-2 h-4 w-4" />
-              Nuevo Usuario
-            </Button>
+            {gestionaLectores && (
+              <Button onClick={abrirNuevo}>
+                <Plus className="mr-2 h-4 w-4" />
+                Nuevo Usuario
+              </Button>
+            )}
           </div>
         </div>
 
@@ -226,7 +236,16 @@ export default function UsuariosPage() {
             Cargando el padrón de usuarios...
           </div>
         ) : (
-          <UserTable users={visibles} onEditar={abrirEdicion} onChange={cargarUsuarios} />
+          <UserTable
+            users={visibles}
+            onEditar={gestionaLectores ? abrirEdicion : undefined}
+            onChange={cargarUsuarios}
+            onPermisos={
+              gestionaPermisos
+                ? (carnet) => setEnPermisos(usuarios.find((u) => u.nro_carnet === carnet) ?? null)
+                : undefined
+            }
+          />
         )}
 
         <div className="mt-6 flex items-center justify-between">
@@ -264,6 +283,11 @@ export default function UsuariosPage() {
         open={dialogAbierto}
         onOpenChange={setDialogAbierto}
         usuario={enEdicion}
+        onSuccess={cargarUsuarios}
+      />
+      <PermisosDialog
+        usuario={enPermisos}
+        onClose={() => setEnPermisos(null)}
         onSuccess={cargarUsuarios}
       />
     </AppLayout>

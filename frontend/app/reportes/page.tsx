@@ -106,7 +106,7 @@ export default function ReportesPage() {
   ]
 
   return (
-    <AppLayout>
+    <AppLayout permiso="reportes">
       <Header title="Reportes" description="Generación de informes y estadísticas" />
 
       <div className="p-6">

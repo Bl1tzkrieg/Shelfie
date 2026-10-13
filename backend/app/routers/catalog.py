@@ -1,249 +1,179 @@
-from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
-from app import models, schemas
+from app import schemas
+from app.core.errores import NoEncontrado, ReglaIncumplida
+from app.core.permisos import Permiso
 from app.database import get_db
+from app.security import requiere, requiere_personal, sede_de_trabajo
+from app.core import marc_plantillas
+from app.services import busqueda, catalogo, intercambio_marc, reservas
 
-router = APIRouter(prefix="/api/v1/catalog", tags=["Catálogo"])
+router = APIRouter(prefix="/api/v1/catalog", tags=["Catálogo"],
+                   dependencies=[Depends(requiere_personal)])
 
-
-def _ahora() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _serializar_registro(db: Session, biblio: models.RegistroBibliografico) -> dict:
-    """Vista de un título con la disponibilidad agregada de sus ejemplares."""
-    items = db.query(models.Item).filter(models.Item.biblio_id == biblio.id).all()
-    disponibles = [i for i in items if i.estado == "Disponible"]
-
-    tipo = None
-    if items and items[0].tipo_item_id:
-        tipo = db.query(models.TipoItem).filter(
-            models.TipoItem.id == items[0].tipo_item_id).first()
-
-    return {
-        "id": str(biblio.id),
-        "title": biblio.titulo or "Sin título",
-        "author": biblio.autor or "Autor desconocido",
-        "year": biblio.ano_publicacion,
-        "category": biblio.materia or "Sin clasificar",
-        "type": tipo.descripcion if tipo else "Sin tipo",
-        "isbn": biblio.isbn or "N/A",
-        "location": items[0].signatura_topografica if items else None,
-        "copies": len(items),
-        "available": len(disponibles),
-        # El código de barras del primer ejemplar libre es lo que necesita
-        # /circulation/checkout para poder prestar desde la tarjeta.
-        "availableBarcode": disponibles[0].codigo_barras if disponibles else None,
-    }
+CATALOGA = [Depends(requiere(Permiso.CATALOGO))]
 
 
 @router.get("/items", response_model=List[schemas.MaterialResponse])
 def get_all_items(db: Session = Depends(get_db)):
-    # El catálogo se presenta por título (registro bibliográfico), no por ejemplar:
-    # cada tarjeta agrupa sus items y reporta cuántos hay y cuántos están libres.
-    registros = db.query(models.RegistroBibliografico).order_by(
-        models.RegistroBibliografico.titulo).all()
-    return [_serializar_registro(db, b) for b in registros]
+    """Catálogo por título: cada fila agrupa sus ejemplares y su disponibilidad."""
+    return catalogo.listar_titulos(db)
 
 
-@router.post("/items", response_model=schemas.MaterialResponse, status_code=201)
+@router.get("/search", response_model=schemas.BusquedaCatalogoResponse)
+def buscar(
+    q: str = Query("", description="Título, autor, materia, ISBN o código de barras"),
+    materia: Optional[str] = None,
+    autor: Optional[str] = None,
+    tipo: Optional[str] = Query(None, description="Código del tipo de ítem"),
+    disponible: Optional[bool] = Query(None, description="true: con ejemplares libres"),
+    ano_desde: Optional[int] = None,
+    ano_hasta: Optional[int] = None,
+    orden: str = Query("relevancia", pattern="^(relevancia|titulo|ano_desc|ano_asc)$"),
+    pagina: int = Query(1, ge=1),
+    por_pagina: int = Query(24, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """Búsqueda de texto completo (sin acentos, por raíz) con facetas y paginación."""
+    filtros = busqueda.Filtros(q=q, materia=materia, autor=autor, tipo=tipo,
+                               disponible=disponible, ano_desde=ano_desde, ano_hasta=ano_hasta)
+    return catalogo.buscar_titulos(db, filtros, pagina=pagina, por_pagina=por_pagina,
+                                   orden=orden)
+
+
+@router.get("/export")
+def exportar(
+    formato: str = Query("marc", pattern="^(marc|marcxml)$"),
+    ejemplares: bool = Query(True, description="Incluir los ejemplares en 952, como Koha"),
+    q: str = "",
+    materia: Optional[str] = None,
+    autor: Optional[str] = None,
+    tipo: Optional[str] = None,
+    disponible: Optional[bool] = None,
+    ano_desde: Optional[int] = None,
+    ano_hasta: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Descarga en MARC (ISO 2709) o MARCXML los registros que cumplen la búsqueda."""
+    filtros = busqueda.Filtros(q=q, materia=materia, autor=autor, tipo=tipo,
+                               disponible=disponible, ano_desde=ano_desde, ano_hasta=ano_hasta)
+    contenido, tipo_mime, nombre = intercambio_marc.exportar(db, filtros, formato, ejemplares)
+    return Response(content=contenido, media_type=tipo_mime,
+                    headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
+MAX_IMPORTACION = 20 * 1024 * 1024
+
+
+@router.post("/import", dependencies=CATALOGA)
+async def importar(
+    request: Request,
+    modo: str = Query("vista", pattern="^(vista|aplicar)$"),
+    duplicados: str = Query("omitir", pattern="^(omitir|reemplazar|agregar)$"),
+    plantilla: str = Query("auto", description="auto, o el código de una plantilla"),
+    db: Session = Depends(get_db),
+):
+    """Importa un archivo MARC (ISO 2709) o MARCXML enviado como cuerpo de la petición.
+
+    `modo=vista` no escribe nada y dice qué pasaría con cada registro; `modo=aplicar`
+    importa. Los ejemplares en 952 (formato Koha) se crean junto con su registro.
+    """
+    contenido = await request.body()
+    if len(contenido) > MAX_IMPORTACION:
+        raise ReglaIncumplida("El archivo supera los 20 MB: divídelo en partes")
+    return intercambio_marc.importar(db, contenido, aplicar=modo == "aplicar",
+                                     duplicados=duplicados, plantilla=plantilla)
+
+
+@router.post("/items", response_model=schemas.MaterialResponse, status_code=201,
+             dependencies=[Depends(requiere(Permiso.CATALOGO))])
 def crear_material(payload: schemas.NuevoMaterialRequest, db: Session = Depends(get_db)):
-    """Da de alta un registro bibliográfico junto con su primer ejemplar."""
-    existente = db.query(models.Item).filter(
-        models.Item.codigo_barras == payload.codigo_barras).first()
-    if existente:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Ya existe un ejemplar con el código de barras {payload.codigo_barras}")
-
-    tipo = db.query(models.TipoItem).filter(
-        models.TipoItem.codigo == payload.tipo_item_codigo).first()
-    if not tipo:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No existe el tipo de ítem '{payload.tipo_item_codigo}'")
-
-    # Se reutiliza el registro bibliográfico si ya hay uno con el mismo ISBN:
-    # así un segundo ejemplar suma copias en lugar de duplicar el título.
-    biblio = None
-    if payload.isbn:
-        biblio = db.query(models.RegistroBibliografico).filter(
-            models.RegistroBibliografico.isbn == payload.isbn).first()
-
-    if not biblio:
-        biblio = models.RegistroBibliografico(
-            isbn=payload.isbn,
-            titulo=payload.titulo,
-            autor=payload.autor,
-            ano_publicacion=payload.ano_publicacion,
-            materia=payload.materia,
-            marc_json=_marc_minimo(payload),
-        )
-        db.add(biblio)
-        db.flush()
-
-    item = models.Item(
-        biblio_id=biblio.id,
-        codigo_barras=payload.codigo_barras,
-        tipo_item_id=tipo.id,
-        signatura_topografica=payload.signatura_topografica,
-        estado="Disponible",
-    )
-    db.add(item)
-    db.commit()
-    db.refresh(biblio)
-
-    return _serializar_registro(db, biblio)
-
-
-def _marc_minimo(payload: schemas.NuevoMaterialRequest) -> dict:
-    """Estructura MARC21 mínima: 020 (ISBN), 100 (autor), 245 (título)."""
-    fields = []
-    if payload.isbn:
-        fields.append({"020": {"subfields": [{"a": payload.isbn}]}})
-    if payload.autor:
-        fields.append({"100": {"subfields": [{"a": payload.autor}]}})
-    fields.append({"245": {"subfields": [{"a": payload.titulo}]}})
-    return {"leader": "00000cam a22000001a 4500", "fields": fields}
+    return catalogo.dar_de_alta(db, payload)
 
 
 @router.get("/items/{biblio_id}", response_model=schemas.MaterialResponse)
 def get_item(biblio_id: int, db: Session = Depends(get_db)):
-    biblio = db.query(models.RegistroBibliografico).filter(
-        models.RegistroBibliografico.id == biblio_id).first()
-    if not biblio:
-        raise HTTPException(status_code=404, detail="Título no encontrado en el catálogo")
-    return _serializar_registro(db, biblio)
+    return catalogo.obtener_titulo(db, biblio_id)
+
+
+@router.delete("/items/{biblio_id}", status_code=204, dependencies=CATALOGA)
+def eliminar_registro(biblio_id: int, db: Session = Depends(get_db)):
+    """Borra un registro sin ejemplares ni reservas activas."""
+    catalogo.eliminar_registro(db, biblio_id)
 
 
 @router.get("/items/{biblio_id}/ejemplares")
 def get_ejemplares(biblio_id: int, db: Session = Depends(get_db)):
-    """Lista los ejemplares físicos de un título, con su estado individual."""
-    biblio = db.query(models.RegistroBibliografico).filter(
-        models.RegistroBibliografico.id == biblio_id).first()
-    if not biblio:
-        raise HTTPException(status_code=404, detail="Título no encontrado en el catálogo")
-
-    items = db.query(models.Item).filter(models.Item.biblio_id == biblio_id).all()
-    resultado = []
-    for item in items:
-        prestamo = db.query(models.Prestamo).filter(
-            models.Prestamo.item_id == item.id,
-            models.Prestamo.fecha_devolucion == None).first()
-        lector = None
-        if prestamo:
-            usuario = db.query(models.Usuario).filter(
-                models.Usuario.id == prestamo.usuario_id).first()
-            lector = f"{usuario.nombre} {usuario.apellido}" if usuario else None
-
-        resultado.append({
-            "id": str(item.id),
-            "barcode": item.codigo_barras,
-            "location": item.signatura_topografica,
-            "status": item.estado,
-            "dueDate": prestamo.fecha_vencimiento.strftime("%d %b %Y") if prestamo else None,
-            "borrowedBy": lector,
-        })
-    return resultado
+    return catalogo.listar_ejemplares(db, biblio_id)
 
 
-@router.post("/reservations", response_model=schemas.ReservaResponse, status_code=201)
-def crear_reserva(payload: schemas.ReservaRequest, db: Session = Depends(get_db)):
-    """Encola una reserva sobre un título cuando no hay ejemplares libres."""
-    usuario = db.query(models.Usuario).filter(
-        models.Usuario.nro_carnet == payload.nro_carnet,
-        models.Usuario.activo == True).first()
-    if not usuario:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado o inactivo")
+@router.post("/items/{biblio_id}/ejemplares", response_model=schemas.MaterialResponse,
+             status_code=201, dependencies=CATALOGA)
+def agregar_ejemplar(biblio_id: int, payload: schemas.NuevoEjemplarRequest,
+                     db: Session = Depends(get_db)):
+    return catalogo.agregar_ejemplar(db, biblio_id, payload)
 
-    biblio = db.query(models.RegistroBibliografico).filter(
-        models.RegistroBibliografico.id == payload.biblio_id).first()
-    if not biblio:
-        raise HTTPException(status_code=404, detail="Título no encontrado en el catálogo")
 
-    ya_reservado = db.query(models.Reserva).filter(
-        models.Reserva.biblio_id == biblio.id,
-        models.Reserva.usuario_id == usuario.id,
-        models.Reserva.estado == "Pendiente").first()
-    if ya_reservado:
-        raise HTTPException(
-            status_code=400, detail="El usuario ya tiene una reserva pendiente sobre este título")
+# --- MARC ------------------------------------------------------------------------
 
-    # La prioridad es el turno en la cola: el siguiente número libre.
-    en_cola = db.query(models.Reserva).filter(
-        models.Reserva.biblio_id == biblio.id,
-        models.Reserva.estado == "Pendiente").count()
+@router.get("/frameworks")
+def listar_plantillas():
+    """Plantillas de catalogación disponibles (frameworks de Koha)."""
+    return marc_plantillas.listar()
 
-    reserva = models.Reserva(
-        biblio_id=biblio.id,
-        usuario_id=usuario.id,
-        prioridad=en_cola + 1,
-        estado="Pendiente",
-    )
-    db.add(reserva)
-    db.commit()
-    db.refresh(reserva)
 
-    return {
-        "mensaje": f"Reserva registrada. Turno número {reserva.prioridad} en la cola.",
-        "reserva_id": reserva.id,
-        "prioridad": reserva.prioridad,
-    }
+@router.get("/frameworks/{codigo}")
+def obtener_plantilla(codigo: str):
+    if codigo not in marc_plantillas.PLANTILLAS:
+        raise NoEncontrado(f"No existe la plantilla {codigo}")
+    return marc_plantillas.como_dict(marc_plantillas.PLANTILLAS[codigo])
+
+
+@router.get("/items/{biblio_id}/marc", response_model=schemas.RegistroMarcResponse)
+def obtener_marc(biblio_id: int, db: Session = Depends(get_db)):
+    return catalogo.obtener_marc(db, biblio_id)
+
+
+@router.put("/items/{biblio_id}/marc", response_model=schemas.RegistroMarcResponse,
+            dependencies=CATALOGA)
+def guardar_marc(biblio_id: int, payload: schemas.RegistroMarcRequest,
+                 db: Session = Depends(get_db)):
+    """Guarda el registro MARC y deriva de él título, autor, materia, año e ISBN."""
+    return catalogo.guardar_marc(db, biblio_id, payload)
+
+
+@router.post("/records", response_model=schemas.RegistroMarcResponse, status_code=201,
+             dependencies=CATALOGA)
+def crear_registro(payload: schemas.RegistroMarcRequest, db: Session = Depends(get_db)):
+    """Catalogación completa con el editor MARC; los ejemplares se agregan después."""
+    return catalogo.crear_registro(db, payload)
+
+
+@router.post("/reservations", response_model=schemas.ReservaResponse, status_code=201,
+             dependencies=[Depends(requiere(Permiso.CIRCULACION))])
+def crear_reserva(payload: schemas.ReservaRequest, db: Session = Depends(get_db),
+                  sede: Optional[int] = Depends(sede_de_trabajo)):
+    return reservas.reservar(db, payload.biblio_id, payload.nro_carnet,
+                             biblioteca_retiro_id=payload.biblioteca_retiro_id,
+                             fecha_limite=payload.fecha_limite, notas=payload.notas,
+                             sede_trabajo=sede)
 
 
 @router.get("/reservations")
 def listar_reservas(db: Session = Depends(get_db)):
-    reservas = db.query(models.Reserva).order_by(
-        models.Reserva.biblio_id, models.Reserva.prioridad).all()
-    resultado = []
-    for r in reservas:
-        biblio = db.query(models.RegistroBibliografico).filter(
-            models.RegistroBibliografico.id == r.biblio_id).first()
-        usuario = db.query(models.Usuario).filter(
-            models.Usuario.id == r.usuario_id).first()
-        resultado.append({
-            "id": str(r.id),
-            "title": biblio.titulo if biblio else "Desconocido",
-            "userName": f"{usuario.nombre} {usuario.apellido}" if usuario else "Desconocido",
-            "userId": usuario.nro_carnet if usuario else "N/A",
-            "priority": r.prioridad,
-            "status": r.estado,
-        })
-    return resultado
+    """Todas las reservas, incluidas las cerradas (ver también /circulation/holds)."""
+    return reservas.listar(db)
 
 
-@router.delete("/reservations/{reserva_id}")
+@router.delete("/reservations/{reserva_id}", dependencies=[Depends(requiere(Permiso.CIRCULACION))])
 def cancelar_reserva(reserva_id: int, db: Session = Depends(get_db)):
-    reserva = db.query(models.Reserva).filter(models.Reserva.id == reserva_id).first()
-    if not reserva:
-        raise HTTPException(status_code=404, detail="Reserva no encontrada")
-    reserva.estado = "Cancelada"
-    db.commit()
+    reservas.cancelar(db, reserva_id)
     return {"mensaje": "Reserva cancelada"}
 
 
 @router.get("/dashboard-stats", tags=["Métricas"])
 def get_dashboard_stats(db: Session = Depends(get_db)):
-    ahora = _ahora()
-
-    total_libros = db.query(models.Item).count()
-    total_usuarios = db.query(models.Usuario).filter(models.Usuario.activo == True).count()
-
-    activos = db.query(models.Prestamo).filter(
-        models.Prestamo.fecha_devolucion == None).count()
-
-    # Vencidos: activos cuya fecha de vencimiento ya pasó.
-    vencidos = db.query(models.Prestamo).filter(
-        models.Prestamo.fecha_devolucion == None,
-        models.Prestamo.fecha_vencimiento < ahora).count()
-
-    return {
-        "totalItems": total_libros,
-        "totalUsers": total_usuarios,
-        "activeLoans": activos,
-        "overdueLoans": vencidos,
-    }
+    return catalogo.estadisticas_dashboard(db)

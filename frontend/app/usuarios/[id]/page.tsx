@@ -12,12 +12,16 @@ import {
   Clock,
   AlertTriangle,
   CheckCircle,
+  KeyRound,
 } from "lucide-react"
 import { toast } from "sonner"
 
+import { useSesion } from "@/components/auth/sesion-provider"
 import { AppLayout } from "@/components/layout/app-layout"
 import { Header } from "@/components/layout/header"
 import { Button } from "@/components/ui/button"
+import { CuentaLector } from "@/components/usuarios/cuenta-lector"
+import { RestablecerClaveDialog } from "@/components/usuarios/restablecer-clave-dialog"
 import { UsuarioDialog } from "@/components/usuarios/usuario-dialog"
 import { apiGet, ApiError, mensajeDeError } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -39,6 +43,8 @@ export default function PerfilUsuarioPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [noEncontrado, setNoEncontrado] = useState(false)
   const [editando, setEditando] = useState(false)
+  const [restableciendo, setRestableciendo] = useState(false)
+  const { usuario: yo, tienePermiso } = useSesion()
 
   const cargar = useCallback(async () => {
     try {
@@ -153,18 +159,27 @@ export default function PerfilUsuarioPage() {
               >
                 {usuario.activo ? "Cuenta activa" : "Cuenta suspendida"}
               </span>
-              <Button variant="outline" size="sm" onClick={() => setEditando(true)}>
-                <Edit className="mr-2 h-4 w-4" />
-                Editar
-              </Button>
+              {tienePermiso("lectores") && (
+                <Button variant="outline" size="sm" onClick={() => setEditando(true)}>
+                  <Edit className="mr-2 h-4 w-4" />
+                  Editar
+                </Button>
+              )}
+              {tienePermiso("lectores") && usuario.nro_carnet !== yo?.nro_carnet &&
+                (!usuario.es_personal || tienePermiso("superbibliotecario")) && (
+                <Button variant="outline" size="sm" onClick={() => setRestableciendo(true)}>
+                  <KeyRound className="mr-2 h-4 w-4" />
+                  Restablecer contraseña
+                </Button>
+              )}
             </div>
           </div>
 
-          {usuario.saldo_multas > 0 && (
+          {usuario.bloqueado_por_deuda && (
             <div className="mt-4 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
               <AlertCircle className="h-4 w-4 shrink-0" />
-              Multas pendientes por Bs. {usuario.saldo_multas.toFixed(2)}. No podrá retirar
-              material hasta saldarlas.
+              Debe Bs. {usuario.saldo_multas.toFixed(2)}, por encima del máximo permitido. No
+              podrá retirar, renovar ni reservar material hasta pagar.
             </div>
           )}
         </div>
@@ -179,17 +194,19 @@ export default function PerfilUsuarioPage() {
             <p className="mt-1 text-2xl font-semibold text-foreground">{prestamos.length}</p>
           </div>
           <div className="rounded-lg border border-border bg-card p-4">
-            <p className="text-sm text-muted-foreground">Saldo de multas</p>
+            <p className="text-sm text-muted-foreground">Deuda</p>
             <p
               className={cn(
                 "mt-1 text-2xl font-semibold",
-                usuario.saldo_multas > 0 ? "text-destructive" : "text-foreground"
+                usuario.bloqueado_por_deuda ? "text-destructive" : "text-foreground"
               )}
             >
               Bs. {usuario.saldo_multas.toFixed(2)}
             </p>
           </div>
         </div>
+
+        <CuentaLector carnet={usuario.nro_carnet} onChange={cargar} />
 
         <div className="rounded-lg border border-border bg-card">
           <div className="border-b border-border px-6 py-4">
@@ -226,7 +243,7 @@ export default function PerfilUsuarioPage() {
                           <p className="text-sm text-foreground">{p.dueDate}</p>
                           {p.returnDate && (
                             <p className="text-xs text-muted-foreground">
-                              Devuelto: {p.returnDate}
+                              {p.lost ? "Perdido" : "Devuelto"}: {p.returnDate}
                             </p>
                           )}
                         </td>
@@ -251,6 +268,12 @@ export default function PerfilUsuarioPage() {
         </div>
       </div>
 
+      <RestablecerClaveDialog
+        carnet={usuario.nro_carnet}
+        nombre={`${usuario.nombre} ${usuario.apellido}`}
+        open={restableciendo}
+        onOpenChange={setRestableciendo}
+      />
       <UsuarioDialog
         open={editando}
         onOpenChange={setEditando}

@@ -13,11 +13,14 @@ import {
 } from "@/components/circulacion/loan-filters"
 import { LoanTable } from "@/components/circulacion/loan-table"
 import { NuevoPrestamoDialog } from "@/components/circulacion/nuevo-prestamo-dialog"
+import { DevolucionDialog } from "@/components/circulacion/devolucion-dialog"
+import { useSesion } from "@/components/auth/sesion-provider"
 import { Button } from "@/components/ui/button"
 import { apiDownload, apiGet, mensajeDeError } from "@/lib/api"
 import type { ApiLoan, Configuracion } from "@/lib/types"
 
 export default function CirculacionPage() {
+  const { tienePermiso } = useSesion()
   const [activeTab, setActiveTab] = useState<"active" | "history">("active")
   const [loans, setLoans] = useState<ApiLoan[]>([])
   const [maxRenovaciones, setMaxRenovaciones] = useState(2)
@@ -125,7 +128,12 @@ export default function CirculacionPage() {
               )}
               Exportar
             </Button>
-            <NuevoPrestamoDialog onSuccess={cargarPrestamos} />
+            {tienePermiso("circulacion") && (
+              <>
+                <DevolucionDialog onSuccess={cargarPrestamos} />
+                <NuevoPrestamoDialog onSuccess={cargarPrestamos} />
+              </>
+            )}
           </div>
         </div>
 

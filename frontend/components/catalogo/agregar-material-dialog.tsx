@@ -20,6 +20,8 @@ import { apiPost, mensajeDeError } from "@/lib/api"
 
 interface AgregarMaterialDialogProps {
   onSuccess?: () => void
+  /** Botón que abre el diálogo; por defecto, "Agregar Material". */
+  trigger?: React.ReactNode
 }
 
 const VACIO = {
@@ -32,7 +34,7 @@ const VACIO = {
   signatura_topografica: "",
 }
 
-export function AgregarMaterialDialog({ onSuccess }: AgregarMaterialDialogProps) {
+export function AgregarMaterialDialog({ onSuccess, trigger }: AgregarMaterialDialogProps) {
   const [open, setOpen] = useState(false)
   const [enviando, setEnviando] = useState(false)
   const [form, setForm] = useState(VACIO)
@@ -78,10 +80,12 @@ export function AgregarMaterialDialog({ onSuccess }: AgregarMaterialDialogProps)
       }}
     >
       <DialogTrigger asChild>
-        <Button className="shrink-0">
-          <Plus className="mr-2 h-4 w-4" />
-          Agregar Material
-        </Button>
+        {trigger ?? (
+          <Button className="shrink-0">
+            <Plus className="mr-2 h-4 w-4" />
+            Agregar Material
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <form onSubmit={handleSubmit}>

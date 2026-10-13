@@ -15,6 +15,14 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { useSedes } from "@/components/layout/sede-provider"
 import { apiPost, mensajeDeError } from "@/lib/api"
 
 export type AccionEjemplar = "prestar" | "reservar"
@@ -42,7 +50,18 @@ export function AccionEjemplarDialog({
   onSuccess,
 }: AccionEjemplarDialogProps) {
   const [nroCarnet, setNroCarnet] = useState("")
+  // Vacío: la sede del lector (lo decide el backend).
+  const [retiro, setRetiro] = useState("")
+  const [limite, setLimite] = useState("")
   const [enviando, setEnviando] = useState(false)
+  const { sedes } = useSedes()
+  const puntosDeRetiro = sedes.filter((s) => s.punto_retiro)
+
+  function limpiar() {
+    setNroCarnet("")
+    setRetiro("")
+    setLimite("")
+  }
 
   const esPrestamo = accion === "prestar"
 
@@ -62,10 +81,12 @@ export function AccionEjemplarDialog({
         const res = await apiPost<{ mensaje: string }>("/catalog/reservations", {
           biblio_id: Number(biblioId),
           nro_carnet: nroCarnet.trim(),
+          biblioteca_retiro_id: retiro ? Number(retiro) : null,
+          fecha_limite: limite || null,
         })
         toast.success("Reserva registrada", { description: res.mensaje })
       }
-      setNroCarnet("")
+      limpiar()
       onClose()
       onSuccess?.()
     } catch (error) {
@@ -83,7 +104,7 @@ export function AccionEjemplarDialog({
       open={accion !== null}
       onOpenChange={(v) => {
         if (!v) {
-          setNroCarnet("")
+          limpiar()
           onClose()
         }
       }}
@@ -100,8 +121,8 @@ export function AccionEjemplarDialog({
                 </>
               ) : (
                 <>
-                  No hay ejemplares libres de <strong>{titulo}</strong>. El lector quedará
-                  en la cola y se le asignará el ejemplar cuando se devuelva.
+                  El lector entra en la cola de <strong>{titulo}</strong>. Se le aparta el
+                  primer ejemplar que se devuelva o que se saque del estante.
                 </>
               )}
             </DialogDescription>
@@ -117,6 +138,32 @@ export function AccionEjemplarDialog({
               required
               autoFocus
             />
+            {!esPrestamo && (
+              <div className="grid gap-4 pt-2 sm:grid-cols-2">
+                {puntosDeRetiro.length > 1 && (
+                  <div className="space-y-2">
+                    <Label htmlFor="accion-retiro">Retira en</Label>
+                    <Select value={retiro} onValueChange={setRetiro}>
+                      <SelectTrigger id="accion-retiro" className="w-full">
+                        <SelectValue placeholder="Sede del lector" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {puntosDeRetiro.map((s) => (
+                          <SelectItem key={s.id} value={String(s.id)}>
+                            {s.nombre}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="accion-limite">No lo necesita después del</Label>
+                  <Input id="accion-limite" type="date" value={limite}
+                         onChange={(e) => setLimite(e.target.value)} />
+                </div>
+              </div>
+            )}
           </div>
 
           <DialogFooter>

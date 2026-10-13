@@ -7,53 +7,33 @@ lectores: solo disponibilidad bibliográfica.
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import or_
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
-from app import models
+from app import models, schemas
 from app.database import get_db
+from app.security import abrir_sesion_opac, cerrar_sesion_opac, get_lector, verificar_origen
+from app.services import autenticacion, cuenta_opac, listas, opac
 
 router = APIRouter(prefix="/api/v1/opac", tags=["OPAC"])
 
 
-def _vista_publica(db: Session, biblio: models.RegistroBibliografico) -> dict:
-    items = db.query(models.Item).filter(models.Item.biblio_id == biblio.id).all()
-    disponibles = [i for i in items if i.estado == "Disponible"]
-    return {
-        "id": str(biblio.id),
-        "titulo": biblio.titulo,
-        "autor": biblio.autor,
-        "isbn": biblio.isbn,
-        "ano_publicacion": biblio.ano_publicacion,
-        "materia": biblio.materia,
-        "ejemplares": len(items),
-        "disponibles": len(disponibles),
-        "estado": "Disponible" if disponibles else "Todos los ejemplares prestados",
-        "ubicaciones": sorted({i.signatura_topografica for i in items if i.signatura_topografica}),
-    }
-
-
 @router.get("/search")
 def busqueda_basica(
-    q: str = Query("", description="Texto libre: título, autor o ISBN"),
+    q: str = Query("", description="Texto libre: título, autor, materia o ISBN"),
     limit: int = Query(50, ge=1, le=200),
+    pagina: int = Query(1, ge=1),
+    orden: str = Query("relevancia", pattern="^(relevancia|titulo|ano_desc|ano_asc)$"),
+    materia: Optional[str] = None,
+    autor: Optional[str] = None,
+    tipo: Optional[str] = None,
+    disponible: Optional[str] = Query(None, pattern="^(si|no)$"),
+    decada: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
-    """Búsqueda simple sobre título, autor e ISBN."""
-    consulta = db.query(models.RegistroBibliografico)
-
-    if q.strip():
-        patron = f"%{q.strip()}%"
-        consulta = consulta.filter(or_(
-            models.RegistroBibliografico.titulo.ilike(patron),
-            models.RegistroBibliografico.autor.ilike(patron),
-            models.RegistroBibliografico.isbn.ilike(patron),
-        ))
-
-    registros = consulta.order_by(models.RegistroBibliografico.titulo).limit(limit).all()
-    return {"query": q, "total": len(registros),
-            "resultados": [_vista_publica(db, b) for b in registros]}
+    """Búsqueda simple sin acentos y por raíz ("arbol" encuentra "Árboles"), con facetas."""
+    return opac.busqueda_basica(db, q, limit, pagina, orden, materia=materia, autor=autor,
+                                tipo=tipo, disponible=disponible, decada=decada)
 
 
 @router.get("/advanced-search")
@@ -66,44 +46,63 @@ def busqueda_avanzada(
     ano_hasta: Optional[int] = None,
     solo_disponibles: bool = False,
     limit: int = Query(50, ge=1, le=200),
+    pagina: int = Query(1, ge=1),
     db: Session = Depends(get_db),
 ):
     """Búsqueda por campos combinados, al estilo de un OPAC clásico."""
-    consulta = db.query(models.RegistroBibliografico)
-
-    if titulo:
-        consulta = consulta.filter(models.RegistroBibliografico.titulo.ilike(f"%{titulo}%"))
-    if autor:
-        consulta = consulta.filter(models.RegistroBibliografico.autor.ilike(f"%{autor}%"))
-    if isbn:
-        consulta = consulta.filter(models.RegistroBibliografico.isbn.ilike(f"%{isbn}%"))
-    if materia:
-        consulta = consulta.filter(models.RegistroBibliografico.materia.ilike(f"%{materia}%"))
-    if ano_desde:
-        consulta = consulta.filter(models.RegistroBibliografico.ano_publicacion >= ano_desde)
-    if ano_hasta:
-        consulta = consulta.filter(models.RegistroBibliografico.ano_publicacion <= ano_hasta)
-
-    registros = consulta.order_by(models.RegistroBibliografico.titulo).limit(limit).all()
-    resultados = [_vista_publica(db, b) for b in registros]
-
-    if solo_disponibles:
-        resultados = [r for r in resultados if r["disponibles"] > 0]
-
-    return {"total": len(resultados), "resultados": resultados}
+    return opac.busqueda_avanzada(db, titulo, autor, isbn, materia, ano_desde, ano_hasta,
+                                  solo_disponibles, limit, pagina)
 
 
 @router.get("/record/{biblio_id}")
 def ficha_publica(biblio_id: int, db: Session = Depends(get_db)):
-    biblio = db.query(models.RegistroBibliografico).filter(
-        models.RegistroBibliografico.id == biblio_id).first()
-    if not biblio:
-        raise HTTPException(status_code=404, detail="Registro no encontrado")
-    return _vista_publica(db, biblio)
+    return opac.ficha(db, biblio_id)
 
 
 @router.get("/subjects", response_model=List[str])
 def materias(db: Session = Depends(get_db)):
     """Materias presentes en el catálogo, para navegar por tema."""
-    filas = db.query(models.RegistroBibliografico.materia).distinct().all()
-    return sorted({f[0] for f in filas if f[0]})
+    return opac.materias(db)
+
+
+@router.get("/library")
+def biblioteca(db: Session = Depends(get_db)):
+    """Nombre y contacto de la institución, para la cabecera y el pie del OPAC."""
+    return opac.biblioteca(db)
+
+
+@router.get("/branches")
+def puntos_de_retiro(db: Session = Depends(get_db)):
+    """Sedes donde se retiran las reservas, con dirección y teléfono."""
+    return opac.puntos_de_retiro(db)
+
+
+def _lector_opcional(request: Request, db: Session = Depends(get_db)) -> Optional[models.Usuario]:
+    try:
+        return get_lector(request, db)
+    except HTTPException:
+        return None
+
+
+@router.get("/lists/{lista_id}")
+def lista_publica(lista_id: int, lector: Optional[models.Usuario] = Depends(_lector_opcional),
+                  db: Session = Depends(get_db)):
+    """Una lista pública (o una propia, con sesión del OPAC)."""
+    return listas.ver(db, lista_id, lector)
+
+
+# --- Sesión del lector -------------------------------------------------------------------
+
+@router.post("/login")
+def login(payload: schemas.LoginRequest, request: Request, response: Response,
+          db: Session = Depends(get_db)):
+    """Entrada del lector con su carnet (o usuario) y contraseña. Cookie propia del OPAC."""
+    verificar_origen(request)
+    usuario = autenticacion.autenticar_lector(db, payload.username, payload.password)
+    abrir_sesion_opac(response, usuario)
+    return cuenta_opac.resumen(db, usuario)
+
+
+@router.post("/logout", status_code=204)
+def logout(response: Response):
+    cerrar_sesion_opac(response)

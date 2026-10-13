@@ -1,153 +1,111 @@
-from datetime import datetime, timezone
-from typing import List
+"""Publicaciones seriadas: suscripciones, predicción, recepción y reclamos."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app import models, schemas
+from app.core.permisos import Permiso
 from app.database import get_db
+from app.security import requiere
+from app.services import seriadas
 
-router = APIRouter(prefix="/api/v1/serials", tags=["Publicaciones Seriadas"])
+SERIADAS = requiere(Permiso.SERIADAS)
 
-
-def _ahora() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _serializar_suscripcion(db: Session, s: models.Suscripcion) -> dict:
-    fasciculos = db.query(models.Fasciculo).filter(
-        models.Fasciculo.suscripcion_id == s.id).all()
-    return {
-        "id": s.id,
-        "titulo": s.titulo,
-        "issn": s.issn,
-        "proveedor_id": s.proveedor_id,
-        "periodicidad": s.periodicidad,
-        "fecha_inicio": s.fecha_inicio,
-        "fecha_fin": s.fecha_fin,
-        "estado": s.estado,
-        "fasciculos_recibidos": len([f for f in fasciculos if f.recibido]),
-        "fasciculos_esperados": len(fasciculos),
-    }
+router = APIRouter(prefix="/api/v1/serials", tags=["Publicaciones Seriadas"],
+                   dependencies=[Depends(SERIADAS)])
 
 
-@router.get("/subscriptions", response_model=List[schemas.SuscripcionResponse])
-def listar_suscripciones(db: Session = Depends(get_db)):
-    suscripciones = db.query(models.Suscripcion).order_by(
-        models.Suscripcion.titulo).all()
-    return [_serializar_suscripcion(db, s) for s in suscripciones]
+@router.get("/suppliers")
+def proveedores(db: Session = Depends(get_db)):
+    """Proveedores activos para elegir en una suscripción (sin exigir el permiso de adquisiciones)."""
+    return [{"id": p.id, "nombre": p.nombre, "email": p.email}
+            for p in db.query(models.Proveedor).filter(models.Proveedor.activo == True)  # noqa: E712
+            .order_by(models.Proveedor.nombre)]
 
 
-@router.post("/subscriptions", response_model=schemas.SuscripcionResponse, status_code=201)
+@router.get("/subscriptions")
+def listar_suscripciones(estado: Optional[str] = None, db: Session = Depends(get_db)):
+    return seriadas.listar(db, estado)
+
+
+@router.post("/subscriptions", status_code=201)
 def crear_suscripcion(payload: schemas.SuscripcionRequest, db: Session = Depends(get_db)):
-    if payload.proveedor_id:
-        proveedor = db.query(models.Proveedor).filter(
-            models.Proveedor.id == payload.proveedor_id).first()
-        if not proveedor:
-            raise HTTPException(status_code=404, detail="Proveedor no encontrado")
-
-    suscripcion = models.Suscripcion(
-        titulo=payload.titulo,
-        issn=payload.issn,
-        proveedor_id=payload.proveedor_id,
-        periodicidad=payload.periodicidad,
-        fecha_inicio=payload.fecha_inicio,
-        fecha_fin=payload.fecha_fin,
-        estado="Activa",
-    )
-    db.add(suscripcion)
-    db.commit()
-    db.refresh(suscripcion)
-    return _serializar_suscripcion(db, suscripcion)
+    return seriadas.crear(db, payload.model_dump(exclude_unset=True))
 
 
-@router.get("/subscriptions/{suscripcion_id}", response_model=schemas.SuscripcionResponse)
+@router.post("/prediction")
+def vista_previa(payload: schemas.PrediccionRequest):
+    """Los próximos números que produciría el patrón (antes de guardar la suscripción)."""
+    return seriadas.predecir(payload.frecuencia_unidad, payload.frecuencia_cada,
+                             payload.numeracion, payload.numeros_por_volumen,
+                             payload.volumen_inicial, payload.numero_inicial,
+                             payload.primer_fasciculo, payload.cantidad)
+
+
+@router.get("/subscriptions/{suscripcion_id}")
 def get_suscripcion(suscripcion_id: int, db: Session = Depends(get_db)):
-    s = db.query(models.Suscripcion).filter(
-        models.Suscripcion.id == suscripcion_id).first()
-    if not s:
-        raise HTTPException(status_code=404, detail="Suscripción no encontrada")
-    return _serializar_suscripcion(db, s)
+    """La suscripción con su kardex de fascículos."""
+    return seriadas.obtener(db, suscripcion_id)
 
 
-@router.post("/subscriptions/{suscripcion_id}/cancel",
-             response_model=schemas.SuscripcionResponse)
+@router.put("/subscriptions/{suscripcion_id}")
+def actualizar_suscripcion(suscripcion_id: int, payload: schemas.SuscripcionRequest,
+                           db: Session = Depends(get_db)):
+    return seriadas.actualizar(db, suscripcion_id, payload.model_dump(exclude_unset=True))
+
+
+@router.post("/subscriptions/{suscripcion_id}/cancel")
 def cancelar_suscripcion(suscripcion_id: int, db: Session = Depends(get_db)):
-    s = db.query(models.Suscripcion).filter(
-        models.Suscripcion.id == suscripcion_id).first()
-    if not s:
-        raise HTTPException(status_code=404, detail="Suscripción no encontrada")
-    s.estado = "Cancelada"
-    db.commit()
-    db.refresh(s)
-    return _serializar_suscripcion(db, s)
+    return seriadas.cancelar(db, suscripcion_id)
 
 
-# --- Fascículos ------------------------------------------------------------
-
-@router.get("/subscriptions/{suscripcion_id}/issues",
-            response_model=List[schemas.FasciculoResponse])
-def listar_fasciculos(suscripcion_id: int, db: Session = Depends(get_db)):
-    if not db.query(models.Suscripcion).filter(
-            models.Suscripcion.id == suscripcion_id).first():
-        raise HTTPException(status_code=404, detail="Suscripción no encontrada")
-    return db.query(models.Fasciculo).filter(
-        models.Fasciculo.suscripcion_id == suscripcion_id).order_by(
-        models.Fasciculo.id).all()
+@router.post("/subscriptions/{suscripcion_id}/renew")
+def renovar_suscripcion(suscripcion_id: int, payload: schemas.RenovarSuscripcionRequest,
+                        db: Session = Depends(get_db)):
+    return seriadas.reactivar(db, suscripcion_id, payload.fecha_fin)
 
 
-@router.post("/subscriptions/{suscripcion_id}/issues",
-             response_model=schemas.FasciculoResponse, status_code=201)
-def registrar_fasciculo(
-    suscripcion_id: int,
-    payload: schemas.FasciculoRequest,
-    db: Session = Depends(get_db),
-):
-    """Registra un fascículo esperado dentro del calendario de la suscripción."""
-    if not db.query(models.Suscripcion).filter(
-            models.Suscripcion.id == suscripcion_id).first():
-        raise HTTPException(status_code=404, detail="Suscripción no encontrada")
-
-    duplicado = db.query(models.Fasciculo).filter(
-        models.Fasciculo.suscripcion_id == suscripcion_id,
-        models.Fasciculo.numero == payload.numero).first()
-    if duplicado:
-        raise HTTPException(
-            status_code=400,
-            detail=f"El fascículo {payload.numero} ya está registrado")
-
-    fasciculo = models.Fasciculo(
-        suscripcion_id=suscripcion_id,
-        numero=payload.numero,
-        fecha_esperada=payload.fecha_esperada,
-        recibido=False,
-    )
-    db.add(fasciculo)
-    db.commit()
-    db.refresh(fasciculo)
-    return fasciculo
+@router.post("/subscriptions/{suscripcion_id}/issues", status_code=201)
+def registrar_fasciculo(suscripcion_id: int, payload: schemas.FasciculoRequest,
+                        db: Session = Depends(get_db)):
+    """Un número fuera del patrón (especial, suplemento) o de una suscripción irregular."""
+    return seriadas.registrar_fasciculo(db, suscripcion_id, payload.model_dump())
 
 
-@router.post("/issues/{fasciculo_id}/receive", response_model=schemas.FasciculoResponse)
-def recibir_fasciculo(fasciculo_id: int, db: Session = Depends(get_db)):
-    """Acusa recibo de un fascículo (kardex de publicaciones seriadas)."""
-    fasciculo = db.query(models.Fasciculo).filter(
-        models.Fasciculo.id == fasciculo_id).first()
-    if not fasciculo:
-        raise HTTPException(status_code=404, detail="Fascículo no encontrado")
-    if fasciculo.recibido:
-        raise HTTPException(status_code=400, detail="El fascículo ya figura como recibido")
-
-    fasciculo.recibido = True
-    fasciculo.fecha_recepcion = _ahora()
-    db.commit()
-    db.refresh(fasciculo)
-    return fasciculo
+@router.post("/issues/{fasciculo_id}/receive")
+def recibir_fasciculo(fasciculo_id: int, payload: Optional[schemas.RecibirFasciculoRequest] = None,
+                      db: Session = Depends(get_db), actor: models.Usuario = Depends(SERIADAS)):
+    """Acusa recibo, da de alta el ejemplar y predice el siguiente número."""
+    datos = payload.model_dump(exclude_unset=True) if payload else {}
+    return seriadas.recibir_fasciculo(db, fasciculo_id, datos, actor.id)
 
 
-@router.get("/issues/pending", response_model=List[schemas.FasciculoResponse])
+@router.post("/issues/{fasciculo_id}/missing")
+def marcar_faltante(fasciculo_id: int, payload: Optional[schemas.NotaRequest] = None,
+                    db: Session = Depends(get_db)):
+    return seriadas.marcar_faltante(db, fasciculo_id, payload.notas if payload else None)
+
+
+@router.post("/issues/{fasciculo_id}/claim")
+def reclamar(fasciculo_id: int, db: Session = Depends(get_db)):
+    return seriadas.reclamar(db, fasciculo_id)
+
+
+@router.get("/issues/expected")
+def por_recibir(db: Session = Depends(get_db)):
+    """Lo que se espera de todas las suscripciones activas."""
+    return seriadas.por_recibir(db)
+
+
+@router.get("/issues/late")
+def atrasados(db: Session = Depends(get_db)):
+    """Fascículos atrasados (pasaron los días de gracia): lo que hay que reclamar."""
+    return seriadas.atrasados(db)
+
+
+@router.get("/issues/pending")
 def fasciculos_pendientes(db: Session = Depends(get_db)):
-    """Fascículos aún no recibidos: el reclamo típico a proveedores."""
-    return db.query(models.Fasciculo).filter(
-        models.Fasciculo.recibido == False).order_by(
-        models.Fasciculo.fecha_esperada).all()
+    """Compatibilidad: lo mismo que /issues/expected."""
+    return seriadas.por_recibir(db)

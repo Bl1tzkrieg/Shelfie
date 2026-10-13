@@ -1,7 +1,6 @@
 "use client"
 
-import { useState } from "react"
-import { Search, Filter, Grid3X3, List, X } from "lucide-react"
+import { Search, Filter, Grid3X3, List, Loader2 } from "lucide-react"
 
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -12,195 +11,110 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import type { OrdenBusqueda } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-export interface CatalogFilterState {
-  categoria: string
-  tipo: string
-  disponibilidad: string
-  ano: string
-}
-
-export const FILTROS_VACIOS: CatalogFilterState = {
-  categoria: "all",
-  tipo: "all",
-  disponibilidad: "all",
-  ano: "all",
-}
-
-export const RANGOS_ANO: Record<string, [number, number]> = {
-  "2024-2026": [2024, 2026],
-  "2020-2023": [2020, 2023],
-  "2015-2019": [2015, 2019],
-  "2010-2014": [2010, 2014],
-  older: [0, 2009],
+export const NOMBRE_ORDEN: Record<OrdenBusqueda, string> = {
+  relevancia: "Más relevantes",
+  titulo: "Título (A–Z)",
+  ano_desc: "Más recientes",
+  ano_asc: "Más antiguos",
 }
 
 interface CatalogFiltersProps {
+  texto: string
+  onTextoChange: (texto: string) => void
+  buscando: boolean
+  orden: OrdenBusqueda
+  onOrdenChange: (orden: OrdenBusqueda) => void
   viewMode: "grid" | "list"
   onViewModeChange: (mode: "grid" | "list") => void
-  searchQuery: string
-  onSearchChange: (query: string) => void
-  filtros: CatalogFilterState
-  onFiltrosChange: (filtros: CatalogFilterState) => void
-  /** Opciones derivadas del catálogo real, no hardcodeadas. */
-  categorias: string[]
-  tipos: string[]
+  /** Solo en pantallas angostas, donde las facetas van plegadas. */
+  facetasAbiertas: boolean
+  onFacetasToggle: () => void
+  filtrosActivos: number
 }
 
+/** Barra de búsqueda del catálogo: texto, orden y vista. Las facetas van aparte. */
 export function CatalogFilters({
+  texto,
+  onTextoChange,
+  buscando,
+  orden,
+  onOrdenChange,
   viewMode,
   onViewModeChange,
-  searchQuery,
-  onSearchChange,
-  filtros,
-  onFiltrosChange,
-  categorias,
-  tipos,
+  facetasAbiertas,
+  onFacetasToggle,
+  filtrosActivos,
 }: CatalogFiltersProps) {
-  const [showFilters, setShowFilters] = useState(false)
-
-  const activos = Object.values(filtros).filter((v) => v !== "all").length
-
-  function set(campo: keyof CatalogFilterState, valor: string) {
-    onFiltrosChange({ ...filtros, [campo]: valor })
-  }
-
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <div className="relative flex-1">
+    <div className="flex flex-col gap-3 sm:flex-row">
+      <div className="relative flex-1">
+        {buscando ? (
+          <Loader2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+        ) : (
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="Buscar por título, autor, ISBN, materia..."
-            className="pl-10"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-          />
-        </div>
-        <div className="flex gap-2">
+        )}
+        <Input
+          type="search"
+          aria-label="Buscar en el catálogo"
+          placeholder="Título, autor, materia, ISBN o código de barras…"
+          className="pl-10"
+          value={texto}
+          onChange={(e) => onTextoChange(e.target.value)}
+        />
+      </div>
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          onClick={onFacetasToggle}
+          className={cn("lg:hidden", facetasAbiertas && "bg-secondary")}
+          aria-expanded={facetasAbiertas}
+        >
+          <Filter className="mr-2 h-4 w-4" />
+          Filtros
+          {filtrosActivos > 0 && (
+            <span className="ml-2 rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
+              {filtrosActivos}
+            </span>
+          )}
+        </Button>
+        <Select value={orden} onValueChange={(v) => onOrdenChange(v as OrdenBusqueda)}>
+          <SelectTrigger className="w-44" aria-label="Ordenar resultados">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.keys(NOMBRE_ORDEN) as OrdenBusqueda[]).map((o) => (
+              <SelectItem key={o} value={o}>
+                {NOMBRE_ORDEN[o]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex rounded-lg border border-border">
           <Button
-            variant="outline"
-            onClick={() => setShowFilters(!showFilters)}
-            className={cn(showFilters && "bg-secondary")}
+            variant="ghost"
+            size="icon"
+            onClick={() => onViewModeChange("grid")}
+            className={cn("rounded-r-none", viewMode === "grid" && "bg-secondary")}
+            aria-label="Vista de cuadrícula"
+            aria-pressed={viewMode === "grid"}
           >
-            <Filter className="mr-2 h-4 w-4" />
-            Filtros
-            {activos > 0 && (
-              <span className="ml-2 rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
-                {activos}
-              </span>
-            )}
+            <Grid3X3 className="h-4 w-4" />
           </Button>
-          <div className="flex rounded-lg border border-border">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => onViewModeChange("grid")}
-              className={cn("rounded-r-none", viewMode === "grid" && "bg-secondary")}
-              aria-label="Vista de cuadrícula"
-            >
-              <Grid3X3 className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => onViewModeChange("list")}
-              className={cn("rounded-l-none", viewMode === "list" && "bg-secondary")}
-              aria-label="Vista de lista"
-            >
-              <List className="h-4 w-4" />
-            </Button>
-          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onViewModeChange("list")}
+            className={cn("rounded-l-none", viewMode === "list" && "bg-secondary")}
+            aria-label="Vista de lista"
+            aria-pressed={viewMode === "list"}
+          >
+            <List className="h-4 w-4" />
+          </Button>
         </div>
       </div>
-
-      {showFilters && (
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Materia</label>
-              <Select value={filtros.categoria} onValueChange={(v) => set("categoria", v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas las materias</SelectItem>
-                  {categorias.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Tipo de Material</label>
-              <Select value={filtros.tipo} onValueChange={(v) => set("tipo", v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los tipos</SelectItem>
-                  {tipos.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Disponibilidad</label>
-              <Select
-                value={filtros.disponibilidad}
-                onValueChange={(v) => set("disponibilidad", v)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Cualquier estado</SelectItem>
-                  <SelectItem value="available">Con ejemplares libres</SelectItem>
-                  <SelectItem value="borrowed">Todos prestados</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Año de Publicación</label>
-              <Select value={filtros.ano} onValueChange={(v) => set("ano", v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Cualquier año</SelectItem>
-                  <SelectItem value="2024-2026">2024 - 2026</SelectItem>
-                  <SelectItem value="2020-2023">2020 - 2023</SelectItem>
-                  <SelectItem value="2015-2019">2015 - 2019</SelectItem>
-                  <SelectItem value="2010-2014">2010 - 2014</SelectItem>
-                  <SelectItem value="older">Anterior a 2010</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {activos > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mt-4"
-              onClick={() => onFiltrosChange(FILTROS_VACIOS)}
-            >
-              <X className="mr-2 h-4 w-4" />
-              Limpiar filtros
-            </Button>
-          )}
-        </div>
-      )}
     </div>
   )
 }

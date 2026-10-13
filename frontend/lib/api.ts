@@ -1,40 +1,64 @@
+import { cabeceraDeSede } from "@/lib/sede"
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL
 
-/** Error con el `detail` que devuelve FastAPI, listo para mostrarse en un toast. */
-export class ApiError extends Error {
-  status: number
+/**
+ * Evento que se emite cuando el backend responde 401 fuera del login: la sesión
+ * no existe o expiró. El proveedor de sesión lo escucha y manda al login.
+ */
+export const EVENTO_SESION_EXPIRADA = "shelfie:sesion-expirada"
 
-  constructor(message: string, status: number) {
-    super(message)
-    this.name = "ApiError"
-    this.status = status
+/** Lo mismo para la sesión del lector en el OPAC, que es aparte de la del personal. */
+export const EVENTO_SESION_OPAC_EXPIRADA = "shelfie:sesion-opac-expirada"
+
+function avisarSiSesionExpirada(status: number, path: string) {
+  if (status !== 401 || typeof window === "undefined") return
+  if (path.startsWith("/opac/account")) {
+    window.dispatchEvent(new Event(EVENTO_SESION_OPAC_EXPIRADA))
+  } else if (!path.startsWith("/auth/") && !path.startsWith("/opac/")) {
+    window.dispatchEvent(new Event(EVENTO_SESION_EXPIRADA))
   }
 }
 
-/** Forma de cada error de validación que devuelve Pydantic. */
-interface ErrorValidacion {
+/** Forma de cada error de validación (Pydantic, y los 422 de los servicios, p. ej. MARC). */
+export interface ErrorValidacion {
   loc?: (string | number)[]
   msg: string
 }
 
-async function extraerMensaje(response: Response): Promise<string> {
+/** Error con el `detail` que devuelve FastAPI, listo para mostrarse en un toast. */
+export class ApiError extends Error {
+  status: number
+  /** Errores con ubicación, para marcarlos junto a su campo en un formulario. */
+  errores: ErrorValidacion[]
+
+  constructor(message: string, status: number, errores: ErrorValidacion[] = []) {
+    super(message)
+    this.name = "ApiError"
+    this.status = status
+    this.errores = errores
+  }
+}
+
+async function errorDeRespuesta(response: Response): Promise<ApiError> {
   try {
     const data: { detail?: unknown } = await response.json()
     const detail = data?.detail
-    if (typeof detail === "string") return detail
-    // Los errores de validación de Pydantic llegan como lista de objetos.
+    if (typeof detail === "string") return new ApiError(detail, response.status)
     if (Array.isArray(detail)) {
-      return (detail as ErrorValidacion[])
+      const errores = detail as ErrorValidacion[]
+      const mensaje = errores
         .map((e) => {
           const campo = Array.isArray(e.loc) ? e.loc[e.loc.length - 1] : null
-          return campo ? `${campo}: ${e.msg}` : e.msg
+          return campo && !e.msg.includes(String(campo)) ? `${campo}: ${e.msg}` : e.msg
         })
         .join(" · ")
+      return new ApiError(mensaje, response.status, errores)
     }
   } catch {
     // respuesta sin cuerpo JSON
   }
-  return `Error ${response.status}`
+  return new ApiError(`Error ${response.status}`, response.status)
 }
 
 export async function api<T = unknown>(
@@ -52,9 +76,12 @@ export async function api<T = unknown>(
   try {
     response = await fetch(`${API_URL}${path}`, {
       cache: "no-store",
+      // La sesión viaja en una cookie httpOnly: hay que enviarla en cada petición.
+      credentials: "include",
       ...options,
       headers: {
         "Content-Type": "application/json",
+        ...cabeceraDeSede(),
         ...(options.headers || {}),
       },
     })
@@ -63,7 +90,8 @@ export async function api<T = unknown>(
   }
 
   if (!response.ok) {
-    throw new ApiError(await extraerMensaje(response), response.status)
+    avisarSiSesionExpirada(response.status, path)
+    throw await errorDeRespuesta(response)
   }
 
   if (response.status === 204) return undefined as T
@@ -83,6 +111,15 @@ export const apiPatch = <T,>(path: string, body: unknown) =>
 
 export const apiDelete = <T,>(path: string) => api<T>(path, { method: "DELETE" })
 
+/** Envía un archivo tal cual como cuerpo de la petición (p. ej. una importación MARC). */
+export async function apiUpload<T>(path: string, archivo: Blob): Promise<T> {
+  return api<T>(path, {
+    method: "POST",
+    body: archivo,
+    headers: { "Content-Type": "application/octet-stream" },
+  })
+}
+
 /**
  * Descarga un archivo generado por el backend.
  *
@@ -95,9 +132,14 @@ export async function apiDownload(path: string, fallbackName: string): Promise<v
     throw new ApiError("Falta NEXT_PUBLIC_API_URL.", 0)
   }
 
-  const response = await fetch(`${API_URL}${path}`, { cache: "no-store" })
+  const response = await fetch(`${API_URL}${path}`, {
+    cache: "no-store",
+    credentials: "include",
+    headers: cabeceraDeSede(),
+  })
   if (!response.ok) {
-    throw new ApiError(await extraerMensaje(response), response.status)
+    avisarSiSesionExpirada(response.status, path)
+    throw await errorDeRespuesta(response)
   }
 
   // El nombre sugerido viene en Content-Disposition.

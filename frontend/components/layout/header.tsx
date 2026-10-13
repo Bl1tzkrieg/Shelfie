@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Bell, Search, AlertTriangle } from "lucide-react"
+import { Bell, Search, AlertTriangle, MapPin } from "lucide-react"
 
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { useSedes } from "@/components/layout/sede-provider"
 import { apiGet } from "@/lib/api"
 import type { ApiLoan } from "@/lib/types"
 
@@ -49,6 +57,8 @@ export function Header({ title, description }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-4">
+        <SelectorDeSede />
+
         <form onSubmit={buscar} className="relative hidden md:block">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -115,5 +125,27 @@ export function Header({ title, description }: HeaderProps) {
         </Popover>
       </div>
     </header>
+  )
+}
+
+/** Sede desde la que se opera. Solo aparece cuando la biblioteca tiene más de una. */
+function SelectorDeSede() {
+  const { sedes, sedeId, cambiarSede } = useSedes()
+  if (sedes.length < 2 || sedeId === null) return null
+
+  return (
+    <Select value={String(sedeId)} onValueChange={(v) => cambiarSede(Number(v))}>
+      <SelectTrigger className="w-52" aria-label="Sede de trabajo" title="Sede de trabajo">
+        <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align="end">
+        {sedes.map((s) => (
+          <SelectItem key={s.id} value={String(s.id)}>
+            {s.nombre}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }

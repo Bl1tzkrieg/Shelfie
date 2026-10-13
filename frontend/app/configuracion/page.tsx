@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Building2, Clock, Bell, Database, Save, Loader2 } from "lucide-react"
+import Link from "next/link"
+import { ArrowRight, Building2, Clock, Bell, Database, Save, Loader2, MapPin } from "lucide-react"
 import { toast } from "sonner"
 
 import { AppLayout } from "@/components/layout/app-layout"
@@ -43,13 +44,6 @@ export default function ConfiguracionPage() {
     setConfig((c) => (c ? { ...c, institucion: { ...c.institucion, [campo]: valor } } : c))
   }
 
-  function setPolitica(campo: keyof Configuracion["politicas_prestamo"], valor: string) {
-    const numero = valor === "" ? 0 : Number(valor)
-    setConfig((c) =>
-      c ? { ...c, politicas_prestamo: { ...c.politicas_prestamo, [campo]: numero } } : c
-    )
-  }
-
   function setNotificacion(campo: keyof Configuracion["notificaciones"], valor: string) {
     setConfig((c) =>
       c
@@ -68,11 +62,14 @@ export default function ConfiguracionPage() {
     if (!config) return
     setGuardando(true)
     try {
-      const actualizada = await apiPut<Configuracion>("/settings", config)
-      setConfig(actualizada)
-      toast.success("Configuración guardada", {
-        description: "Las políticas de préstamo se aplicaron a las categorías de usuario.",
+      // Solo lo que se edita aquí: las políticas de préstamo viven en las reglas de
+      // circulación y se editan en /configuracion/circulacion.
+      const actualizada = await apiPut<Configuracion>("/settings", {
+        institucion: config.institucion,
+        notificaciones: config.notificaciones,
       })
+      setConfig(actualizada)
+      toast.success("Configuración guardada")
       apiGet<SystemInfo>("/settings/system-info").then(setInfo).catch(() => {})
     } catch (error) {
       toast.error("No se pudo guardar", { description: mensajeDeError(error) })
@@ -83,7 +80,7 @@ export default function ConfiguracionPage() {
 
   if (cargando || !config) {
     return (
-      <AppLayout>
+      <AppLayout permiso="configuracion">
         <Header title="Configuración" description="Ajustes del sistema de biblioteca" />
         <div className="p-6">
           <div className="rounded-lg border bg-card py-16 text-center text-muted-foreground">
@@ -97,7 +94,7 @@ export default function ConfiguracionPage() {
   const { institucion, politicas_prestamo: politicas, notificaciones } = config
 
   return (
-    <AppLayout>
+    <AppLayout permiso="configuracion">
       <Header title="Configuración" description="Ajustes del sistema de biblioteca" />
 
       <div className="p-6">
@@ -146,74 +143,44 @@ export default function ConfiguracionPage() {
 
           <Seccion
             icono={Clock}
-            titulo="Políticas de Préstamo"
-            descripcion="Estos valores se aplican a las categorías de usuario y los usa el checkout"
+            titulo="Circulación"
+            descripcion="Plazos, topes, renovaciones, multas, calendario y deudas"
           >
-            <div className="grid gap-4 sm:grid-cols-3">
-              <Campo label="Días préstamo (Estudiantes)">
-                <Input
-                  type="number"
-                  min={1}
-                  value={politicas.dias_estudiante}
-                  onChange={(e) => setPolitica("dias_estudiante", e.target.value)}
-                />
-              </Campo>
-              <Campo label="Días préstamo (Docentes)">
-                <Input
-                  type="number"
-                  min={1}
-                  value={politicas.dias_docente}
-                  onChange={(e) => setPolitica("dias_docente", e.target.value)}
-                />
-              </Campo>
-              <Campo label="Días préstamo (Personal)">
-                <Input
-                  type="number"
-                  min={1}
-                  value={politicas.dias_personal}
-                  onChange={(e) => setPolitica("dias_personal", e.target.value)}
-                />
-              </Campo>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="max-w-xl text-sm text-muted-foreground">
+                {politicas.dias_estudiante} días para estudiantes, {politicas.dias_docente} para
+                docentes y {politicas.dias_personal} para el personal;{" "}
+                {politicas.renovaciones_permitidas} renovación(es) y Bs.{" "}
+                {politicas.multa_por_dia.toFixed(2)} de multa por día en la regla general. Las
+                excepciones por tipo de ítem o sede, los feriados y el tope de deuda se ajustan
+                en su pantalla.
+              </p>
+              <Button asChild variant="outline" className="shrink-0">
+                <Link href="/configuracion/circulacion">
+                  Reglas y calendario
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
             </div>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <Campo label="Máx. libros (Estudiantes)">
-                <Input
-                  type="number"
-                  min={1}
-                  value={politicas.max_estudiante}
-                  onChange={(e) => setPolitica("max_estudiante", e.target.value)}
-                />
-              </Campo>
-              <Campo label="Máx. libros (Docentes)">
-                <Input
-                  type="number"
-                  min={1}
-                  value={politicas.max_docente}
-                  onChange={(e) => setPolitica("max_docente", e.target.value)}
-                />
-              </Campo>
-              <Campo label="Renovaciones permitidas">
-                <Input
-                  type="number"
-                  min={0}
-                  value={politicas.renovaciones_permitidas}
-                  onChange={(e) => setPolitica("renovaciones_permitidas", e.target.value)}
-                />
-              </Campo>
+          </Seccion>
+
+          <Seccion
+            icono={MapPin}
+            titulo="Sedes"
+            descripcion="Bibliotecas de la institución y dónde se retiran reservas"
+          >
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="max-w-xl text-sm text-muted-foreground">
+                Cada ejemplar pertenece a una sede y cada reserva se retira en una. Entre sedes,
+                los ejemplares viajan con traslados.
+              </p>
+              <Button asChild variant="outline" className="shrink-0">
+                <Link href="/configuracion/sedes">
+                  Gestionar sedes
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
             </div>
-            <Campo label="Multa por día de retraso">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Bs.</span>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  className="w-32"
-                  value={politicas.multa_por_dia}
-                  onChange={(e) => setPolitica("multa_por_dia", e.target.value)}
-                />
-              </div>
-            </Campo>
           </Seccion>
 
           <Seccion
