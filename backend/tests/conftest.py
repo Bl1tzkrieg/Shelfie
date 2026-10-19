@@ -33,6 +33,13 @@ def _url_de_pruebas() -> str:
 TEST_DATABASE_URL = _url_de_pruebas()
 # Debe fijarse antes de importar la app: config.py lee DATABASE_URL al importarse.
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+# Una clave de firma fuerte (con la de ejemplo el backend advierte al arrancar).
+os.environ["SECRET_KEY"] = "clave-de-pruebas-con-mas-de-treinta-y-dos-bytes"
+# Sin el planificador en segundo plano, y los correos a una carpeta temporal.
+os.environ["TAREAS_AUTOMATICAS"] = "false"
+os.environ["CORREO_MODO"] = "archivo"
+import tempfile  # noqa: E402
+os.environ["CARPETA_CORREO"] = tempfile.mkdtemp(prefix="shelfie-correo-")
 
 from sqlalchemy.engine import make_url  # noqa: E402
 
@@ -273,3 +280,12 @@ def hashing_rapido(monkeypatch):
     iteraciones en el hash, así que verificar sigue funcionando igual."""
     import app.security as security
     monkeypatch.setattr(security, "_ITERACIONES", 1_000)
+
+
+@pytest.fixture(autouse=True)
+def sin_cambio_de_clave_forzado(db):
+    """Los datos de prueba usan el carnet como contraseña: aquí no se fuerza el cambio.
+
+    Las pruebas de ese comportamiento (test_seguridad.py) lo vuelven a encender.
+    """
+    configuracion.guardar(db, {"seguridad": {"forzar_cambio_clave": False}})

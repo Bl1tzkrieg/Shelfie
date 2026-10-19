@@ -1,7 +1,6 @@
 from sqlalchemy import (Boolean, Column, Computed, Date, DateTime, ForeignKey, Index, Integer,
                         Numeric, String, Text, UniqueConstraint, text)
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
-from sqlalchemy.orm import relationship
 from app.core.tiempo import ahora
 from app.database import Base
 
@@ -41,6 +40,10 @@ class Usuario(Base):
     biblioteca_id = Column(Integer, ForeignKey("bibliotecas.id"), nullable=True)  # sede de inscripción
     es_personal = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     permisos = Column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    # La contraseña la puso otro (alta con el carnet, restablecimiento del personal): al
+    # entrar se pide elegir una propia.
+    debe_cambiar_clave = Column(Boolean, nullable=False, default=False,
+                                server_default=text("false"))
 
 # Texto que indexa la búsqueda. `shelfie_es` = español sin acentos (migración 0006).
 EXPRESION_BUSQUEDA = (
@@ -96,6 +99,9 @@ class Item(Base):
 
 class Prestamo(Base):
     __tablename__ = "prestamos"
+    # Un ejemplar no puede estar en dos préstamos abiertos a la vez.
+    __table_args__ = (Index("ux_prestamos_item_abierto", "item_id", unique=True,
+                            postgresql_where=text("fecha_devolucion IS NULL")),)
     id = Column(Integer, primary_key=True, index=True)
     item_id = Column(Integer, ForeignKey("items.id"))
     usuario_id = Column(Integer, ForeignKey("usuarios.id"))
@@ -117,6 +123,10 @@ class Reserva(Base):
     retira el ejemplar a tiempo o si vence su fecha límite estando pendiente.
     """
     __tablename__ = "reservas"
+    # Un ejemplar apartado o en camino atiende a una sola reserva.
+    __table_args__ = (Index("ux_reservas_item_asignado", "item_id", unique=True,
+                            postgresql_where=text(
+                                "item_id IS NOT NULL AND estado IN ('EnEspera', 'EnTransito')")),)
     id = Column(Integer, primary_key=True, index=True)
     biblio_id = Column(Integer, ForeignKey("registros_bibliograficos.id"))
     usuario_id = Column(Integer, ForeignKey("usuarios.id"))
@@ -446,3 +456,71 @@ class ListaRegistro(Base):
                        primary_key=True)
     fecha = Column(DateTime(timezone=True), nullable=False, default=ahora,
                    server_default=text("now()"))
+
+
+class Aviso(Base):
+    """Un correo de la cola (message_queue de Koha): se arma al ocurrir el hecho y se envía después."""
+    __tablename__ = "avisos"
+    id = Column(Integer, primary_key=True, index=True)
+    codigo = Column(String(30), nullable=False, index=True)  # PREAVISO, VENCIDO, RESERVA_LISTA…
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=True,
+                        index=True)
+    proveedor_id = Column(Integer, ForeignKey("proveedores.id", ondelete="CASCADE"),
+                          nullable=True)
+    destinatario = Column(String(200), nullable=False)
+    asunto = Column(String(300), nullable=False)
+    cuerpo = Column(Text, nullable=False)
+    # Pendiente → Enviado | Fallido (tras varios intentos)
+    estado = Column(String(20), nullable=False, default="Pendiente", server_default="Pendiente",
+                    index=True)
+    intentos = Column(Integer, nullable=False, default=0, server_default="0")
+    error = Column(Text, nullable=True)
+    # Evita encolar dos veces el mismo aviso (p. ej. "VENCIDO:12:2026-10-18").
+    clave = Column(String(120), nullable=True, unique=True)
+    fecha_creacion = Column(DateTime(timezone=True), nullable=False, default=ahora,
+                            server_default=text("now()"))
+    fecha_envio = Column(DateTime(timezone=True), nullable=True)
+
+
+class TokenClave(Base):
+    """Enlace de un solo uso para recuperar la contraseña. Se guarda el hash, nunca el token."""
+    __tablename__ = "tokens_clave"
+    id = Column(Integer, primary_key=True, index=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False,
+                        index=True)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    fecha_creacion = Column(DateTime(timezone=True), nullable=False, default=ahora,
+                            server_default=text("now()"))
+    expira = Column(DateTime(timezone=True), nullable=False)
+    usado = Column(DateTime(timezone=True), nullable=True)
+
+
+class EjecucionTarea(Base):
+    """Registro de cada corrida de una tarea programada (cuándo, qué hizo, si falló)."""
+    __tablename__ = "ejecuciones_tarea"
+    id = Column(Integer, primary_key=True, index=True)
+    tarea = Column(String(40), nullable=False, index=True)
+    inicio = Column(DateTime(timezone=True), nullable=False, default=ahora)
+    fin = Column(DateTime(timezone=True), nullable=True)
+    ok = Column(Boolean, nullable=True)
+    resultado = Column(JSONB, nullable=True)
+    error = Column(Text, nullable=True)
+    origen = Column(String(20), nullable=False, default="automatica",
+                    server_default="automatica")  # automatica, manual, consola
+
+
+class SesionCerrada(Base):
+    """Tokens de sesión cerrados con «Salir»: dejan de valer aunque no hayan expirado.
+    Se guardan hasta su vencimiento; la tarea de limpieza borra los vencidos."""
+    __tablename__ = "sesiones_cerradas"
+    jti = Column(String(32), primary_key=True)
+    expira = Column(DateTime(timezone=True), nullable=False, index=True)
+
+
+class IntentoAcceso(Base):
+    """Intentos de entrar fallidos, para frenar a quien prueba contraseñas (FailedLoginAttempts)."""
+    __tablename__ = "intentos_acceso"
+    id = Column(Integer, primary_key=True, index=True)
+    identificador = Column(String(100), nullable=False, index=True)
+    ip = Column(String(64), nullable=True, index=True)
+    fecha = Column(DateTime(timezone=True), nullable=False, default=ahora)

@@ -63,3 +63,14 @@ def test_ajustes_de_circulacion_se_validan_y_guardan_parcialmente(client, datos)
 
     assert c["circulacion"]["umbral_bloqueo"] == 12.5
     assert c["circulacion"]["dias_retiro_reserva"] == 3
+
+
+def test_politicas_invalidas_no_guardan_nada(client):
+    """M4: un valor inválido se rechaza entero, sin guardar la sección ni tocar las reglas."""
+    antes = client.get("/api/v1/settings").json()
+    for malo in ({"dias_docente": "abc"}, {"dias_estudiante": -5}, {"multa_por_dia": -1},
+                 {"dias_personal": 0}):
+        r = client.put("/api/v1/settings", json={
+            "institucion": {"nombre": "No debería guardarse"}, "politicas_prestamo": malo})
+        assert r.status_code == 422, (malo, r.text)
+    assert client.get("/api/v1/settings").json() == antes

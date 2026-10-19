@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 import { useSesion } from "@/components/auth/sesion-provider"
 import { apiGet } from "@/lib/api"
-import { EVENTO_SEDE, guardarSede, leerSede } from "@/lib/sede"
+import { EVENTO_SEDE, fijarSedeEfectiva, guardarSede, leerSede } from "@/lib/sede"
 import type { Sede } from "@/lib/types"
 
 type EstadoSedes = {
@@ -53,8 +53,13 @@ export function SedeProvider({ children }: { children: React.ReactNode }) {
     const existe = (id: number | null | undefined) => id != null && sedes.some((s) => s.id === id)
     if (existe(elegida)) return elegida
     if (existe(usuario?.biblioteca_id)) return usuario!.biblioteca_id
-    return sedes[0].id
+    // El mismo respaldo que el backend (sedes.primera): la de menor id, no la primera por nombre.
+    return Math.min(...sedes.map((s) => s.id))
   }, [sedes, elegida, usuario])
+
+  useEffect(() => {
+    fijarSedeEfectiva(sedeId)
+  }, [sedeId])
 
   useEffect(() => {
     // Una sede guardada que ya no existe no debe seguir viajando en las peticiones.

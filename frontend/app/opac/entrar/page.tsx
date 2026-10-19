@@ -1,6 +1,7 @@
 "use client"
 
 import { Suspense, useEffect, useState } from "react"
+import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Loader2 } from "lucide-react"
 
@@ -33,7 +34,8 @@ function Formulario() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!cargando && lector) router.replace(destino)
+    // Con la contraseña provisional se va primero a la cuenta, donde se pide la nueva.
+    if (!cargando && lector) router.replace(lector.debe_cambiar_clave ? "/opac/cuenta" : destino)
   }, [cargando, lector, destino, router])
 
   async function enviar(e: React.FormEvent) {
@@ -41,8 +43,8 @@ function Formulario() {
     setEnviando(true)
     setError(null)
     try {
-      await entrar(carnet.trim(), clave)
-      router.replace(destino)
+      const resumen = await entrar(carnet.trim(), clave)
+      router.replace(resumen.debe_cambiar_clave ? "/opac/cuenta" : destino)
     } catch (err) {
       setError(mensajeDeError(err))
       setEnviando(false)
@@ -75,9 +77,15 @@ function Formulario() {
             Entrar
           </Button>
         </form>
-        <p className="mt-6 text-xs text-muted-foreground">
-          La primera vez, tu contraseña es tu número de carnet. Si no la recuerdas, pídele a la
-          biblioteca que la restablezca.
+        <Link href="/opac/recuperar" className="mt-4 inline-block text-sm text-primary hover:underline">
+          ¿Olvidaste tu contraseña?
+        </Link>
+        <p className="mt-4 text-xs text-muted-foreground">
+          La primera vez, tu contraseña es tu número de carnet.
+        </p>
+        <p className="mt-4 border-t pt-4 text-xs text-muted-foreground">
+          ¿Eres del personal?{" "}
+          <a href="/login" className="font-medium text-primary hover:underline">Entra a la intranet</a>
         </p>
       </div>
     </div>

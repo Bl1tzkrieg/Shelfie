@@ -42,7 +42,7 @@ export function ReservarDialog({ open, onOpenChange, ...resto }: ReservarDialogP
 
 function Formulario({ biblioId, titulo, enCola, onReservado, onCerrar }:
   Omit<ReservarDialogProps, "open" | "onOpenChange"> & { onCerrar: () => void }) {
-  const { recargar } = useLector()
+  const { lector, recargar } = useLector()
   const [sedes, setSedes] = useState<SedePublica[]>([])
   const [retiro, setRetiro] = useState("")
   const [limite, setLimite] = useState("")
@@ -51,9 +51,14 @@ function Formulario({ biblioId, titulo, enCola, onReservado, onCerrar }:
   useEffect(() => {
     apiGet<SedePublica[]>("/opac/branches").then((s) => {
       setSedes(s)
-      if (s.length === 1) setRetiro(String(s[0].id))
+      // Se muestra elegida la que usaría la biblioteca: la sede del lector si allí se
+      // retira, si no la primera donde se retira (antes decía «tu sede habitual» aunque no lo fuera).
+      const propia = s.find((x) => x.nombre === lector?.sede)
+      const primera = [...s].sort((a, b) => a.id - b.id)[0]
+      const elegida = propia ?? primera
+      if (elegida) setRetiro(String(elegida.id))
     }).catch(() => setSedes([]))
-  }, [])
+  }, [lector?.sede])
 
   async function reservar(e: React.FormEvent) {
     e.preventDefault()
@@ -89,7 +94,7 @@ function Formulario({ biblioId, titulo, enCola, onReservado, onCerrar }:
             <Label htmlFor="reserva-sede">¿Dónde lo retiras?</Label>
             <Select value={retiro} onValueChange={setRetiro}>
               <SelectTrigger id="reserva-sede" className="w-full">
-                <SelectValue placeholder="Tu sede habitual" />
+                <SelectValue placeholder="Elige una sede" />
               </SelectTrigger>
               <SelectContent>
                 {sedes.map((s) => (

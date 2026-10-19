@@ -9,7 +9,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -35,6 +34,27 @@ export function CambiarClaveDialog({ open, onOpenChange, ruta = "/auth/password"
 }
 
 function Formulario({ ruta, onListo }: { ruta: string; onListo: () => void }) {
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Cambiar contraseña</DialogTitle>
+        <DialogDescription>Al menos {MINIMO_CLAVE} caracteres, distinta del carnet.</DialogDescription>
+      </DialogHeader>
+      <CamposDeClave ruta={ruta} onListo={onListo} onCancelar={onListo} />
+    </>
+  )
+}
+
+/**
+ * Los campos y botones del cambio. Lo usa el diálogo y también la pantalla que
+ * obliga a elegir contraseña (sin «Cancelar»: ahí no se puede seguir sin cambiarla).
+ */
+export function CamposDeClave({ ruta, onListo, onCancelar, textoBoton = "Cambiar" }: {
+  ruta: string
+  onListo: () => void
+  onCancelar?: () => void
+  textoBoton?: string
+}) {
   const [actual, setActual] = useState("")
   const [nueva, setNueva] = useState("")
   const [repetida, setRepetida] = useState("")
@@ -58,10 +78,6 @@ function Formulario({ ruta, onListo }: { ruta: string; onListo: () => void }) {
 
   return (
     <form onSubmit={guardar}>
-      <DialogHeader>
-        <DialogTitle>Cambiar contraseña</DialogTitle>
-        <DialogDescription>Al menos {MINIMO_CLAVE} caracteres, distinta del carnet.</DialogDescription>
-      </DialogHeader>
       <div className="space-y-4 py-4">
         <div className="space-y-2">
           <Label htmlFor="clave-actual">Contraseña actual</Label>
@@ -83,13 +99,13 @@ function Formulario({ ruta, onListo }: { ruta: string; onListo: () => void }) {
           )}
         </div>
       </div>
-      <DialogFooter>
-        <Button type="button" variant="outline" onClick={onListo}>Cancelar</Button>
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        {onCancelar && <Button type="button" variant="outline" onClick={onCancelar}>Cancelar</Button>}
         <Button type="submit" disabled={enviando || !valida}>
           {enviando && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          Cambiar
+          {textoBoton}
         </Button>
-      </DialogFooter>
+      </div>
     </form>
   )
 }

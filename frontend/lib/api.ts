@@ -13,6 +13,8 @@ export const EVENTO_SESION_OPAC_EXPIRADA = "shelfie:sesion-opac-expirada"
 
 function avisarSiSesionExpirada(status: number, path: string) {
   if (status !== 401 || typeof window === "undefined") return
+  // Equivocarse de contraseña al cambiarla no es una sesión vencida.
+  if (path.startsWith("/opac/account/password")) return
   if (path.startsWith("/opac/account")) {
     window.dispatchEvent(new Event(EVENTO_SESION_OPAC_EXPIRADA))
   } else if (!path.startsWith("/auth/") && !path.startsWith("/opac/")) {
@@ -155,7 +157,8 @@ export async function apiDownload(path: string, fallbackName: string): Promise<v
   document.body.appendChild(link)
   link.click()
   link.remove()
-  URL.revokeObjectURL(url)
+  // Revocar en el mismo tick puede abortar la descarga en Firefox y Safari.
+  setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
 /** Mensaje legible para cualquier error capturado en un handler. */

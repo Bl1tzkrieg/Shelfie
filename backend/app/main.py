@@ -1,12 +1,14 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 
-from app.config import settings
+from app.config import comprobar_clave_de_firma, settings
 from app.core.errores import ErrorDeNegocio
 from app.routers import (
     acquisitions,
     auth,
+    notices,
     catalog,
     circulation,
     opac,
@@ -21,6 +23,8 @@ from app.routers import (
 
 # El esquema lo administra Alembic (backend/migrations). Antes de arrancar:
 #   alembic upgrade head
+
+comprobar_clave_de_firma(settings)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -38,6 +42,17 @@ app.add_middleware(
     expose_headers=["Content-Disposition"],
 )
 
+
+
+@app.exception_handler(IntegrityError)
+def manejar_conflicto(_request: Request, error: IntegrityError):
+    """Una restricción de la base que se coló (dos altas a la vez con el mismo código,
+    un dato obligatorio vacío): 409 con un mensaje, no un 500 con la traza."""
+    restriccion = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+    detalle = "Otro registro ya usa ese dato o falta un dato obligatorio: revisa y vuelve a intentar"
+    if restriccion:
+        detalle += f" ({restriccion})"
+    return JSONResponse(status_code=409, content={"detail": detalle})
 
 
 @app.exception_handler(ErrorDeNegocio)
@@ -59,6 +74,22 @@ app.include_router(opac.router)
 app.include_router(opac_account.router)
 app.include_router(personal.router)
 app.include_router(politicas.router)
+app.include_router(notices.router)
+
+
+@app.on_event("startup")
+def arrancar_tareas():
+    """Planificador de avisos dentro del backend (ver app/services/tareas.py)."""
+    if settings.TAREAS_AUTOMATICAS:
+        from app.database import SessionLocal
+        from app.services import tareas
+        tareas.iniciar(SessionLocal)
+
+
+@app.on_event("shutdown")
+def detener_tareas():
+    from app.services import tareas
+    tareas.detener()
 
 
 @app.get("/")

@@ -53,16 +53,34 @@ function describirRol(permisos: Permiso[]) {
   return "Personal"
 }
 
-export function Sidebar() {
+// El nombre de la institución casi nunca cambia: se pide una vez por pestaña, no en cada
+// navegación (la barra lateral se vuelve a montar con cada página).
+let institucionEnMemoria: string | null | undefined
+
+/** Tras cambiar el nombre en Configuración, la próxima barra lateral lo vuelve a pedir. */
+export function olvidarInstitucion() {
+  institucionEnMemoria = undefined
+}
+
+export function Sidebar({ enHoja = false, onNavegar }: {
+  /** Dentro del menú deslizable del celular: sin posición fija ni ancho propio. */
+  enHoja?: boolean
+  /** Para cerrar el menú del celular al elegir una sección. */
+  onNavegar?: () => void
+} = {}) {
   const pathname = usePathname()
   const { usuario, tienePermiso, cerrarSesion } = useSesion()
   // Shelfie es el producto; el nombre de la institución sale de Configuración.
-  const [institucion, setInstitucion] = useState<string | null>(null)
+  const [institucion, setInstitucion] = useState<string | null>(institucionEnMemoria ?? null)
   const [cambiandoClave, setCambiandoClave] = useState(false)
 
   useEffect(() => {
+    if (institucionEnMemoria !== undefined) return
     apiGet<Configuracion>("/settings")
-      .then((c) => setInstitucion(c.institucion.nombre))
+      .then((c) => {
+        institucionEnMemoria = c.institucion.nombre
+        setInstitucion(institucionEnMemoria)
+      })
       .catch(() => setInstitucion(null))
   }, [])
 
@@ -73,7 +91,8 @@ export function Sidebar() {
     .sort((a, b) => b.href.length - a.href.length)[0]?.href
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-sidebar">
+    <aside className={cn("flex flex-col bg-sidebar",
+                         enHoja ? "h-full w-full" : "fixed inset-y-0 left-0 z-50 hidden w-64 lg:flex")}>
       {/* Logo */}
       <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-6">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar-primary">
@@ -96,6 +115,7 @@ export function Sidebar() {
             <Link
               key={item.name}
               href={item.href}
+              onClick={onNavegar}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                 isActive

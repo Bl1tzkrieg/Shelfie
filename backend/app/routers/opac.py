@@ -98,11 +98,35 @@ def login(payload: schemas.LoginRequest, request: Request, response: Response,
           db: Session = Depends(get_db)):
     """Entrada del lector con su carnet (o usuario) y contraseña. Cookie propia del OPAC."""
     verificar_origen(request)
-    usuario = autenticacion.autenticar_lector(db, payload.username, payload.password)
+    usuario = autenticacion.autenticar_lector(db, payload.username, payload.password,
+                                                 request.client.host if request.client else None)
     abrir_sesion_opac(response, usuario)
     return cuenta_opac.resumen(db, usuario)
 
 
 @router.post("/logout", status_code=204)
-def logout(response: Response):
-    cerrar_sesion_opac(response)
+def logout(response: Response, request: Request, db: Session = Depends(get_db)):
+    cerrar_sesion_opac(response, request, db)
+
+
+# --- Recuperar la contraseña ----------------------------------------------------------------
+
+@router.post("/password/forgot", status_code=204)
+def olvide_mi_clave(payload: schemas.RecuperarClaveRequest, request: Request,
+                    db: Session = Depends(get_db)):
+    """Manda el enlace al correo del lector. Responde igual exista o no el carnet."""
+    verificar_origen(request)
+    autenticacion.solicitar_recuperacion(db, payload.identificador)
+
+
+@router.get("/password/reset")
+def verificar_enlace(token: str, db: Session = Depends(get_db)):
+    """Si el enlace sigue valiendo (para mostrar el formulario o avisar que venció)."""
+    return autenticacion.verificar_enlace(db, token)
+
+
+@router.post("/password/reset", status_code=204)
+def restablecer(payload: schemas.RestablecerConEnlaceRequest, request: Request,
+                db: Session = Depends(get_db)):
+    verificar_origen(request)
+    autenticacion.restablecer_con_enlace(db, payload.token, payload.nueva)

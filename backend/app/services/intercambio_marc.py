@@ -76,6 +76,31 @@ def _para_exportar(biblio: models.RegistroBibliografico, organizacion: str,
     return marc.a_pymarc({"leader": lider, "fields": campos})
 
 
+MAX_CAMPO_ISO2709 = 9999       # el directorio guarda el largo de cada campo en 4 dígitos
+MAX_REGISTRO_ISO2709 = 99999   # y el líder, el del registro en 5
+
+
+def _iso2709(registro: pymarc.Record, biblio: models.RegistroBibliografico) -> bytes:
+    """El registro en ISO 2709, o un error claro si no cabe en el formato.
+
+    pymarc no lo comprueba: un 520 de más de 9999 bytes deja un directorio corrupto
+    y el archivo no se puede leer en otro sistema. MARCXML no tiene ese límite.
+    """
+    for campo in registro.fields:
+        largo = len(campo.as_marc("utf-8"))
+        if largo > MAX_CAMPO_ISO2709:
+            raise ReglaIncumplida(
+                f"«{biblio.titulo}» (registro {biblio.id}) tiene el campo {campo.tag} de "
+                f"{largo} bytes y el formato ISO 2709 admite hasta {MAX_CAMPO_ISO2709}: "
+                "exporta en MARCXML")
+    datos = registro.as_marc()
+    if len(datos) > MAX_REGISTRO_ISO2709:
+        raise ReglaIncumplida(
+            f"«{biblio.titulo}» (registro {biblio.id}) ocupa {len(datos)} bytes y el formato "
+            f"ISO 2709 admite hasta {MAX_REGISTRO_ISO2709}: exporta en MARCXML")
+    return datos
+
+
 def exportar(db: Session, filtros: busqueda.Filtros, formato: str,
              con_ejemplares: bool) -> tuple:
     """(contenido, tipo MIME, nombre de archivo) con los registros que cumplen la búsqueda."""
@@ -95,7 +120,8 @@ def exportar(db: Session, filtros: busqueda.Filtros, formato: str,
         escritor.close(close_fh=False)
     else:
         for b in registros:
-            salida.write(_para_exportar(b, organizacion, items.get(b.id), tipos, sedes).as_marc())
+            salida.write(_iso2709(_para_exportar(b, organizacion, items.get(b.id), tipos, sedes),
+                                  b))
 
     tipo_mime, extension = FORMATOS[formato]
     return salida.getvalue(), tipo_mime, f"catalogo-{sello_archivo()}.{extension}"
@@ -116,8 +142,33 @@ class Resultado:
     mensajes: List[str] = field(default_factory=list)
 
 
-def _leer(contenido: bytes) -> tuple:
+CODIFICACIONES = ("auto", "utf8", "marc8", "latin1")
+
+
+def _opciones_de_codificacion(contenido: bytes, codificacion: str) -> dict:
+    """Cómo decodificar un ISO 2709. Si el líder (posición 09) dice «a», siempre es UTF-8.
+
+    Muchos sistemas exportan UTF-8 sin marcarlo en el líder; leído como MARC-8 sale
+    «A©ło» en vez de «Año». En «auto», si los bytes son UTF-8 válido con algún carácter
+    no ASCII, se lee como UTF-8; si no, como MARC-8 (lo que dice el estándar).
+    """
+    if codificacion == "utf8":
+        return {"force_utf8": True}
+    if codificacion == "latin1":
+        return {"force_utf8": False, "file_encoding": "latin-1"}
+    if codificacion == "marc8":
+        return {"force_utf8": False}
+    try:
+        contenido.decode("utf-8")
+    except UnicodeDecodeError:
+        return {"force_utf8": False}
+    return {"force_utf8": not contenido.isascii()}
+
+
+def _leer(contenido: bytes, codificacion: str = "auto") -> tuple:
     """(formato, registros); un registro ilegible llega como None."""
+    # Editores de Windows y algunas exportaciones anteponen la marca de orden de bytes.
+    contenido = contenido.removeprefix(b"\xef\xbb\xbf")
     if not contenido.strip():
         raise ReglaIncumplida("El archivo está vacío")
     if contenido.lstrip()[:1] == b"<":
@@ -125,8 +176,9 @@ def _leer(contenido: bytes) -> tuple:
             return "marcxml", pymarc.parse_xml_to_array(io.BytesIO(contenido))
         except Exception as error:  # el XML puede fallar de muchas formas
             raise ReglaIncumplida(f"No es un MARCXML válido: {error}") from error
-    lector = pymarc.MARCReader(io.BytesIO(contenido), to_unicode=True, force_utf8=False,
-                               utf8_handling="replace", permissive=True)
+    lector = pymarc.MARCReader(io.BytesIO(contenido), to_unicode=True,
+                               utf8_handling="replace", permissive=True,
+                               **_opciones_de_codificacion(contenido, codificacion))
     registros = list(lector)
     if registros and all(r is None for r in registros):
         raise ReglaIncumplida("No se reconoce el archivo como MARC (ISO 2709) ni MARCXML")
@@ -184,7 +236,11 @@ class _Contexto:
 def _ejemplares(db: Session, ctx: _Contexto, campos_952: List[dict], resultado: Resultado,
                 biblio: Optional[models.RegistroBibliografico], aplicar: bool) -> None:
     for campo in campos_952:
-        barcode = (marc.subcampos(campo, "p") or [None])[0]
+        def sub(codigo: str) -> Optional[str]:
+            valor = (marc.subcampos(campo, codigo) or [None])[0]
+            return valor.strip() or None if isinstance(valor, str) else valor
+
+        barcode = sub("p")
         if not barcode:
             resultado.mensajes.append("952 sin código de barras ($p): ejemplar omitido")
             continue
@@ -192,7 +248,18 @@ def _ejemplares(db: Session, ctx: _Contexto, campos_952: List[dict], resultado: 
                 models.Item.codigo_barras == barcode).first():
             resultado.mensajes.append(f"El código de barras {barcode} ya existe: omitido")
             continue
-        codigo_tipo = (marc.subcampos(campo, "y") or [None])[0]
+        largo = next(((nombre, maximo) for nombre, valor, maximo in (
+            ("código de barras ($p)", barcode, 50), ("signatura ($o)", sub("o"), 100),
+            ("numeración ($h)", sub("h"), 100)) if valor and len(valor) > maximo), None)
+        if largo:
+            resultado.mensajes.append(
+                f"{barcode[:50]}: el {largo[0]} supera los {largo[1]} caracteres; ejemplar omitido")
+            continue
+        precio = _precio(sub("v") or sub("g"))
+        if precio is not None and precio >= Decimal("100000000"):
+            resultado.mensajes.append(f"{barcode}: precio fuera de rango; se importó sin precio")
+            precio = None
+        codigo_tipo = sub("y")
         tipo = ctx.tipos.get(codigo_tipo) if codigo_tipo else None
         if tipo is None:
             tipo = ctx.tipo_defecto
@@ -203,22 +270,33 @@ def _ejemplares(db: Session, ctx: _Contexto, campos_952: List[dict], resultado: 
         if tipo is None:
             resultado.mensajes.append(f"No hay tipos de ítem definidos: {barcode} omitido")
             continue
+        for codigo in ("a", "b"):
+            if sub(codigo) and sub(codigo) not in ctx.sedes:
+                resultado.mensajes.append(f"Sede «{sub(codigo)}» desconocida en {barcode} "
+                                          f"(${codigo}): se usa la sede por defecto")
+        estado = "Perdido" if _marcado(sub("1")) else "Retirado" if _marcado(sub("0")) else "Disponible"
+        if _marcado(sub("7")):
+            resultado.mensajes.append(
+                f"{barcode} figura como no prestable ($7): revisa su tipo de ítem")
+        if _marcado(sub("4")):
+            resultado.mensajes.append(f"{barcode} figura como dañado ($4): Shelfie no lo registra")
         ctx.barcodes_en_archivo.add(barcode)
         resultado.ejemplares += 1
         if not aplicar:
             continue
-        sede_propia = ctx.sedes.get((marc.subcampos(campo, "a") or [""])[0], ctx.sede_defecto)
-        sede_actual = ctx.sedes.get((marc.subcampos(campo, "b") or [""])[0], sede_propia)
-        perdido = (marc.subcampos(campo, "1") or ["0"])[0] not in ("", "0")
+        sede_propia = ctx.sedes.get(sub("a") or "", ctx.sede_defecto)
         db.add(models.Item(
             biblio_id=biblio.id, codigo_barras=barcode, tipo_item_id=tipo.id,
-            signatura_topografica=(marc.subcampos(campo, "o") or [None])[0],
-            enumeracion=(marc.subcampos(campo, "h") or [None])[0],
-            estado="Perdido" if perdido else "Disponible",
-            biblioteca_propia_id=sede_propia, biblioteca_actual_id=sede_actual,
-            precio_reposicion=_precio((marc.subcampos(campo, "v") or
-                                       marc.subcampos(campo, "g") or [None])[0]),
+            signatura_topografica=sub("o"), enumeracion=sub("h"), estado=estado,
+            biblioteca_propia_id=sede_propia,
+            biblioteca_actual_id=ctx.sedes.get(sub("b") or "", sede_propia),
+            precio_reposicion=precio,
         ))
+
+
+def _marcado(valor: Optional[str]) -> bool:
+    """Los subcampos de estado de Koha ($0, $1, $4, $7): vacío o 0 = no."""
+    return (valor or "0") != "0"
 
 
 def _duplicado(db: Session, isbn_digitos: Optional[str]):
@@ -238,6 +316,15 @@ def _importar_uno(db: Session, ctx: _Contexto, crudo, n: int, aplicar: bool, dup
         return resultado
 
     sin_ejemplares, campos_952 = _separar_ejemplares(marc.desde_pymarc(crudo))
+    # Etiquetas propias de otros sistemas (FMT, LDR de Aleph/Alma): se descarta el campo,
+    # no el registro, como hace Koha.
+    ajenas = sorted({next(iter(c)) for c in sin_ejemplares.get("fields", [])
+                     if isinstance(c, dict) and len(c) == 1
+                     and not re.fullmatch(r"\d{3}", str(next(iter(c))))})
+    if ajenas:
+        sin_ejemplares = {**sin_ejemplares, "fields": [
+            c for c in sin_ejemplares["fields"] if next(iter(c)) not in ajenas]}
+        resultado.mensajes.append(f"Se descartaron campos que no son MARC: {', '.join(ajenas)}")
     codigo = _plantilla_para(sin_ejemplares, plantilla_pedida)
     plantilla = marc_plantillas.obtener(codigo)
     try:
@@ -260,12 +347,14 @@ def _importar_uno(db: Session, ctx: _Contexto, crudo, n: int, aplicar: bool, dup
     digitos = _solo_digitos(derivado["isbn"])
     existente = None
     if duplicados != "agregar":
-        existente = _duplicado(db, digitos)
-        if existente is None and digitos in ctx.isbn_en_archivo:
+        # Primero el archivo: al aplicar, el registro anterior ya está en la base y con
+        # «reemplazar» este lo pisaría; en la vista previa se omitía. Igual en ambos modos.
+        if digitos and digitos in ctx.isbn_en_archivo:
             resultado.accion = "omitir"
             resultado.mensajes.append(
                 f"El ISBN se repite en el registro #{ctx.isbn_en_archivo[digitos]} del archivo")
             return resultado
+        existente = _duplicado(db, digitos)
     if existente is not None and duplicados == "omitir":
         resultado.accion, resultado.registro_id = "omitir", existente.id
         resultado.mensajes.append(f"Ya existe como «{existente.titulo}» (registro {existente.id})")
@@ -299,11 +388,13 @@ def _importar_uno(db: Session, ctx: _Contexto, crudo, n: int, aplicar: bool, dup
 
 
 def importar(db: Session, contenido: bytes, *, aplicar: bool, duplicados: str = "omitir",
-             plantilla: str = "auto") -> dict:
+             plantilla: str = "auto", codificacion: str = "auto") -> dict:
     """Vista previa (aplicar=False, no escribe nada) o importación definitiva."""
     if duplicados not in DUPLICADOS:
         raise ReglaIncumplida(f"Política de duplicados no válida: {', '.join(DUPLICADOS)}")
-    formato, registros = _leer(contenido)
+    if codificacion not in CODIFICACIONES:
+        raise ReglaIncumplida(f"Codificación no válida: {', '.join(CODIFICACIONES)}")
+    formato, registros = _leer(contenido, codificacion)
     ctx = _Contexto(db)
     resultados = [_importar_uno(db, ctx, r, n, aplicar, duplicados, plantilla)
                   for n, r in enumerate(registros, start=1)]

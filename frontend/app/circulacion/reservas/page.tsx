@@ -155,10 +155,12 @@ function GestionDeReservas() {
     }
   }
 
-  async function cambiar(r: ReservaGestion, cambios: Record<string, unknown>, aviso: string) {
+  async function cambiar(r: ReservaGestion, cambios: Record<string, unknown>,
+                         aviso: string | ((nueva: ReservaGestion) => string)) {
     try {
-      await apiPatch(`/circulation/holds/${r.id}`, cambios)
-      toast.success(aviso, { description: `${r.userName} · ${r.title}` })
+      const nueva = await apiPatch<ReservaGestion>(`/circulation/holds/${r.id}`, cambios)
+      toast.success(typeof aviso === "function" ? aviso(nueva) : aviso,
+                    { description: `${r.userName} · ${r.title}` })
       await cargar()
     } catch (error) {
       toast.error("No se pudo actualizar la reserva", { description: mensajeDeError(error) })
@@ -179,7 +181,8 @@ function GestionDeReservas() {
     puedeOperar,
     editar: setEditando,
     cancelar: setACancelar,
-    mover: (r, prioridad) => cambiar(r, { prioridad }, `Turno ${prioridad}`),
+    // El turno que quedó de verdad (al mandar al final se envía 9999 y el backend lo acota).
+    mover: (r, prioridad) => cambiar(r, { prioridad }, (nueva) => `Turno ${nueva.priority ?? prioridad}`),
     suspender: (r, s) => cambiar(r, { suspendida: s }, s ? "Reserva suspendida" : "Reserva reanudada"),
   }
 

@@ -202,6 +202,10 @@ def downgrade() -> None:
         SELECT prestamo_id, usuario_id, monto FROM movimientos_cuenta WHERE tipo = 'MULTA_ATRASO'
     """)
     op.execute("UPDATE reservas SET estado = 'Completada' WHERE estado = 'Cumplida'")
+    # El esquema anterior no conoce «EnEspera» ni «Expirada»: la apartada vuelve a pendiente
+    # y la expirada queda cancelada.
+    op.execute("UPDATE reservas SET estado = 'Pendiente' WHERE estado = 'EnEspera'")
+    op.execute("UPDATE reservas SET estado = 'Cancelada' WHERE estado = 'Expirada'")
 
     op.drop_constraint("fk_usuarios_biblioteca", "usuarios", type_="foreignkey")
     op.drop_column("usuarios", "biblioteca_id")

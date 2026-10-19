@@ -41,9 +41,20 @@ DEFAULTS = {
         # Un ejemplar devuelto en otra sede viaja de vuelta a la suya (si no lo espera
         # una reserva). Apagado, se queda donde lo devolvieron (Koha: "floating").
         "retorno_a_sede_propia": True,
+        # Al declarar perdido un préstamo atrasado, se cobra la mora hasta ese día (como Koha
+        # con WhenLostForgiveFine = no). En true, solo se cobra la reposición.
+        "perdonar_mora_al_perder": False,
     },
     "calendario": {
         "dias_cerrados": [6],  # 0 = lunes … 6 = domingo
+    },
+    "seguridad": {
+        # Quien entra con el carnet como contraseña, o con una que le puso el personal,
+        # tiene que elegir una propia antes de seguir.
+        "forzar_cambio_clave": True,
+        # Intentos fallidos seguidos (por carnet) antes de tener que esperar; 0 desactiva.
+        "max_intentos": 5,
+        "minutos_bloqueo": 15,
     },
 }
 
@@ -116,10 +127,10 @@ def guardar(db: Session, secciones: dict) -> dict:
             fila.actualizado_en = momento
         else:
             db.add(models.Configuracion(clave=clave, valor=valor, actualizado_en=momento))
-    db.commit()
-
     if secciones.get("politicas_prestamo"):
         _aplicar_politicas_a_reglas(db, secciones["politicas_prestamo"])
+    # Un solo commit: o se guarda todo (configuración y reglas) o nada.
+    db.commit()
 
     return leer_todo(db)
 
@@ -164,7 +175,6 @@ def _aplicar_politicas_a_reglas(db: Session, politicas: dict) -> None:
                 regla.max_renovaciones = int(politicas["renovaciones_permitidas"])
             if "multa_por_dia" in politicas:
                 regla.multa_por_dia = float(politicas["multa_por_dia"])
-    db.commit()
 
 
 def info_sistema(db: Session) -> dict:

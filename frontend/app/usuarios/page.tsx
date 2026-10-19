@@ -93,7 +93,8 @@ export default function UsuariosPage() {
   )
 
   const activos = mapeados.filter((u) => u.status === "active").length
-  const conMultas = mapeados.filter((u) => u.status === "suspended").length
+  // Cualquier deuda, no solo la que bloquea (la que supera el umbral).
+  const conMultas = usuarios.filter((u) => u.saldo_multas > 0).length
   const conPrestamos = mapeados.filter((u) => u.activeLoans > 0).length
 
   function abrirNuevo() {
@@ -170,7 +171,7 @@ export default function UsuariosPage() {
             <p className="mt-1 text-2xl font-semibold text-primary">{activos}</p>
           </div>
           <div className="rounded-lg border border-destructive/30 bg-card p-4">
-            <p className="text-sm text-muted-foreground">Con multas</p>
+            <p className="text-sm text-muted-foreground">Con deuda</p>
             <p className="mt-1 text-2xl font-semibold text-destructive">{conMultas}</p>
           </div>
           <div className="rounded-lg border border-border bg-card p-4">
@@ -214,14 +215,16 @@ export default function UsuariosPage() {
               Importar
             </Button>
             )}
-            <Button variant="outline" onClick={exportar} disabled={exportando}>
-              {exportando ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="mr-2 h-4 w-4" />
-              )}
-              Exportar
-            </Button>
+            {gestionaLectores && (
+              <Button variant="outline" onClick={exportar} disabled={exportando}>
+                {exportando ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                Exportar
+              </Button>
+            )}
             {gestionaLectores && (
               <Button onClick={abrirNuevo}>
                 <Plus className="mr-2 h-4 w-4" />
@@ -325,7 +328,10 @@ function parsearCSV(texto: string) {
       apellido: registro.apellido,
       email: registro.email,
       departamento: registro.departamento || null,
-      categoria_codigo: registro.categoria_codigo || "EST",
+      // El backend acepta el código o la descripción (la que trae el CSV exportado);
+      // sin ninguno de los dos, la categoría por defecto (EST).
+      categoria_codigo: registro.categoria_codigo || null,
+      categoria: registro.categoria || null,
     })
   }
 

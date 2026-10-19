@@ -14,14 +14,15 @@ def login(payload: schemas.LoginRequest, request: Request, response: Response,
           db: Session = Depends(get_db)):
     """Inicia sesión en la intranet (username o carnet). Deja la sesión en una cookie httpOnly."""
     verificar_origen(request)
-    usuario = autenticacion.autenticar_personal(db, payload.username, payload.password)
+    usuario = autenticacion.autenticar_personal(db, payload.username, payload.password,
+                                                 request.client.host if request.client else None)
     abrir_sesion(response, usuario)
     return {"usuario": usuarios.vista_de_usuario(db, usuario)}
 
 
 @router.post("/logout", status_code=204)
-def logout(response: Response):
-    cerrar_sesion(response)
+def logout(response: Response, request: Request, db: Session = Depends(get_db)):
+    cerrar_sesion(response, request, db)
 
 
 @router.get("/me", response_model=schemas.UserResponse)

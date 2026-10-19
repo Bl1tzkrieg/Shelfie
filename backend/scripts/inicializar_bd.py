@@ -96,6 +96,9 @@ def main() -> None:
     destino = make_url(settings.DATABASE_URL)
     if not destino.username or not destino.database:
         sys.exit("DATABASE_URL debe incluir usuario y base: postgresql://USUARIO:CLAVE@host:5432/BASE")
+    if destino.username != args.admin_user and not destino.password:
+        sys.exit("DATABASE_URL no trae contraseña: el usuario de Shelfie se crearía sin clave. "
+                 "Usa postgresql://USUARIO:CLAVE@host:5432/BASE")
     if destino.username == args.admin_user:
         print(f"Aviso: la API usará la cuenta administradora '{args.admin_user}'. "
               "Se recomienda un usuario propio para Shelfie.")
@@ -107,7 +110,7 @@ def main() -> None:
     conexion = _conectar_admin(destino, args.admin_user, admin_password)
     with conexion.cursor() as cursor:
         if destino.username != args.admin_user:
-            _crear_rol(cursor, destino.username, destino.password or "")
+            _crear_rol(cursor, destino.username, destino.password)
         _crear_base(cursor, destino.database, destino.username)
         if not args.sin_test:
             _crear_base(cursor, f"{destino.database}_test", destino.username)

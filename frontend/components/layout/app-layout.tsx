@@ -1,9 +1,12 @@
 "use client"
 
-import { ShieldOff } from "lucide-react"
+import { useState } from "react"
+import { BookMarked, Menu, ShieldOff } from "lucide-react"
 
 import { useSesion } from "@/components/auth/sesion-provider"
 import { NOMBRE_PERMISO, type Permiso } from "@/lib/types"
+import { Button } from "@/components/ui/button"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Sidebar } from "./sidebar"
 
 interface AppLayoutProps {
@@ -15,11 +18,27 @@ interface AppLayoutProps {
 /** Marco de la intranet. La sesión ya la garantiza <SesionProvider>. */
 export function AppLayout({ children, permiso }: AppLayoutProps) {
   const { tienePermiso } = useSesion()
+  const [menuAbierto, setMenuAbierto] = useState(false)
 
   return (
     <div className="min-h-screen bg-background">
       <Sidebar />
-      <main className="pl-64">
+      {/* En pantallas angostas la barra lateral se abre como menú deslizable. */}
+      <div className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-sidebar px-4 lg:hidden">
+        <Button variant="ghost" size="icon" className="text-sidebar-foreground"
+                aria-label="Abrir el menú" onClick={() => setMenuAbierto(true)}>
+          <Menu className="h-5 w-5" />
+        </Button>
+        <BookMarked className="h-5 w-5 text-sidebar-primary" aria-hidden />
+        <span className="font-semibold text-sidebar-foreground">Shelfie</span>
+      </div>
+      <Sheet open={menuAbierto} onOpenChange={setMenuAbierto}>
+        <SheetContent side="left" className="w-72 border-0 p-0">
+          <SheetTitle className="sr-only">Menú</SheetTitle>
+          <Sidebar enHoja onNavegar={() => setMenuAbierto(false)} />
+        </SheetContent>
+      </Sheet>
+      <main className="lg:pl-64">
         {permiso && !tienePermiso(permiso) ? <SinPermiso permiso={permiso} /> : children}
       </main>
     </div>

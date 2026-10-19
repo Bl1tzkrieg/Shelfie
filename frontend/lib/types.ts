@@ -1,5 +1,7 @@
 /** Contratos que devuelve el backend, compartidos por las pantallas. */
 
+import { fechaDeBiblioteca } from "@/lib/fechas"
+
 export interface Categoria {
   codigo: string
   descripcion: string
@@ -50,6 +52,8 @@ export interface ApiUser {
   bloqueado_por_deuda: boolean
   /** Sede de inscripción; para el personal, su sede de trabajo por defecto. */
   biblioteca_id: number | null
+  /** La contraseña es la provisional: hay que elegir otra antes de seguir. */
+  debe_cambiar_clave?: boolean
 }
 
 export interface ApiLoan {
@@ -91,6 +95,8 @@ export interface CargoPendiente {
   fecha: string
   monto: number
   pendiente: number
+  pagado?: number
+  condonado?: number
 }
 
 export interface EstadoCuenta {
@@ -138,6 +144,10 @@ export interface Ejemplar {
   homeBranch: string | null
   /** Destino, si viaja entre sedes. */
   transitTo: string | null
+  /** Código del tipo de ítem, id de la sede propia y precio de reposición (para editarlo). */
+  itemType?: string | null
+  homeBranchId?: number | null
+  price?: number | null
 }
 
 export interface DashboardStats {
@@ -182,6 +192,8 @@ export interface Configuracion {
     dias_retiro_reserva: number
     precio_reposicion: number
     retorno_a_sede_propia: boolean
+    /** Al declarar perdido, no cobrar la multa de atraso acumulada. */
+    perdonar_mora_al_perder?: boolean
   }
 }
 
@@ -265,7 +277,7 @@ export function mapUsuario(u: ApiUser) {
     totalLoans: u.total_prestamos_count,
     esPersonal: u.es_personal,
     registeredDate: u.fecha_creacion
-      ? new Date(u.fecha_creacion).toLocaleDateString("es-VE")
+      ? fechaDeBiblioteca(u.fecha_creacion)
       : "—",
   }
 }
@@ -686,6 +698,7 @@ export interface Fasciculo {
   /** Solo en los listados generales (por recibir, atrasados). */
   titulo?: string
   issn?: string | null
+  proveedor_id?: number | null
   proveedor_nombre?: string | null
   proveedor_email?: string | null
 }
@@ -725,4 +738,78 @@ export interface FasciculoPredicho {
   fecha_esperada: string
   volumen: number
   secuencia: number
+}
+
+// --- Avisos y tareas (Fase 7) -------------------------------------------------------------
+
+export type EstadoAviso = "Pendiente" | "Enviado" | "Fallido"
+
+export interface Aviso {
+  id: number
+  codigo: string
+  tipo: string
+  destinatario: string
+  lector: string | null
+  carnet: string | null
+  asunto: string
+  cuerpo: string
+  estado: EstadoAviso
+  intentos: number
+  error: string | null
+  creado: string
+  enviado: string | null
+}
+
+export interface PlantillaAviso {
+  codigo: string
+  nombre: string
+  cuando: string
+  marcadores: string[]
+  activo: boolean
+  asunto: string
+  cuerpo: string
+  modificada: boolean
+}
+
+export interface AjustesAvisos {
+  recordatorio_dias_antes: number
+  dias_vencido: number[]
+  reclamos_automaticos: boolean
+  dias_entre_reclamos: number
+}
+
+export interface EstadoCorreo {
+  modo: "archivo" | "smtp" | "desactivado"
+  remitente: string
+  servidor: string | null
+  carpeta: string | null
+  listo: boolean
+}
+
+export interface ResumenAvisos {
+  pendientes: number
+  enviados: number
+  fallidos: number
+  correo: EstadoCorreo
+  tareas: { activas: boolean; hora_diarias: string; cada_minutos_cola: number }
+  ajustes: AjustesAvisos
+}
+
+export interface CorridaTarea {
+  id: number
+  tarea: string
+  origen: "automatica" | "manual" | "consola"
+  ok: boolean | null
+  inicio: string
+  fin: string | null
+  segundos: number | null
+  resultado: Record<string, unknown> | null
+  error: string | null
+}
+
+export interface TareaProgramada {
+  clave: string
+  nombre: string
+  descripcion: string
+  ultima: CorridaTarea | null
 }

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.core.errores import NoEncontrado
 from app.core.tiempo import formatear_fecha
-from app.services import busqueda, configuracion, marc, sedes
+from app.services import busqueda, configuracion, marc, reservas, sedes
 
 RB = models.RegistroBibliografico
 ACTIVAS = ("Pendiente", "EnTransito", "EnEspera")
@@ -192,7 +192,6 @@ def ficha(db: Session, biblio_id: int) -> dict:
         raise NoEncontrado("Registro no encontrado")
     items = busqueda.items_por_titulo(db, [biblio.id])[biblio.id]
     ejemplares = _ejemplares(db, items)
-    tipos = {t.id: t for t in db.query(models.TipoItem)}
     return {
         **vista_publica(biblio, items),
         **descripcion(biblio),
@@ -201,10 +200,9 @@ def ficha(db: Session, biblio_id: int) -> dict:
         "por_sede": _por_sede(ejemplares),
         "reservas": db.query(models.Reserva).filter(
             models.Reserva.biblio_id == biblio.id, models.Reserva.estado.in_(ACTIVAS)).count(),
-        # Se puede reservar si hay al menos un ejemplar que se preste.
-        "reservable": any((tipos.get(i.tipo_item_id).es_prestable
-                           if tipos.get(i.tipo_item_id) else True)
-                          and i.estado != "Perdido" for i in items),
+        # Mismo criterio que al reservar: un ejemplar que se preste, o el título en pedido
+        # o con una suscripción activa (antes, sin ejemplares daba «solo consulta en sala»).
+        "reservable": reservas.motivo_no_reservable(db, biblio.id) is None,
     }
 
 

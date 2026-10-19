@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft, BookOpen, User, Calendar, MapPin, Tag, Hash, Plus, Trash2 } from "lucide-react"
+import { ArrowLeft, BookOpen, User, Calendar, MapPin, Tag, Hash, Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { AppLayout } from "@/components/layout/app-layout"
@@ -14,6 +14,7 @@ import {
   AccionEjemplar,
 } from "@/components/catalogo/accion-ejemplar-dialog"
 import { AgregarEjemplarDialog } from "@/components/catalogo/agregar-ejemplar-dialog"
+import { EditarEjemplarDialog } from "@/components/catalogo/editar-ejemplar-dialog"
 import { EditorMarc } from "@/components/catalogo/editor-marc"
 import { useSesion } from "@/components/auth/sesion-provider"
 import {
@@ -38,6 +39,7 @@ const estadoClases: Record<string, string> = {
   Prestado: "bg-destructive/10 text-destructive",
   Reservado: "bg-accent/20 text-accent-foreground",
   EnTransito: "bg-secondary text-secondary-foreground",
+  Perdido: "bg-destructive/10 text-destructive",
 }
 
 const ESTADO_EJEMPLAR: Record<string, string> = { EnTransito: "En tránsito" }
@@ -82,6 +84,7 @@ function FichaCatalogo() {
   const [isLoading, setIsLoading] = useState(true)
   const [noEncontrado, setNoEncontrado] = useState(false)
   const [accion, setAccion] = useState<AccionEjemplar | null>(null)
+  const [editando, setEditando] = useState<Ejemplar | null>(null)
 
   const cargar = useCallback(async () => {
     try {
@@ -318,6 +321,7 @@ function FichaCatalogo() {
                       )}
                       <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Estado</th>
                       <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Prestado a</th>
+                      {puedeCatalogar && <th className="w-12 px-2 py-3"><span className="sr-only">Acciones</span></th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -361,6 +365,14 @@ function FichaCatalogo() {
                             <span className="text-muted-foreground">—</span>
                           )}
                         </td>
+                        {puedeCatalogar && (
+                          <td className="px-2 py-4 text-right">
+                            <Button variant="ghost" size="icon" aria-label={`Editar ${e.barcode}`}
+                                    onClick={() => setEditando(e)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -437,6 +449,13 @@ function FichaCatalogo() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <EditarEjemplarDialog
+        biblioId={book.id}
+        ejemplar={editando}
+        onClose={() => setEditando(null)}
+        onSuccess={cargar}
+      />
 
       <AccionEjemplarDialog
         accion={accion}

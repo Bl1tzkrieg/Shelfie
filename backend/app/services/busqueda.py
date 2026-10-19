@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, exists, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app import models
@@ -98,8 +98,9 @@ def _condiciones(filtros: Filtros) -> list:
             continue
         if nombre == "isbn":
             digitos = re.sub(r"[^0-9Xx]", "", texto).upper()
+            # Sin dígitos no hay ISBN que buscar: LIKE '%%' traería todo el catálogo.
             condiciones.append(func.upper(func.replace(func.replace(RB.isbn, "-", ""), " ", ""))
-                               .like(f"%{digitos}%"))
+                               .like(f"%{digitos}%") if digitos else false())
         elif nombre in columnas:
             c = _condicion_campo(columnas[nombre], texto)
             if c is not None:

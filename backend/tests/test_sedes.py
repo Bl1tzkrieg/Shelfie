@@ -62,3 +62,17 @@ def test_solo_configuracion_gestiona_sedes(como):
     assert consulta.post(BRANCHES, json={"codigo": "X", "nombre": "X"}).status_code == 403
     assert como(["configuracion"]).post(
         BRANCHES, json={"codigo": "X", "nombre": "X"}).status_code == 201
+
+
+def test_no_se_quita_el_punto_de_retiro_con_reservas_activas(client, datos):
+    """B4: los ejemplares seguirían viajando a una sede donde ya no se retira nada."""
+    norte = datos.sede("NOR", "Norte")
+    datos.sede("SUR", "Sur")
+    libro = datos.titulo()
+    datos.ejemplar(libro, estado="Prestado")
+    datos.lector("L-1")
+    assert client.post("/api/v1/catalog/reservations", json={
+        "biblio_id": libro.id, "nro_carnet": "L-1", "biblioteca_retiro_id": norte.id}).status_code == 201
+
+    r = client.put(f"{BRANCHES}/{norte.id}", json={"punto_retiro": False})
+    assert r.status_code == 400 and "1 reserva(s)" in r.json()["detail"]

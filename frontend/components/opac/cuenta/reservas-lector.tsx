@@ -17,9 +17,26 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { apiDelete, apiGet, apiPatch, mensajeDeError } from "@/lib/api"
 import { fechaCorta, type ReservaLector, type SedePublica } from "@/lib/opac"
+
+/** Fecha local en formato ISO (yyyy-mm-dd), `dias` después de hoy. */
+function isoDentroDe(dias: number) {
+  const d = new Date()
+  d.setDate(d.getDate() + dias)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
 
 function estado(r: ReservaLector) {
   if (r.status === "EnEspera") return { texto: `Listo para retirar en ${r.pickupBranch ?? "la biblioteca"}, hasta el ${r.pickupBy}`, destacado: true }
@@ -34,6 +51,8 @@ export function ReservasLector() {
   const [sedes, setSedes] = useState<SedePublica[]>([])
   const [ocupada, setOcupada] = useState<string | null>(null)
   const [cancelando, setCancelando] = useState<ReservaLector | null>(null)
+  const [pausando, setPausando] = useState<ReservaLector | null>(null)
+  const [hasta, setHasta] = useState("")
 
   const cargar = useCallback(async () => {
     try {
@@ -118,8 +137,14 @@ export function ReservasLector() {
                   )}
                   {pendiente && (
                     <Button size="sm" variant="outline" disabled={ocupada === r.id}
-                            onClick={() => cambiar(r, { suspendida: !r.suspended },
-                                                   r.suspended ? "Reserva reanudada" : "Reserva pausada")}>
+                            onClick={() => {
+                              if (r.suspended) {
+                                cambiar(r, { suspendida: false }, "Reserva reanudada")
+                              } else {
+                                setHasta("")
+                                setPausando(r)
+                              }
+                            }}>
                       {r.suspended ? "Reanudar" : "Pausar"}
                     </Button>
                   )}
@@ -133,6 +158,39 @@ export function ReservasLector() {
           )
         })}
       </ul>
+
+      <Dialog open={!!pausando} onOpenChange={(v) => !v && setPausando(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <form onSubmit={(e) => {
+            e.preventDefault()
+            if (!pausando) return
+            const r = pausando
+            setPausando(null)
+            cambiar(r, { suspendida: true, suspendida_hasta: hasta || null },
+                    hasta ? `Reserva pausada hasta el ${fechaCorta(hasta)}` : "Reserva pausada")
+          }}>
+            <DialogHeader>
+              <DialogTitle>Pausar la reserva</DialogTitle>
+              <DialogDescription>
+                {pausando?.title}. Conservas tu turno, pero mientras esté pausada el ejemplar pasa
+                al siguiente de la cola.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 py-4">
+              <Label htmlFor="pausar-hasta">Reanudar sola el día (opcional)</Label>
+              <Input id="pausar-hasta" type="date" min={isoDentroDe(1)} value={hasta}
+                     onChange={(e) => setHasta(e.target.value)} aria-describedby="pausar-hasta-ayuda" />
+              <p id="pausar-hasta-ayuda" className="text-xs text-muted-foreground">
+                Sin fecha, queda pausada hasta que la reanudes.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setPausando(null)}>Volver</Button>
+              <Button type="submit">Pausar</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={!!cancelando} onOpenChange={(v) => !v && setCancelando(null)}>
         <AlertDialogContent>

@@ -74,3 +74,87 @@ def test_umbral_configurable(client, datos, db):
     _con_deuda(datos, db, "4.00")
     client.put("/api/v1/settings", json={"circulacion": {"umbral_bloqueo": 3}})
     assert client.get("/api/v1/users/1001/account").json()["bloqueado"] is True
+
+
+# --- Imputación de créditos (auditoría A3, M5) ------------------------------------------------
+
+def test_pago_general_se_imputa_al_cargo_mas_viejo(client, datos, db):
+    lector = datos.lector("1001")
+    multa = cuentas.registrar(db, lector, "MULTA_ATRASO", Decimal("10"), descripcion="Atraso")
+    reposicion = cuentas.registrar(db, lector, "REPOSICION", Decimal("35"), descripcion="Perdido")
+    r = client.post("/api/v1/users/1001/account/payments", json={"monto": 10}).json()
+    # La multa quedó pagada y ya no aparece como cargo pendiente.
+    assert [(c["id"], c["pendiente"]) for c in r["cargos"]] == [(reposicion.id, 35.0)]
+    # Por eso ya no se puede condonar "la multa".
+    mal = client.post("/api/v1/users/1001/account/waivers",
+                      json={"monto": 10, "motivo": "error", "cargo_id": multa.id})
+    assert mal.status_code == 400
+
+
+def test_pago_dirigido_a_un_cargo(client, datos, db):
+    lector = datos.lector("1001")
+    cuentas.registrar(db, lector, "MULTA_ATRASO", Decimal("10"), descripcion="Atraso")
+    reposicion = cuentas.registrar(db, lector, "REPOSICION", Decimal("35"), descripcion="Perdido")
+    r = client.post("/api/v1/users/1001/account/payments",
+                    json={"monto": 20, "cargo_id": reposicion.id}).json()
+    pendientes = {c["tipo"]: (c["pagado"], c["pendiente"]) for c in r["cargos"]}
+    assert pendientes == {"MULTA_ATRASO": (0.0, 10.0), "REPOSICION": (20.0, 15.0)}
+
+
+def _perdido(client, datos, db, carnet="1001"):
+    datos.sin_dias_cerrados()
+    lector = datos.lector(carnet)
+    item = datos.ejemplar(datos.titulo(), "P-1")
+    item.precio_reposicion = Decimal("35")
+    prestamo = datos.prestamo(item, lector)
+    db.flush()
+    client.post(f"/api/v1/circulation/loans/{prestamo.id}/lost", json={})
+    return lector
+
+
+def test_condonacion_general_y_el_libro_aparece_no_deja_credito(client, datos, db):
+    _perdido(client, datos, db)
+    client.post("/api/v1/users/1001/account/waivers", json={"monto": 35, "motivo": "Inundación"})
+    r = client.post("/api/v1/circulation/checkin", json={"codigo_barras": "P-1"}).json()
+    assert r["recuperado"] and r["reintegro"] == 0
+    assert client.get("/api/v1/users/1001/account").json()["saldo"] == 0
+
+
+def test_pago_general_y_el_libro_aparece_reintegra_lo_pagado(client, datos, db):
+    _perdido(client, datos, db)
+    client.post("/api/v1/users/1001/account/payments", json={"monto": 35})
+    r = client.post("/api/v1/circulation/checkin", json={"codigo_barras": "P-1"}).json()
+    assert r["reintegro"] == 35
+    assert client.get("/api/v1/users/1001/account").json()["saldo"] == -35
+
+
+def test_mitad_condonada_mitad_pendiente(client, datos, db):
+    _perdido(client, datos, db)
+    client.post("/api/v1/users/1001/account/waivers", json={"monto": 15, "motivo": "Acuerdo"})
+    r = client.post("/api/v1/circulation/checkin", json={"codigo_barras": "P-1"}).json()
+    # Se anula lo que seguía pendiente (20); lo condonado no se devuelve.
+    assert r["reintegro"] == 20
+    assert client.get("/api/v1/users/1001/account").json()["saldo"] == 0
+
+
+# --- Mora al declarar perdido (M2) ---------------------------------------------------------
+
+def test_declarar_perdido_cobra_la_mora(client, datos, db):
+    from app.services import configuracion
+    datos.sin_dias_cerrados()
+    lector = datos.lector("1001")
+    regla = datos.regla_de(datos.est)
+    regla.multa_por_dia, regla.dias_gracia, regla.multa_maxima = 1, 0, None
+    item = datos.ejemplar(datos.titulo(), "P-2")
+    item.precio_reposicion = Decimal("20")
+    prestamo = datos.prestamo(item, lector, dias_desde=17, dias_hasta=7)  # 10 días de atraso
+    db.flush()
+    r = client.post(f"/api/v1/circulation/loans/{prestamo.id}/lost", json={}).json()
+    assert (r["cargo_reposicion"], r["multa_atraso"]) == (20.0, 10.0)
+    assert client.get("/api/v1/users/1001/account").json()["saldo"] == 30
+
+    configuracion.guardar(db, {"circulacion": {"perdonar_mora_al_perder": True}})
+    otro = datos.prestamo(datos.ejemplar(datos.titulo("Otro", None), "P-3"), lector,
+                          dias_desde=17, dias_hasta=7)
+    db.flush()
+    assert client.post(f"/api/v1/circulation/loans/{otro.id}/lost", json={}).json()["multa_atraso"] == 0

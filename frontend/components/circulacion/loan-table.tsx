@@ -37,6 +37,7 @@ import {
 import { apiPost, mensajeDeError } from "@/lib/api"
 import type { ApiLoan, ResultadoDevolucion } from "@/lib/types"
 import { avisarDevolucion } from "./aviso-devolucion"
+import { fechaDeBiblioteca } from "@/lib/fechas"
 
 export type Loan = ApiLoan
 
@@ -121,7 +122,7 @@ export function LoanTable({ loans, maxRenovaciones = 2, onChange }: LoanTablePro
         multa_aplicada: number
       }>("/circulation/renew", { prestamo_id: Number(loan.id) })
 
-      const nueva = new Date(res.nueva_fecha_vencimiento).toLocaleDateString("es-VE")
+      const nueva = fechaDeBiblioteca(res.nueva_fecha_vencimiento)
       const mora =
         res.multa_aplicada > 0
           ? ` Se cobró el atraso acumulado: Bs. ${res.multa_aplicada.toFixed(2)}.`

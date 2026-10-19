@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { apiGet, apiPost, apiPut, mensajeDeError } from "@/lib/api"
+import { useSedes } from "@/components/layout/sede-provider"
 import type { ApiUser, Categoria } from "@/lib/types"
 
 interface UsuarioDialogProps {
@@ -40,6 +41,8 @@ const VACIO = {
   email: "",
   departamento: "",
   categoria_codigo: "EST",
+  /** "" = la propuesta (la sede de trabajo actual); "ninguna" = sin sede. */
+  biblioteca_id: "",
 }
 
 export function UsuarioDialog({
@@ -81,11 +84,15 @@ function FormularioUsuario({
           email: usuario.email,
           departamento: usuario.departamento || "",
           categoria_codigo: usuario.categoria?.codigo || "EST",
+          biblioteca_id: usuario.biblioteca_id ? String(usuario.biblioteca_id) : "ninguna",
         }
       : VACIO
   )
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [enviando, setEnviando] = useState(false)
+  const { sedes, sedeId } = useSedes()
+  // Al dar de alta se propone la sede de trabajo actual.
+  const sedeElegida = form.biblioteca_id || (sedeId ? String(sedeId) : "ninguna")
 
   useEffect(() => {
     apiGet<Categoria[]>("/categories")
@@ -110,6 +117,7 @@ function FormularioUsuario({
           email: form.email.trim(),
           departamento: form.departamento.trim() || null,
           categoria_codigo: form.categoria_codigo,
+          biblioteca_id: sedeElegida === "ninguna" ? null : Number(sedeElegida),
         })
         toast.success("Usuario actualizado", { description: `${form.nombre} ${form.apellido}` })
       } else {
@@ -120,9 +128,10 @@ function FormularioUsuario({
           email: form.email.trim(),
           departamento: form.departamento.trim() || null,
           categoria_codigo: form.categoria_codigo,
+          biblioteca_id: sedeElegida === "ninguna" ? null : Number(sedeElegida),
         })
         toast.success("Usuario registrado", {
-          description: `La contraseña inicial es su carnet: ${form.nro_carnet.trim()}`,
+          description: `La contraseña inicial es su carnet (${form.nro_carnet.trim()}); se le pedirá cambiarla al entrar.`,
         })
       }
       onOpenChange(false)
@@ -211,6 +220,20 @@ function FormularioUsuario({
             required
           />
         </div>
+        {sedes.length > 0 && (
+          <div className="space-y-2 sm:col-span-2">
+            <Label htmlFor="u-sede">Sede</Label>
+            <Select value={sedeElegida} onValueChange={(v) => set("biblioteca_id", v)}>
+              <SelectTrigger id="u-sede"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ninguna">Sin sede asignada</SelectItem>
+                {sedes.map((s) => (
+                  <SelectItem key={s.id} value={String(s.id)}>{s.nombre}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div className="space-y-2 sm:col-span-2">
           <Label htmlFor="u-depto">Departamento</Label>
           <Input

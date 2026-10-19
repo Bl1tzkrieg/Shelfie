@@ -35,6 +35,9 @@ RUTAS_INTRANET = [
     ("GET", "/api/v1/serials/subscriptions"),
     ("GET", "/api/v1/staff"),
     ("PUT", "/api/v1/staff/1001"),
+    ("GET", "/api/v1/notices"),
+    ("GET", "/api/v1/notices/templates"),
+    ("POST", "/api/v1/notices/tasks/diarias/run"),
 ]
 
 

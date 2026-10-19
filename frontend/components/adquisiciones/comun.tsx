@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/select"
 import type { EstadoLinea, EstadoPedido, Fondo } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { ZONA_BIBLIOTECA } from "@/lib/fechas"
 
 export const bs = (n: number) => `Bs. ${n.toFixed(2)}`
 
@@ -104,7 +105,11 @@ export function FondoSelect({
 export function fechaCorta(iso: string | null) {
   if (!iso) return "—"
   const d = new Date(iso.length === 10 ? `${iso}T12:00:00` : iso)
-  return d.toLocaleDateString("es-VE", { day: "2-digit", month: "short", year: "numeric" })
+  return d.toLocaleDateString("es-VE", {
+    day: "2-digit", month: "short", year: "numeric",
+    // Una fecha sola (sin hora) se muestra tal cual; un instante, en la hora de la biblioteca.
+    ...(iso.length === 10 ? {} : { timeZone: ZONA_BIBLIOTECA }),
+  })
 }
 
 export function Kpi({ titulo, valor, alerta = false }: { titulo: string; valor: number | string; alerta?: boolean }) {

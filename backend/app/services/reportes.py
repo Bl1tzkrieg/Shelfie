@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Callable, Dict, List, Tuple
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import models
@@ -127,6 +128,7 @@ def _filas_catalogo(db: Session, desde: datetime, hasta: datetime) -> List[dict]
     for b in db.query(models.RegistroBibliografico).order_by(models.RegistroBibliografico.id).all():
         items = items_por_titulo[b.id]
         disponibles = len([i for i in items if i.estado == "Disponible"])
+        prestados = len([i for i in items if i.estado == "Prestado"])
         filas.append({
             "id": b.id,
             "titulo": b.titulo,
@@ -136,7 +138,7 @@ def _filas_catalogo(db: Session, desde: datetime, hasta: datetime) -> List[dict]
             "materia": b.materia or "",
             "ejemplares": len(items),
             "disponibles": disponibles,
-            "prestados": len(items) - disponibles,
+            "prestados": prestados,
             "signaturas": ", ".join(i.signatura_topografica or "" for i in items).strip(", "),
         })
     return filas
@@ -155,6 +157,8 @@ REPORTES: Dict[str, Tuple[str, str, GeneradorDeFilas]] = {
 
 
 def rango(periodo: str) -> Tuple[datetime, datetime]:
+    """Períodos móviles: «month» son los últimos 30 días (la pantalla dice «Último mes»).
+    Las estadísticas del panel, en cambio, cuentan el mes calendario («este mes»)."""
     hasta = ahora()
     if periodo == "all":
         return INICIO_DE_LOS_TIEMPOS, hasta
@@ -165,13 +169,28 @@ def rango(periodo: str) -> Tuple[datetime, datetime]:
     return hasta - timedelta(days=dias), hasta
 
 
+def _contar_filas(db: Session, rid: str) -> int:
+    """Cuántas filas daría cada reporte de «todo el período», con COUNT(*) en la base
+    (antes se armaban todas las filas solo para contarlas)."""
+    P = models.Prestamo
+    if rid == "loans":
+        return db.query(func.count(P.id)).scalar()
+    if rid == "returns":
+        return db.query(func.count(P.id)).filter(P.fecha_devolucion != None).scalar()  # noqa: E711
+    if rid == "overdue":
+        return db.query(func.count(P.id)).filter(
+            P.fecha_devolucion == None, P.fecha_vencimiento < ahora()).scalar()  # noqa: E711
+    if rid == "users":
+        return db.query(func.count(models.Usuario.id)).scalar()
+    return db.query(func.count(models.RegistroBibliografico.id)).scalar()
+
+
 def disponibles(db: Session) -> List[dict]:
     """Catálogo de reportes con el número real de filas que produce cada uno."""
-    desde, hasta = INICIO_DE_LOS_TIEMPOS, ahora()
     return [
         {"id": rid, "title": titulo, "description": descripcion,
-         "lastGenerated": None, "rows": len(generar_filas(db, desde, hasta))}
-        for rid, (titulo, descripcion, generar_filas) in REPORTES.items()
+         "lastGenerated": None, "rows": _contar_filas(db, rid)}
+        for rid, (titulo, descripcion, _generar) in REPORTES.items()
     ]
 
 

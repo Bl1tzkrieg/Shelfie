@@ -5,7 +5,7 @@ arbitrario: **Alembic → tests → autenticación → circulación** es la secu
 cada paso protege al siguiente. De la Fase 4 en adelante el orden puede ajustarse a lo que la
 biblioteca necesite primero.
 
-Estado al 2026-10-07.
+Estado al 2026-10-19.
 
 ---
 
@@ -197,7 +197,7 @@ a partir de un umbral (Bs. 5 por defecto) y calendario activo desde ya (domingos
       ejemplar y adónde viaja. "Reservar" está siempre disponible, no solo sin copias libres.
 - [ ] Reserva de un ejemplar concreto (Koha "item-level hold") y reglas de qué sedes pueden
       atender reservas de otras.
-- [ ] Aviso al lector cuando su reserva está lista (Fase 7).
+- [x] Aviso al lector cuando su reserva está lista (Fase 7).
 
 ### Adquisiciones ✅
 
@@ -226,7 +226,7 @@ a partir de un umbral (Bs. 5 por defecto) y calendario activo desde ya (domingos
 - [ ] Impuestos (IVA) y monedas extranjeras con tasa de cambio.
 - [ ] Fondos jerárquicos (subfondos) y traspasos entre fondos.
 - [x] Sugerencias desde el OPAC (Fase 6).
-- [ ] Reclamos automáticos por correo (Fase 7).
+- [x] Reclamos por correo al proveedor, a mano o automáticos (Fase 7).
 
 ### Seriadas ✅
 
@@ -277,13 +277,118 @@ a partir de un umbral (Bs. 5 por defecto) y calendario activo desde ya (domingos
 - [ ] Privacidad del historial (que el lector elija no guardarlo, o anonimizar a los N días).
 - [ ] Que el lector actualice sus datos de contacto (con aprobación del personal, como en Koha).
 - [ ] Portadas (Open Library por ISBN), "títulos nuevos" en la portada y RSS de búsquedas.
-- [ ] Recuperar la contraseña por correo (necesita los avisos de la Fase 7).
+- [x] Recuperar la contraseña por correo (Fase 7).
 
-## Fase 7 — Avisos y tareas programadas
+## Fase 7 — Avisos y tareas programadas ✅
 
-- [ ] Plantillas de aviso (por vencer, vencido, reserva disponible, reserva expirada).
-- [ ] Cola de correos y planificador (APScheduler o cron). Usa
-      `notificaciones.recordatorio_dias_antes`, que hoy se guarda pero nadie lee.
+- [x] **Cola de correos** (migración `0013`, `message_queue` de Koha): cada aviso se arma con su
+      plantilla al ocurrir el hecho y queda Pendiente; se envía después, con hasta 3 intentos
+      y el motivo del fallo a la vista. Una `clave` por aviso evita duplicados. `FOR UPDATE
+      SKIP LOCKED` para que dos procesos no manden el mismo.
+- [x] **Transporte**: SMTP (STARTTLS, SSL o sin cifrar) o, para probar sin servidor, un `.eml`
+      por correo en `backend/correo_saliente/` (`CORREO_MODO=archivo`, el valor por defecto).
+      Correo de prueba desde la intranet.
+- [x] **Plantillas editables** (Configuración → Avisos): préstamo por vencer, vencido, reserva
+      lista, reserva expirada, recuperar contraseña y reclamo a proveedor. Marcadores
+      `{nombre}`, `{titulo}`… validados al guardar, vista previa con datos de ejemplo, apagar
+      una plantilla y volver al texto original.
+- [x] **Cuándo se avisa**: recordatorio N días antes del vencimiento
+      (`notificaciones.recordatorio_dias_antes`, que antes nadie leía) y aviso de vencido en los
+      días de atraso configurados (1, 7, 14). Un correo por lector con todos sus préstamos.
+- [x] Reserva **lista para retirar** y reserva **expirada** avisan solas al lector.
+- [x] **Recuperar la contraseña** desde el OPAC (y el login de la intranet): enlace de un solo
+      uso por correo, válido 60 minutos, se guarda solo su hash, uno nuevo anula los
+      anteriores, máximo 3 por hora y la respuesta no revela si el carnet existe.
+- [x] **Tareas programadas**: un hilo del backend envía la cola cada 2 minutos y corre las
+      diarias una vez al día desde `HORA_TAREAS` (reservas, recordatorios, vencidos, reclamos de
+      seriadas, limpieza). Cada corrida queda registrada; se pueden ejecutar desde la intranet
+      o con `python -m scripts.tareas` (cron o Programador de tareas de Windows).
+- [x] Seriadas: "Reclamar por correo" ya no abre el cliente de correo: el reclamo sale por la
+      cola con la plantilla y los números quedan reclamados. Reclamo automático opcional, sin
+      insistir antes de N días.
+- [x] El lector ve sus avisos en el OPAC (Mi cuenta → Avisos) y el personal, en la ficha del lector.
+- [ ] Preferencias de aviso por lector (Koha: "messaging preferences"): elegir qué avisos recibe.
+- [ ] SMS o WhatsApp como segundo canal.
+- [ ] Avisos al personal (resumen diario de reservas por sacar, pedidos atrasados).
+
+## Auditoría de octubre 2026 ✅
+
+Revisión externa del código (commit `88d4581`, antes de la Fase 7): 6 hallazgos altos, 16
+medios y 69 bajos. Corregidos todos menos A2 (acción manual, abajo). Migración `0014`.
+
+**Altos**
+- [x] A1 — Contraseña inicial = carnet: al entrar con el carnet (o la contraseña que puso el
+      personal) se obliga a elegir una propia; la API responde 403 a todo lo demás hasta
+      cambiarla (`seguridad.forzar_cambio_clave`). Login frenado tras 5 fallos por
+      usuario o 30 por IP en 15 minutos (429). El tiempo de respuesta no revela si el usuario existe.
+- [ ] A2 — **Acción manual**: rotar la contraseña de PostgreSQL que quedó en el historial de
+      git y limpiar el historial (`git filter-repo`).
+- [x] A3 — Pagos y condonaciones generales se imputan a los cargos más viejos (FIFO): la
+      lista por cargo ya no engaña y recuperar un perdido no reintegra lo que no se pagó.
+      Pago a un cargo concreto desde la cuenta del lector.
+- [x] A4 — Carreras de mostrador: bloqueo de fila al prestar, devolver, renovar y declarar
+      perdido; índices únicos parciales (un préstamo abierto por ejemplar, una reserva
+      apartada por ejemplar).
+- [x] A5 — La sede de trabajo por defecto es la misma en el frontend y el backend.
+- [x] A6 — Equivocarse de contraseña actual al cambiarla ya no cierra la sesión (400, no 401).
+
+**Medios**
+- [x] M1 — Las reservas solo se atienden con ejemplares que ese lector puede llevarse
+      (tipo prestable, regla que permite préstamo, lector activo); "Para sacar del estante"
+      prioriza la copia de la sede de retiro. Sin ejemplares prestables (ni pedido ni
+      suscripción) el título no se puede reservar.
+- [x] M2 — Declarar perdido un préstamo vencido cobra la mora hasta ese día
+      (`circulacion.perdonar_mora_al_perder` para no cobrarla).
+- [x] M3 — Prestar otra copia a quien tenía una reserva en tránsito anula el traslado que no salió.
+- [x] M4 — Políticas de préstamo validadas (≥ 0) y guardadas en un solo commit.
+- [x] M5 — "Cargos pendientes" imputa los pagos generales (ver A3).
+- [x] M6 — Con `ENTORNO=produccion` (o `COOKIE_SECURE=true`) el backend no arranca con una
+      `SECRET_KEY` de ejemplo o de menos de 32 caracteres; en desarrollo, advierte.
+- [x] M7 — Importar ISO 2709: codificación elegible (detectar, UTF-8, MARC-8, Latin-1); al
+      detectar, un archivo UTF-8 sin la marca del líder ya no entra con "A©ło".
+- [x] M8 — Exportar ISO 2709 con un campo de más de 9999 bytes responde 400 y sugiere MARCXML.
+- [x] M9 — Editar, dar de baja (estado **Retirado**, conserva el historial) y eliminar
+      ejemplares (solo sin préstamos).
+- [x] M10 — Seriadas: numeraciones que se repetirían se rechazan al guardar; si aun así el
+      próximo rótulo ya existe, se avisa en vez de perder el siguiente esperado.
+- [x] M11, M12 — "Agregar material" y "Exportar" del padrón, solo con el permiso.
+- [x] M13 — `next build` vuelve a comprobar los tipos.
+- [x] M14 — El lector puede pausar una reserva hasta una fecha.
+- [x] M15 — Al reservar, el lector lee mensajes escritos para él.
+- [x] M16 — OPAC: un fallo de red no se toma como "sin sesión".
+
+**Bajos** (los 69; los que piden una acción manual, abajo)
+- [x] Circulación: docstring de precedencia de reglas (B1), recibir solo en destino y no
+      cancelar lo que va en camino (B2), lectores suspendidos (B3), punto de retiro con
+      reservas (B4), fecha de reanudación sola (B5), reservar sin ejemplares (B6).
+- [x] Catálogo: año fuera de rango y MARC-in-JSON mal formado dan 422 (B7, B8), BOM en
+      MARCXML (B9), ISBN repetido en el archivo (B10), ISBN duplicado con otro formato (B11),
+      plantilla desconocida (B12), mapeo del 952 con avisos ($a/$b desconocidos, $0 → Retirado,
+      $7, $4) (B13), longitudes del 952 (B14), N+1 en ejemplares (B15), ISBN sin dígitos (B16),
+      etiquetas no MARC (B17), ISBN con calificador (B18), tope de 20 MB antes de leer (B19),
+      registro con pedido o suscripción (B20).
+- [x] Adquisiciones y seriadas: sugerencias de pedidos cancelados (B21), saldo del fondo en
+      el envío y en el costo real (B22), bloqueo de fila del fondo (B23), presupuesto
+      bloqueado (B24), `null` explícito (B25), N+1 en atrasados (B26), día ancla en mensuales
+      (B27), número inicial 0 (B28).
+- [x] Usuarios y sesión: conteo de reportes con COUNT (B29), "mes" documentado (B30),
+      importación fila por fila con su número (B31, B55), CSV sin fórmulas (B32), tiempo del
+      login (B33), **Salir anula el token** (B34), Referer como respaldo CSRF (B35). B36 y B37
+      documentados en el README.
+- [x] Infraestructura: `%` en la URL de Alembic (B40), instalador sin clave vacía (B41),
+      `pool_pre_ping` y 409 ante una violación de unicidad (B42), downgrade de `0004` (B43),
+      pyflakes limpio (B44).
+- [x] Intranet: respuestas tardías (B47), descarga en Firefox/Safari (B48), **fuentes locales**
+      (B49: el build ya no necesita internet), sin `@vercel/analytics` (B50), `?next=` con la
+      búsqueda (B51), el encabezado pide solo los vencidos (B52), fechas en la zona de la
+      biblioteca (B53), etiquetas de estado (B54), turno real al mover (B56), buscador con
+      faceta elegida a la vez (B57), **menú en el celular** (B58).
+- [x] OPAC: título sin ejemplares (B59), nombre de lista nueva (B60), "Renovar todo" (B61,
+      B68), chip de tipo (B62), id inválido (B63), página fuera de rango (B64), título de la
+      pestaña (B65), "Volver" sin salir del sitio (B66), sede de retiro propuesta (B67), orden
+      de resultados (B69).
+- [ ] **Acción manual** (git): sacar del repositorio `__pycache__`/`.idea` (B38), `data.sql`
+      de la raíz (B39), `frontend/pnpm-lock.yaml` (B45) y `frontend/styles/globals.css` (B46).
 
 ## Fase 8 — Herramientas y extras
 
@@ -298,8 +403,8 @@ a partir de un umbral (Bs. 5 por defecto) y calendario activo desde ya (domingos
 
 | Comprobación | Resultado |
 |---|---|
-| `pytest` | ✅ 308 pasan, 0 `xfail` |
-| Migraciones `0001`→`0012` subir/bajar con datos, `alembic check` | ✅ |
+| `pytest` | ✅ 386 pasan, 0 `xfail` |
+| Migraciones `0001`→`0014` subir/bajar con datos, `alembic check` | ✅ |
 | Navegador real (Chromium): login y permisos (Fase 2) | ✅ 15/15 comprobaciones |
 | Navegador real: multa, bloqueo, pago, reserva, apartado, pérdida (Fase 3) | ✅ 14/14 comprobaciones |
 | Navegador real: reglas, calendario, ajustes, ejemplar recuperado, devolución por código | ✅ 18/18 comprobaciones |
@@ -307,11 +412,13 @@ a partir de un umbral (Bs. 5 por defecto) y calendario activo desde ya (domingos
 | Migración `0006` con un dueño de base **sin** superusuario | ✅ |
 | Navegador real: editor MARC, plantilla de tesis, errores, importación y exportación | ✅ 11/11 comprobaciones |
 | Navegador real: OPAC sin sesión, ficha, entrar, reservar, listas, renovar, sugerir, sesiones separadas, teléfono (Fase 6) | ✅ 14/14 comprobaciones |
+| Navegador real: plantilla con vista previa, reserva lista → cola → correo, tarea de vencidos, correo de prueba, recuperar contraseña con el enlace (Fase 7) | ✅ 14/14 comprobaciones |
+| Navegador real: cambio de contraseña obligatorio (intranet y OPAC), sede en el alta, editar y dar de baja un ejemplar, codificación MARC, menú del celular, pausar hasta una fecha, orden y paginación del OPAC, Salir anula el token (auditoría) | ✅ 18/18 comprobaciones |
 | `alembic upgrade` / `downgrade` / `check` en base vacía | ✅ |
 | API antes vs. después de la capa de servicios | ✅ respuestas idénticas (33 peticiones) |
 | `npm run typecheck` | ✅ sin errores |
-| `npm run lint` | ✅ 0 errores, 29 avisos (todos `set-state-in-effect` en cargas iniciales) |
-| `npm run build` | ⚠️ no verificado en el entorno de Claude (sin acceso a Google Fonts) |
+| `npm run lint` | ✅ 0 errores, 32 avisos (todos `set-state-in-effect` en cargas iniciales) |
+| `npm run build` | ✅ con comprobación de tipos y fuentes locales (sin internet) |
 
 ## Historial (antes del roadmap)
 

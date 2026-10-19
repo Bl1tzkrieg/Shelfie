@@ -9,13 +9,7 @@ import { AppLayout } from "@/components/layout/app-layout"
 import { Header } from "@/components/layout/header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { olvidarInstitucion } from "@/components/layout/sidebar"
 import { apiGet, apiPut, mensajeDeError } from "@/lib/api"
 import type { Configuracion, SystemInfo } from "@/lib/types"
 
@@ -44,31 +38,17 @@ export default function ConfiguracionPage() {
     setConfig((c) => (c ? { ...c, institucion: { ...c.institucion, [campo]: valor } } : c))
   }
 
-  function setNotificacion(campo: keyof Configuracion["notificaciones"], valor: string) {
-    setConfig((c) =>
-      c
-        ? {
-            ...c,
-            notificaciones: {
-              ...c.notificaciones,
-              [campo]: campo === "recordatorio_dias_antes" ? Number(valor) : valor,
-            },
-          }
-        : c
-    )
-  }
-
   async function guardar() {
     if (!config) return
     setGuardando(true)
     try {
-      // Solo lo que se edita aquí: las políticas de préstamo viven en las reglas de
-      // circulación y se editan en /configuracion/circulacion.
+      // Solo lo que se edita aquí: las políticas viven en /configuracion/circulacion y
+      // los avisos en /configuracion/avisos.
       const actualizada = await apiPut<Configuracion>("/settings", {
         institucion: config.institucion,
-        notificaciones: config.notificaciones,
       })
       setConfig(actualizada)
+      olvidarInstitucion()
       toast.success("Configuración guardada")
       apiGet<SystemInfo>("/settings/system-info").then(setInfo).catch(() => {})
     } catch (error) {
@@ -91,7 +71,7 @@ export default function ConfiguracionPage() {
     )
   }
 
-  const { institucion, politicas_prestamo: politicas, notificaciones } = config
+  const { institucion, politicas_prestamo: politicas } = config
 
   return (
     <AppLayout permiso="configuracion">
@@ -185,41 +165,20 @@ export default function ConfiguracionPage() {
 
           <Seccion
             icono={Bell}
-            titulo="Notificaciones"
-            descripcion="Configuración de alertas automáticas"
+            titulo="Avisos"
+            descripcion="Correos a los lectores y tareas programadas"
           >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Campo label="Recordatorio antes de vencimiento">
-                <Select
-                  value={String(notificaciones.recordatorio_dias_antes)}
-                  onValueChange={(v) => setNotificacion("recordatorio_dias_antes", v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1">1 día antes</SelectItem>
-                    <SelectItem value="2">2 días antes</SelectItem>
-                    <SelectItem value="3">3 días antes</SelectItem>
-                    <SelectItem value="5">5 días antes</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Campo>
-              <Campo label="Canal de notificación">
-                <Select
-                  value={notificaciones.canal}
-                  onValueChange={(v) => setNotificacion("canal", v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="email">Email</SelectItem>
-                    <SelectItem value="sms">SMS</SelectItem>
-                    <SelectItem value="both">Email + SMS</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Campo>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="max-w-xl text-sm text-muted-foreground">
+                Recordatorios de vencimiento, préstamos vencidos, reservas listas y recuperación de
+                contraseña. Aquí se editan las plantillas, cuándo se avisa y se ve la cola de correos.
+              </p>
+              <Button asChild variant="outline" className="shrink-0">
+                <Link href="/configuracion/avisos">
+                  Avisos y tareas
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
             </div>
           </Seccion>
 

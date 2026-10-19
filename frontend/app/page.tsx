@@ -26,7 +26,7 @@ export default function DashboardPage() {
     try {
       const [s, l] = await Promise.all([
         apiGet<DashboardStats>("/catalog/dashboard-stats"),
-        apiGet<ApiLoan[]>("/circulation/loans"),
+        apiGet<ApiLoan[]>("/circulation/loans?limite=5"),
       ])
       setStats(s)
       setLoans(l)

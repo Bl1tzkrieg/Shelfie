@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -78,7 +78,7 @@ class NuevoMaterialRequest(BaseModel):
     titulo: str = Field(min_length=1)
     autor: Optional[str] = None
     isbn: Optional[str] = None
-    ano_publicacion: Optional[int] = None
+    ano_publicacion: Optional[int] = Field(default=None, ge=0, le=9999)
     materia: Optional[str] = None
     codigo_barras: str = Field(min_length=1)
     signatura_topografica: Optional[str] = None
@@ -102,7 +102,7 @@ class MaterialResponse(BaseModel):
 
 
 class RegistroMarcRequest(BaseModel):
-    plantilla: str = "BKS"
+    plantilla: Literal["BKS", "SER", "TES", "ERE"] = "BKS"
     # MARC-in-JSON: {"leader": "...", "fields": [{"245": {"ind1", "ind2", "subfields"}}]}
     marc: Dict[str, Any]
     # El ISBN ya está en otro registro y se guarda igual (otra edición, otra copia catalogada).
@@ -126,6 +126,19 @@ class NuevoEjemplarRequest(BaseModel):
     tipo_item_codigo: str = "LIB"
     signatura_topografica: Optional[str] = None
     precio_reposicion: Optional[float] = Field(default=None, ge=0)
+
+
+class EditarEjemplarRequest(BaseModel):
+    """Corrección de un ejemplar; solo cambia lo enviado."""
+    codigo_barras: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    tipo_item_codigo: Optional[str] = None
+    signatura_topografica: Optional[str] = Field(default=None, max_length=100)
+    enumeracion: Optional[str] = Field(default=None, max_length=100)
+    precio_reposicion: Optional[float] = Field(default=None, ge=0)
+    biblioteca_propia_id: Optional[int] = None
+    # Retirado: dado de baja sin borrarlo (conserva el historial). Los demás estados
+    # los maneja la circulación.
+    estado: Optional[Literal["Disponible", "Retirado"]] = None
 
 
 class ValorFaceta(BaseModel):
@@ -217,6 +230,7 @@ class UserResponse(BaseModel):
     total_prestamos_count: int
     es_personal: bool = False
     permisos: List[str] = []
+    debe_cambiar_clave: bool = False
     bloqueado_por_deuda: bool = False
     # Sede de inscripción (para el personal, su sede de trabajo por defecto).
     biblioteca_id: Optional[int] = None
@@ -226,22 +240,25 @@ class UserResponse(BaseModel):
 
 
 class NuevoUsuarioRequest(BaseModel):
-    nro_carnet: str = Field(min_length=1)
-    nombre: str = Field(min_length=1)
-    apellido: str = Field(min_length=1)
+    nro_carnet: str = Field(min_length=1, max_length=50)
+    nombre: str = Field(min_length=1, max_length=100)
+    apellido: str = Field(min_length=1, max_length=100)
     email: EmailStr
-    username: Optional[str] = None
-    password: Optional[str] = None
-    departamento: Optional[str] = None
+    username: Optional[str] = Field(default=None, max_length=50)
+    password: Optional[str] = Field(default=None, max_length=128)
+    departamento: Optional[str] = Field(default=None, max_length=100)
     categoria_codigo: str = "EST"
+    # Sede de inscripción: de ahí salen su sede de retiro y la sede de trabajo del personal.
+    biblioteca_id: Optional[int] = None
 
 
 class EditarUsuarioRequest(BaseModel):
-    nombre: Optional[str] = None
-    apellido: Optional[str] = None
+    nombre: Optional[str] = Field(default=None, max_length=100)
+    apellido: Optional[str] = Field(default=None, max_length=100)
     email: Optional[EmailStr] = None
-    departamento: Optional[str] = None
+    departamento: Optional[str] = Field(default=None, max_length=100)
     categoria_codigo: Optional[str] = None
+    biblioteca_id: Optional[int] = None
 
 
 class EstadoUsuarioRequest(BaseModel):
@@ -310,11 +327,24 @@ class AjustesCirculacionRequest(BaseModel):
     dias_retiro_reserva: Optional[int] = Field(default=None, ge=1)
     precio_reposicion: Optional[float] = Field(default=None, ge=0)
     retorno_a_sede_propia: Optional[bool] = None
+    perdonar_mora_al_perder: Optional[bool] = None
+
+
+class PoliticasPrestamoRequest(BaseModel):
+    """Lo que se escribe en las reglas de circulación; los omitidos no cambian."""
+    dias_estudiante: Optional[int] = Field(default=None, ge=1, le=3650)
+    dias_docente: Optional[int] = Field(default=None, ge=1, le=3650)
+    dias_personal: Optional[int] = Field(default=None, ge=1, le=3650)
+    max_estudiante: Optional[int] = Field(default=None, ge=0, le=1000)
+    max_docente: Optional[int] = Field(default=None, ge=0, le=1000)
+    max_personal: Optional[int] = Field(default=None, ge=0, le=1000)
+    renovaciones_permitidas: Optional[int] = Field(default=None, ge=0, le=100)
+    multa_por_dia: Optional[float] = Field(default=None, ge=0)
 
 
 class ActualizarConfiguracionRequest(BaseModel):
     institucion: Optional[Dict[str, Any]] = None
-    politicas_prestamo: Optional[Dict[str, Any]] = None
+    politicas_prestamo: Optional[PoliticasPrestamoRequest] = None
     notificaciones: Optional[Dict[str, Any]] = None
     circulacion: Optional[AjustesCirculacionRequest] = None
 
@@ -326,6 +356,8 @@ class ActualizarConfiguracionRequest(BaseModel):
 class PagoRequest(BaseModel):
     monto: float = Field(gt=0)
     descripcion: Optional[str] = None
+    # El cargo al que se aplica. Vacío: a los cargos más viejos primero.
+    cargo_id: Optional[int] = None
 
 
 class CondonacionRequest(BaseModel):
@@ -351,6 +383,8 @@ class CargoPendienteResponse(BaseModel):
     descripcion: Optional[str] = None
     fecha: str
     monto: float
+    pagado: float = 0
+    condonado: float = 0
     pendiente: float
 
 
@@ -646,3 +680,38 @@ class EditarListaRequest(BaseModel):
 
 class ListaRegistroRequest(BaseModel):
     biblio_id: int
+
+
+
+# --- Avisos (Fase 7) ------------------------------------------------------------------------
+
+class RecuperarClaveRequest(BaseModel):
+    identificador: str = Field(min_length=1, max_length=100)
+
+
+class RestablecerConEnlaceRequest(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
+    nueva: str = Field(min_length=1, max_length=128)
+
+
+class PlantillaAvisoRequest(BaseModel):
+    asunto: Optional[str] = Field(default=None, max_length=300)
+    cuerpo: Optional[str] = Field(default=None, max_length=5000)
+    activo: Optional[bool] = None
+    restablecer: bool = False
+
+
+class VistaPreviaAvisoRequest(BaseModel):
+    asunto: Optional[str] = Field(default=None, max_length=300)
+    cuerpo: Optional[str] = Field(default=None, max_length=5000)
+
+
+class AjustesAvisosRequest(BaseModel):
+    recordatorio_dias_antes: Optional[int] = Field(default=None, ge=0, le=30)
+    dias_vencido: Optional[List[int]] = None
+    reclamos_automaticos: Optional[bool] = None
+    dias_entre_reclamos: Optional[int] = Field(default=None, ge=1, le=120)
+
+
+class CorreoPruebaRequest(BaseModel):
+    destinatario: EmailStr

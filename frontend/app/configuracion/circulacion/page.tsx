@@ -127,6 +127,7 @@ function AjustesGenerales({
     precio_reposicion: String(ajustes.precio_reposicion),
   })
   const [retorno, setRetorno] = useState(ajustes.retorno_a_sede_propia)
+  const [perdonar, setPerdonar] = useState(ajustes.perdonar_mora_al_perder ?? false)
   const [guardando, setGuardando] = useState(false)
 
   const valores = {
@@ -142,13 +143,16 @@ function AjustesGenerales({
     valores.umbral_bloqueo !== ajustes.umbral_bloqueo ||
     valores.dias_retiro_reserva !== ajustes.dias_retiro_reserva ||
     valores.precio_reposicion !== ajustes.precio_reposicion ||
-    retorno !== ajustes.retorno_a_sede_propia
+    retorno !== ajustes.retorno_a_sede_propia ||
+    perdonar !== (ajustes.perdonar_mora_al_perder ?? false)
 
   async function guardar(e: React.FormEvent) {
     e.preventDefault()
     setGuardando(true)
     try {
-      const c = await apiPut<Configuracion>("/settings", { circulacion: { ...valores, retorno_a_sede_propia: retorno } })
+      const c = await apiPut<Configuracion>("/settings", {
+        circulacion: { ...valores, retorno_a_sede_propia: retorno, perdonar_mora_al_perder: perdonar },
+      })
       toast.success("Ajustes guardados")
       onSaved(c.circulacion)
     } catch (error) {
@@ -193,6 +197,17 @@ function AjustesGenerales({
           <p id="ajuste-retorno-ayuda" className="text-xs text-muted-foreground">
             Si se devuelve en otra sede y nadie lo reservó, se genera un traslado de vuelta.
             Apagado, el ejemplar se queda donde lo devolvieron (colección flotante).
+          </p>
+        </div>
+      </div>
+      <div className="flex items-start gap-3 rounded-lg border border-border p-4">
+        <Switch id="ajuste-perdonar" checked={perdonar} onCheckedChange={setPerdonar}
+                aria-describedby="ajuste-perdonar-ayuda" />
+        <div className="space-y-1">
+          <Label htmlFor="ajuste-perdonar">No cobrar el atraso al declarar perdido</Label>
+          <p id="ajuste-perdonar-ayuda" className="text-xs text-muted-foreground">
+            Apagado, al declarar perdido un préstamo vencido se cobra la multa por los días de
+            atraso hasta ese momento, además de la reposición.
           </p>
         </div>
       </div>

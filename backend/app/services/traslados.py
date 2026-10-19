@@ -87,7 +87,7 @@ def ubicar(db: Session, item: models.Item, sede_id: Optional[int], *,
         item.biblioteca_actual_id = sede_id
     sede = item.biblioteca_actual_id
 
-    reserva = reservas.siguiente_para(db, item)
+    reserva = reservas.siguiente_para(db, item, bloquear=True)
     if reserva:
         if _distintas(sede, reserva.biblioteca_retiro_id):
             reservas.poner_en_transito(db, reserva, item)
@@ -183,7 +183,8 @@ def _marcar_enviado(traslado: models.Traslado, personal_id: Optional[int]) -> No
 
 def crear(db: Session, codigo_barras: str, hacia_id: int, *, comentario: Optional[str] = None,
           sede_trabajo: Optional[int] = None, personal_id: Optional[int] = None) -> dict:
-    item = db.query(models.Item).filter(models.Item.codigo_barras == codigo_barras.strip()).first()
+    item = db.query(models.Item).filter(
+        models.Item.codigo_barras == codigo_barras.strip()).with_for_update().first()
     if not item:
         raise NoEncontrado("Ejemplar no encontrado")
     destino = sedes.obtener(db, hacia_id)
@@ -211,24 +212,38 @@ def enviar(db: Session, traslado_id: int, personal_id: Optional[int] = None) -> 
     return _vista(db, traslado)
 
 
-def recibir(db: Session, traslado_id: int, personal_id: Optional[int] = None) -> dict:
+def recibir(db: Session, traslado_id: int, personal_id: Optional[int] = None,
+            sede_trabajo: Optional[int] = None) -> dict:
+    """Llegó a destino. Solo se recibe desde la sede destino: es la que tiene el ejemplar.
+    Si apareció en otra, se pasa por Devoluciones allí y se reencamina."""
     traslado = _obtener(db, traslado_id)
     if traslado.estado not in ABIERTOS:
         raise ReglaIncumplida(f"El traslado ya está cerrado ({traslado.estado})")
+    if sede_trabajo is not None and sede_trabajo != traslado.hacia_id:
+        destino = sedes.nombres(db).get(traslado.hacia_id, "otra sede")
+        raise ReglaIncumplida(
+            f"Este traslado va hacia {destino}: se recibe desde esa sede. Si el ejemplar "
+            "llegó aquí, pásalo por Devoluciones y se reencamina")
     ubicacion = _recibir(db, traslado, personal_id)
     db.commit()
     return {**_vista(db, traslado), "resultado": describir(db, ubicacion)}
 
 
-def cancelar(db: Session, traslado_id: int) -> dict:
+def cancelar(db: Session, traslado_id: int, sede_trabajo: Optional[int] = None) -> dict:
     """El ejemplar no viaja: queda disponible en la sede de origen.
 
     Si iba para una reserva, esta vuelve a la cola con el primer turno (como en Koha);
-    el ejemplar aparecerá en "Para sacar del estante" de esa sede.
+    el ejemplar aparecerá en "Para sacar del estante" de esa sede. Uno ya enviado solo
+    se cancela desde el origen (todavía no salió del mostrador); en camino, se recibe.
     """
     traslado = _obtener(db, traslado_id)
     if traslado.estado not in ABIERTOS:
         raise ReglaIncumplida(f"El traslado ya está cerrado ({traslado.estado})")
+    if (traslado.estado == ENVIADO and sede_trabajo is not None
+            and sede_trabajo != traslado.desde_id):
+        destino = sedes.nombres(db).get(traslado.hacia_id, "su destino")
+        raise ReglaIncumplida(
+            f"El ejemplar ya va en camino hacia {destino}: recíbelo al llegar")
     _anular(traslado)
     item = db.get(models.Item, traslado.item_id)
     item.biblioteca_actual_id = traslado.desde_id

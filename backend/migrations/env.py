@@ -18,7 +18,8 @@ config = context.config
 
 # Permite que los tests apunten a otra base con config.set_main_option(...).
 if not config.get_main_option("sqlalchemy.url"):
-    config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+    # ConfigParser interpreta «%»: una contraseña con % rompería la URL si no se duplica.
+    config.set_main_option("sqlalchemy.url", settings.DATABASE_URL.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

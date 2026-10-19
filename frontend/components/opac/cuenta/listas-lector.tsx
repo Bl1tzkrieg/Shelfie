@@ -39,14 +39,17 @@ export function ListasLector() {
     cargar()
   }, [cargar])
 
+  /** Devuelve si salió bien: el nombre de la lista nueva solo se borra si se creó. */
   async function hacer(id: number | "nueva", accion: () => Promise<unknown>, aviso?: string) {
     setOcupada(id)
     try {
       await accion()
       if (aviso) toast.success(aviso)
       await cargar()
+      return true
     } catch (e) {
       toast.error("No se pudo guardar", { description: mensajeDeError(e) })
+      return false
     } finally {
       setOcupada(null)
     }
@@ -68,7 +71,7 @@ export function ListasLector() {
         className="flex max-w-md gap-2"
         onSubmit={(e) => {
           e.preventDefault()
-          hacer("nueva", () => apiPost("/opac/account/lists", { nombre: nombre.trim() }), "Lista creada").then(() => setNombre(""))
+          hacer("nueva", () => apiPost("/opac/account/lists", { nombre: nombre.trim() }), "Lista creada").then((ok) => ok && setNombre(""))
         }}
       >
         <Input aria-label="Nombre de la lista nueva" placeholder="Nombre de una lista nueva" maxLength={100}

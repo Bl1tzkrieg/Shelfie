@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytest
 
 from app import models
-from app.core.tiempo import ahora, fecha_local, fin_del_dia, hoy
+from app.core.tiempo import fecha_local, fin_del_dia, hoy
 from app.services import cuentas
 
 
@@ -254,7 +254,8 @@ def test_renovar_respeta_el_tope_de_la_regla(client, datos, db):
 
 
 def test_renovar_rechaza_si_hay_reservas(client, datos, db):
-    lector, otro = datos.lector("1001"), datos.lector("1002")
+    lector = datos.lector("1001")
+    datos.lector("1002")
     libro = datos.titulo()
     prestamo = datos.prestamo(datos.ejemplar(libro), lector)
     client.post("/api/v1/catalog/reservations", json={"biblio_id": libro.id, "nro_carnet": "1002"})
@@ -438,9 +439,11 @@ def test_reintegro_solo_una_vez_aunque_se_vuelva_a_perder(client, datos, db):
 
 def test_ejemplar_perdido_que_aparece_se_aparta_para_la_reserva(client, datos, db):
     _lector, item, _ = _perder(client, datos)
-    datos.lector("2002", nombre="Beto")
-    assert client.post("/api/v1/catalog/reservations",
-                       json={"biblio_id": item.biblio_id, "nro_carnet": "2002"}).status_code == 201
+    beto = datos.lector("2002", nombre="Beto")
+    # Con la única copia perdida no se puede reservar por la API; la reserva es anterior.
+    db.add(models.Reserva(biblio_id=item.biblio_id, usuario_id=beto.id, prioridad=1,
+                          estado="Pendiente"))
+    db.flush()
 
     cuerpo = _checkin(client).json()
 

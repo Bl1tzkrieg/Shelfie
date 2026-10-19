@@ -1,13 +1,12 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
-import { Analytics } from '@vercel/analytics/next'
+// Geist viene en el paquete `geist` (next/font/local): el build no descarga nada de
+// internet, así que compila también en una intranet sin salida.
+import { GeistSans } from 'geist/font/sans'
+import { GeistMono } from 'geist/font/mono'
 import { SesionProvider } from '@/components/auth/sesion-provider'
 import { SedeProvider } from '@/components/layout/sede-provider'
 import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
-
-const geist = Geist({ subsets: ['latin'], variable: '--font-geist-sans' })
-const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
 
 export const metadata: Metadata = {
   title: 'Shelfie - Sistema de Biblioteca',
@@ -38,12 +37,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es" className="bg-background">
-      <body className={`${geist.variable} ${geistMono.variable} font-sans antialiased`}>
+      <body className={`${GeistSans.variable} ${GeistMono.variable} font-sans antialiased`}>
         <SesionProvider>
           <SedeProvider>{children}</SedeProvider>
         </SesionProvider>
         <Toaster richColors position="top-right" />
-        {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
   )

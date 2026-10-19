@@ -32,6 +32,11 @@ class AccesoDenegado(ErrorDeNegocio):
     status_code = 403
 
 
+class DemasiadosIntentos(ErrorDeNegocio):
+    """Demasiados intentos fallidos de entrar: hay que esperar (429)."""
+    status_code = 429
+
+
 class ErroresDeValidacion(ErrorDeNegocio):
     """Varios errores de datos a la vez, cada uno con su ubicación (422).
 

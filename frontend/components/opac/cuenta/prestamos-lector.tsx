@@ -75,7 +75,8 @@ export function PrestamosLector() {
     return <p className="py-8 text-center text-muted-foreground">No tienes nada prestado ahora.</p>
   }
 
-  const renovables = prestamos.filter((p) => p.renovable).length
+  // Los vencidos no se renuevan en bloque (tienen un cargo que el lector debe aceptar).
+  const renovables = prestamos.filter((p) => p.renovable && !p.cargo_al_renovar).length
   return (
     <div className="space-y-3">
       {renovables > 1 && (

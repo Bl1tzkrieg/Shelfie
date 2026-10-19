@@ -23,11 +23,3 @@ export function fechaIso(iso: string | null) {
   return `${d}/${m}/${a}`
 }
 
-/** Correo de reclamo al proveedor con los números que faltan. */
-export function enlaceReclamo(email: string, titulo: string, numeros: string[]) {
-  const asunto = `Reclamo de fascículos: ${titulo}`
-  const cuerpo = `Buenos días,\n\nNo hemos recibido los siguientes números de "${titulo}":\n\n${numeros
-    .map((n) => `- ${n}`)
-    .join("\n")}\n\nAgradecemos su envío. Gracias.`
-  return `mailto:${email}?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`
-}

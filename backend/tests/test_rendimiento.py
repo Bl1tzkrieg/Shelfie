@@ -88,7 +88,7 @@ def test_adquisiciones_no_crecen_con_los_datos(client, datos, contar_consultas):
         client.post(f"{A}/suggestions", json={"titulo": f"S{n}", "isbn": f"97800000000{n:02d}"})
 
     rutas = [f"{A}/orders", f"{A}/invoices", f"{A}/budgets", f"{A}/funds", f"{A}/suppliers",
-             f"{A}/suggestions"]
+             f"{A}/suggestions", f"{A}/orders/late", f"{A}/summary"]
     crear(0)
     con_uno = [_consultas(client, contar_consultas, r) for r in rutas]
     for n in range(1, 8):
@@ -116,3 +116,38 @@ def test_seriadas_no_crecen_con_los_datos(client, datos, contar_consultas):
     con_ocho = [_consultas(client, contar_consultas, r) for r in rutas]
 
     assert con_ocho == con_uno
+
+
+def test_ejemplares_de_un_titulo_no_crecen_con_los_datos(client, datos, contar_consultas):
+    """B15: antes, dos consultas por ejemplar (préstamo y lector)."""
+    libro = datos.titulo()
+    datos.prestamo(datos.ejemplar(libro, "X-0"), datos.lector("XL-0"))
+    ruta = f"/api/v1/catalog/items/{libro.id}/ejemplares"
+    con_uno = _consultas(client, contar_consultas, ruta)
+    for n in range(1, 10):
+        datos.prestamo(datos.ejemplar(libro, f"X-{n}"), datos.lector(f"XL-{n}"))
+    assert _consultas(client, contar_consultas, ruta) == con_uno
+
+
+def test_pedidos_atrasados_no_crecen_con_los_datos(client, db, contar_consultas):
+    """B26: antes, una consulta de líneas por pedido cerrado."""
+    from datetime import timedelta
+
+    from app import models
+    from app.core.tiempo import ahora
+    A = "/api/v1/acquisitions"
+    proveedor = client.post(f"{A}/suppliers", json={"nombre": "Lento", "dias_entrega": 5}).json()
+
+    def crear(n):
+        pedido = client.post(f"{A}/orders", json={"proveedor_id": proveedor["id"], "lineas": [
+            {"titulo": f"L{n}", "precio_unitario": 1}]}).json()
+        client.post(f"{A}/orders/{pedido['id']}/close")
+        db.get(models.OrdenCompra, pedido["id"]).fecha_cierre = ahora() - timedelta(days=30)
+        db.flush()
+
+    crear(0)
+    con_uno = _consultas(client, contar_consultas, f"{A}/orders/late")
+    assert len(client.get(f"{A}/orders/late").json()) == 1
+    for n in range(1, 8):
+        crear(n)
+    assert _consultas(client, contar_consultas, f"{A}/orders/late") == con_uno

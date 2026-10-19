@@ -20,12 +20,14 @@ import { useSesion } from "@/components/auth/sesion-provider"
 import { AppLayout } from "@/components/layout/app-layout"
 import { Header } from "@/components/layout/header"
 import { Button } from "@/components/ui/button"
+import { AvisosUsuario } from "@/components/usuarios/avisos-usuario"
 import { CuentaLector } from "@/components/usuarios/cuenta-lector"
 import { RestablecerClaveDialog } from "@/components/usuarios/restablecer-clave-dialog"
 import { UsuarioDialog } from "@/components/usuarios/usuario-dialog"
 import { apiGet, ApiError, mensajeDeError } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import type { ApiUser, ApiLoan } from "@/lib/types"
+import { fechaDeBiblioteca } from "@/lib/fechas"
 
 const statusConfig = {
   active: { icon: Clock, label: "Activo", className: "text-primary bg-primary/10" },
@@ -141,7 +143,7 @@ export default function PerfilUsuarioPage() {
                     <span className="flex items-center gap-2">
                       <CalendarDays className="h-4 w-4" />
                       Registrado el{" "}
-                      {new Date(usuario.fecha_creacion).toLocaleDateString("es-VE")}
+                      {fechaDeBiblioteca(usuario.fecha_creacion)}
                     </span>
                   )}
                 </div>
@@ -207,6 +209,8 @@ export default function PerfilUsuarioPage() {
         </div>
 
         <CuentaLector carnet={usuario.nro_carnet} onChange={cargar} />
+
+        <AvisosUsuario carnet={usuario.nro_carnet} />
 
         <div className="rounded-lg border border-border bg-card">
           <div className="border-b border-border px-6 py-4">

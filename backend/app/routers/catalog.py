@@ -74,6 +74,8 @@ async def importar(
     modo: str = Query("vista", pattern="^(vista|aplicar)$"),
     duplicados: str = Query("omitir", pattern="^(omitir|reemplazar|agregar)$"),
     plantilla: str = Query("auto", description="auto, o el código de una plantilla"),
+    codificacion: str = Query("auto", pattern="^(auto|utf8|marc8|latin1)$",
+                              description="Solo ISO 2709: cómo leer el texto si el líder no dice UTF-8"),
     db: Session = Depends(get_db),
 ):
     """Importa un archivo MARC (ISO 2709) o MARCXML enviado como cuerpo de la petición.
@@ -81,11 +83,19 @@ async def importar(
     `modo=vista` no escribe nada y dice qué pasaría con cada registro; `modo=aplicar`
     importa. Los ejemplares en 952 (formato Koha) se crean junto con su registro.
     """
-    contenido = await request.body()
-    if len(contenido) > MAX_IMPORTACION:
+    # Se mira el tamaño declarado antes de leer: así un archivo enorme no se carga en memoria.
+    declarado = request.headers.get("content-length", "")
+    if declarado.isdigit() and int(declarado) > MAX_IMPORTACION:
         raise ReglaIncumplida("El archivo supera los 20 MB: divídelo en partes")
+    contenido = bytearray()
+    async for parte in request.stream():
+        contenido += parte
+        if len(contenido) > MAX_IMPORTACION:
+            raise ReglaIncumplida("El archivo supera los 20 MB: divídelo en partes")
+    contenido = bytes(contenido)
     return intercambio_marc.importar(db, contenido, aplicar=modo == "aplicar",
-                                     duplicados=duplicados, plantilla=plantilla)
+                                     duplicados=duplicados, plantilla=plantilla,
+                                     codificacion=codificacion)
 
 
 @router.post("/items", response_model=schemas.MaterialResponse, status_code=201,
@@ -115,6 +125,19 @@ def get_ejemplares(biblio_id: int, db: Session = Depends(get_db)):
 def agregar_ejemplar(biblio_id: int, payload: schemas.NuevoEjemplarRequest,
                      db: Session = Depends(get_db)):
     return catalogo.agregar_ejemplar(db, biblio_id, payload)
+
+
+@router.patch("/items/{biblio_id}/ejemplares/{item_id}", dependencies=CATALOGA)
+def editar_ejemplar(biblio_id: int, item_id: int, payload: schemas.EditarEjemplarRequest,
+                    db: Session = Depends(get_db)):
+    """Corrige un ejemplar o lo da de baja (estado Retirado). Devuelve los ejemplares del título."""
+    return catalogo.editar_ejemplar(db, biblio_id, item_id, payload.model_dump(exclude_unset=True))
+
+
+@router.delete("/items/{biblio_id}/ejemplares/{item_id}", status_code=204, dependencies=CATALOGA)
+def eliminar_ejemplar(biblio_id: int, item_id: int, db: Session = Depends(get_db)):
+    """Borra un ejemplar sin historial de préstamos (cargado por error)."""
+    catalogo.eliminar_ejemplar(db, biblio_id, item_id)
 
 
 # --- MARC ------------------------------------------------------------------------

@@ -353,13 +353,19 @@ def actualizar_linea(db: Session, orden_id: int, linea_id: int, datos: dict) -> 
     return obtener_orden(db, orden.id)
 
 
+def _devolver_sugerencias(db: Session, lineas_ids: List[int]) -> None:
+    """La línea ya no llegará: sus sugerencias vuelven a «Aceptada» y se pueden pedir de nuevo."""
+    if lineas_ids:
+        db.query(models.Sugerencia).filter(models.Sugerencia.linea_id.in_(lineas_ids)).update(
+            {models.Sugerencia.linea_id: None, models.Sugerencia.estado: "Aceptada"},
+            synchronize_session=False)
+
+
 def eliminar_linea(db: Session, orden_id: int, linea_id: int) -> dict:
     orden = _obtener_orden(db, orden_id)
     _exigir_estado(orden, ABIERTA, accion="quitar títulos")
     linea = _obtener_linea(db, orden, linea_id)
-    db.query(models.Sugerencia).filter(models.Sugerencia.linea_id == linea.id).update(
-        {models.Sugerencia.linea_id: None, models.Sugerencia.estado: "Aceptada"},
-        synchronize_session=False)
+    _devolver_sugerencias(db, [linea.id])
     db.delete(linea)
     db.commit()
     return obtener_orden(db, orden.id)
@@ -399,6 +405,7 @@ def cancelar_orden(db: Session, orden_id: int) -> dict:
     if _tiene_recepciones(db, orden.id):
         raise ReglaIncumplida(
             "Ya se recibió parte del pedido: cancela solo lo que falta, línea por línea")
+    _devolver_sugerencias(db, [i for (i,) in db.query(L.id).filter(L.orden_id == orden.id)])
     db.query(L).filter(L.orden_id == orden.id).update({L.estado: CANCELADA},
                                                       synchronize_session=False)
     orden.estado = CANCELADA
@@ -434,6 +441,7 @@ def cancelar_pendiente(db: Session, orden_id: int, linea_id: int) -> dict:
         linea.estado = RECIBIDA
     else:
         linea.estado = CANCELADA
+        _devolver_sugerencias(db, [linea.id])
     _cerrar_si_completa(db, orden)
     db.commit()
     return obtener_orden(db, orden.id)
@@ -443,13 +451,17 @@ def atrasados(db: Session) -> List[dict]:
     """Pedidos cerrados con algo pendiente cuyo plazo de entrega del proveedor pasó."""
     ordenes = db.query(O).filter(O.estado == CERRADA).all()
     proveedores = {p.id: p for p in db.query(Pr).all()}
+    vencidas = [(o, d) for o in ordenes
+                if (d := _atraso(o, proveedores.get(o.proveedor_id))) is not None]
+    # Las líneas pendientes de todos los pedidos atrasados en una sola consulta.
+    por_orden: dict = {}
+    if vencidas:
+        for linea in db.query(L).filter(L.orden_id.in_([o.id for o, _ in vencidas]),
+                                        L.estado.in_((PENDIENTE, PARCIAL))).order_by(L.id):
+            por_orden.setdefault(linea.orden_id, []).append(linea)
     resultado = []
-    for orden in ordenes:
-        dias = _atraso(orden, proveedores.get(orden.proveedor_id))
-        if dias is None:
-            continue
-        pendientes = db.query(L).filter(L.orden_id == orden.id,
-                                        L.estado.in_((PENDIENTE, PARCIAL))).all()
+    for orden, dias in vencidas:
+        pendientes = por_orden.get(orden.id, [])
         if not pendientes:
             continue
         p = proveedores[orden.proveedor_id]
@@ -545,6 +557,7 @@ def obtener_factura(db: Session, factura_id: int) -> dict:
 
 
 def _aplicar_factura(db: Session, f: models.Factura, datos: dict) -> None:
+    envio_previo, fondo_previo = _d(f.costo_envio or 0), f.fondo_envio_id
     if datos.get("numero") is not None:
         numero = datos["numero"].strip()
         if not numero:
@@ -568,13 +581,18 @@ def _aplicar_factura(db: Session, f: models.Factura, datos: dict) -> None:
         f.notas = (datos["notas"] or "").strip() or None
     if _d(f.costo_envio) > 0 and f.fondo_envio_id is None:
         raise ReglaIncumplida("Indica a qué fondo se carga el envío")
+    if f.fondo_envio_id is not None:
+        # El envío se gasta del fondo: que lo cubra (lo que ya cargaba esta factura no cuenta dos veces).
+        presupuestos.exigir_saldo(
+            db, db.get(models.Fondo, f.fondo_envio_id, with_for_update=True), _d(f.costo_envio),
+            envio_previo if fondo_previo == f.fondo_envio_id else CERO, que="el envío cuesta")
 
 
 def crear_factura(db: Session, datos: dict) -> dict:
     proveedor = _obtener_proveedor(db, datos["proveedor_id"])
     f = Fa(proveedor_id=proveedor.id, fecha=datos.get("fecha") or hoy(), costo_envio=0,
            cerrada=False)
-    _aplicar_factura(db, f, {"numero": datos.get("numero") or "", **datos})
+    _aplicar_factura(db, f, {**datos, "numero": datos.get("numero") or ""})
     db.add(f)
     db.commit()
     return obtener_factura(db, f.id)
@@ -662,6 +680,13 @@ def recibir(db: Session, factura_id: int, datos: dict, personal_id: Optional[int
                else linea.costo_estimado)
     if costo < 0:
         raise ReglaIncumplida("El costo no puede ser negativo")
+    if costo > _d(linea.costo_estimado) and linea.fondo_id is not None:
+        # Lo comprometido al costo estimado pasa a gastado al costo real: la diferencia
+        # tiene que caber en el fondo.
+        presupuestos.exigir_saldo(
+            db, db.get(models.Fondo, linea.fondo_id, with_for_update=True),
+            (costo - _d(linea.costo_estimado)) * cantidad,
+            que="el costo real supera lo estimado en")
 
     tipo_codigo = datos.get("tipo_item_codigo") or TIPO_ITEM_RECEPCION
     tipo = db.query(models.TipoItem).filter(models.TipoItem.codigo == tipo_codigo).first()

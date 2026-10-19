@@ -15,6 +15,7 @@ adquisiciones, las publicaciones seriadas y un portal público de consulta.
 | **Publicaciones Seriadas** | ✅ | `/api/v1/serials` — suscripciones ligadas al catálogo, patrón de predicción (frecuencia y numeración Vol./Núm.), recepción que da de alta ejemplares, atrasos y reclamos |
 | **Informes** | ✅ | `/api/v1/reports` — estadísticas y 5 reportes descargables en CSV |
 | **OPAC** | ✅ | `/api/v1/opac` — catálogo público (`/opac`): búsqueda con facetas, ficha con disponibilidad por sede; cuenta del lector con préstamos, renovaciones, reservas, multas, historial, listas y sugerencias de compra |
+| **Avisos y tareas** | ✅ | `/api/v1/notices` — correos al lector (por vencer, vencido, reserva lista o expirada, recuperar contraseña) y reclamos a proveedores, con plantillas editables, cola con reintentos y tareas programadas |
 | **Autenticación y permisos** | ✅ | `/api/v1/auth`, `/api/v1/staff` — login del personal con sesión en cookie httpOnly y permisos por módulo al estilo Koha |
 
 ## 🧱 Stack
@@ -84,12 +85,16 @@ npm run dev
 ```
 
 > ⚠️ **`NEXT_PUBLIC_API_URL` debe incluir el prefijo `/api/v1`.** Sin él, todas las llamadas
-> del frontend devuelven 404.
+> del frontend devuelven 404. `NEXT_PUBLIC_ZONA_HORARIA` (por defecto America/Caracas) tiene
+> que coincidir con `ZONA_HORARIA` del backend. Las fuentes vienen en el paquete `geist`: el
+> build no necesita internet.
 
 ### 4. Primer acceso a la intranet
 
 Solo el **personal** entra a la intranet. Con `--seed` queda un superbibliotecario de ejemplo
-(`douglas.worm` / `20260001`). En una instalación real, crea el tuyo:
+(`douglas.worm` / `20260001`); como esa contraseña es el carnet, al entrar se pide elegir una
+propia (lo mismo para cualquier usuario recién creado o con la contraseña restablecida).
+En una instalación real, crea el tuyo:
 
 ```bash
 ./venv/Scripts/python.exe -m scripts.crear_admin
@@ -149,20 +154,28 @@ El diseño original (`data.sql`) quedó en `docs/historico/` solo como referenci
 Todo se ajusta en **Configuración → Reglas y calendario** (`/configuracion/circulacion`).
 
 - **Reglas** (`/api/v1/circulation-rules`): categoría de lector × tipo de ítem × sede, cada
-  dimensión con comodín "todas". Se aplica la más específica (sede > tipo > categoría).
+  dimensión con comodín "todas". Se aplica la más específica (sede > tipo > categoría; Koha
+  pone la categoría antes que el tipo, aquí gana el tipo para que "no se presta" valga para todos).
 - **Calendario** (`/api/v1/calendar`): días cerrados semanales y feriados. Un vencimiento que cae
   cerrado pasa al siguiente día hábil; multas y plazos de retiro cuentan días hábiles.
 - **Vencimiento**: a las 23:59 del día, hora de `ZONA_HORARIA` (por defecto America/Caracas).
 - **Deuda**: la cuenta del lector suma multas y reposiciones y resta pagos y condonaciones. Por
   encima de `umbral_bloqueo` (Configuración → circulación) no puede prestar, renovar ni reservar.
-- **Reservas**: al volver un ejemplar se aparta para el primero de la cola no suspendido. Si
+- **Reservas**: al volver un ejemplar se aparta para el primero de la cola que puede
+  llevárselo (no suspendido, activo y con una regla que le permite ese tipo de ítem). Solo se
+  reserva un título con algún ejemplar prestable, o que está en pedido o con suscripción. Si
   retira en otra sede, el ejemplar viaja allí (traslado) y el plazo de `dias_retiro_reserva`
   días hábiles corre desde que llega; si no lo retira, pasa al siguiente.
 - **Sedes y traslados**: cada ejemplar tiene una sede propia y una actual. Quien opera elige
   su sede en la cabecera. Un ejemplar devuelto en otra sede vuelve a la suya, salvo que lo
   espere una reserva o que `retorno_a_sede_propia` esté apagado (colección flotante).
-- **Pérdidas**: declarar perdido cobra la reposición; si el ejemplar aparece, devolverlo
-  acredita ese cargo (o deja saldo a favor si ya se había pagado).
+- **Pérdidas**: declarar perdido cobra la reposición y, si estaba vencido, la mora hasta ese
+  día (salvo `perdonar_mora_al_perder`); si el ejemplar aparece, devolverlo reintegra lo que
+  se pagó de la reposición (lo condonado o pendiente simplemente se anula).
+- **Pagos**: un pago o condonación "en general" se aplica a los cargos más viejos primero;
+  también se puede aplicar a un cargo concreto.
+- **Ejemplares**: se corrigen o se dan de baja (estado *Retirado*: no se presta ni se reserva
+  y conserva su historial) desde la ficha del registro. Solo se borra uno sin préstamos.
 
 ## 🛒 Cómo funcionan las adquisiciones
 
@@ -194,8 +207,11 @@ Material" del catálogo sigue siendo el alta rápida (arma un MARC completo con 
 "Catalogar" abre el editor.
 
 Importar y exportar acepta ISO 2709 (.mrc) y MARCXML. Los ejemplares van en el campo 952 con
-los subcampos de Koha ($p código de barras, $y tipo, $o signatura, $a/$b sede, $v precio),
-así que un archivo exportado de Koha entra con sus ejemplares, y viceversa.
+los subcampos de Koha ($p código de barras, $y tipo, $o signatura, $a/$b sede, $v precio,
+$1 perdido, $0 retirado), así que un archivo exportado de Koha entra con sus ejemplares, y
+viceversa. Al importar ISO 2709 se elige la codificación (por defecto se detecta: muchos
+sistemas exportan UTF-8 sin marcarlo en el líder). Un registro con un campo de más de 9999
+bytes no cabe en ISO 2709: se exporta en MARCXML.
 
 ## 🔐 Permisos del personal
 
@@ -205,14 +221,62 @@ así que un archivo exportado de Koha entra con sus ejemplares, y viceversa.
 | `catalogo` | Alta y edición de material |
 | `lectores` | Alta, edición, suspensión, importación, exportación y condonación de deudas |
 | `reportes` | Estadísticas y reportes |
-| `configuracion` | Datos de la institución y políticas |
+| `configuracion` | Datos de la institución, políticas, avisos y tareas programadas |
 | `adquisiciones` | Proveedores y órdenes de compra |
 | `seriadas` | Suscripciones y fascículos |
 | `superbibliotecario` | Todo lo anterior y la gestión de permisos |
 
-Cualquier miembro del personal puede **consultar** la intranet; para **modificar** necesita el
-permiso del módulo. El OPAC (`/api/v1/opac`) es público. Préstamos y devoluciones guardan quién
+En catálogo, circulación, usuarios y configuración cualquier miembro del personal puede
+**consultar**; para **modificar** necesita el permiso del módulo. Adquisiciones, seriadas y
+reportes piden el permiso incluso para consultar (tienen datos de proveedores, montos y
+lectores). El OPAC (`/api/v1/opac`) es público. Préstamos y devoluciones guardan quién
 del personal los registró.
+
+Cualquiera del personal puede operar "desde" cualquier sede (la elige en la cabecera), como
+Koha sin *IndependentBranches*: la sede de trabajo dice dónde está físicamente, no restringe.
+
+## 🔒 Contraseñas y sesiones
+
+- **Contraseña provisional**: la del alta (el carnet) o la que pone el personal al
+  restablecerla. Al entrar con ella se pide elegir otra y la API no deja hacer nada más hasta
+  cambiarla (`seguridad.forzar_cambio_clave` en la tabla `configuraciones` para apagarlo).
+- **Intentos fallidos**: 5 por usuario o 30 por IP en 15 minutos y el login responde 429 hasta
+  que pase el plazo (`seguridad.max_intentos`, `seguridad.minutos_bloqueo`).
+- **Salir** anula el token en el servidor (`sesiones_cerradas`): una cookie copiada deja de
+  servir. Cambiar la contraseña cierra las demás sesiones.
+- **`SECRET_KEY`**: con `ENTORNO=produccion` (o `COOKIE_SECURE=true`) el backend no arranca si
+  es el valor de ejemplo o tiene menos de 32 caracteres. Genera una con
+  `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+
+## ✉️ Avisos por correo y tareas programadas
+
+Los avisos se arman con su plantilla cuando ocurre algo (una reserva queda lista) o cuando una
+tarea diaria lo detecta (préstamos por vencer o vencidos) y esperan en una **cola**. Desde ahí se
+envían, con reintentos. Todo se ve y se edita en **Configuración → Avisos**: la cola, las
+plantillas y cuándo se avisa.
+
+**Cómo sale el correo** (`backend/.env`):
+
+| `CORREO_MODO` | Qué pasa |
+|---|---|
+| `archivo` (por defecto) | Cada correo se guarda como `.eml` en `backend/correo_saliente/`. Se abre con Outlook o Thunderbird. Ideal para probar. |
+| `smtp` | Se envía con `SMTP_HOST`, `SMTP_PUERTO`, `SMTP_USUARIO`, `SMTP_CLAVE` y `SMTP_SEGURIDAD` (`starttls`, `ssl` o `ninguno`). |
+| `desactivado` | No sale nada: los avisos quedan en la cola. |
+
+`URL_PUBLICA` es la dirección del frontend que va en los enlaces (recuperar la contraseña).
+
+**Tareas.** Con `TAREAS_AUTOMATICAS=true` (por defecto) el backend las corre solo: envía la cola
+cada 2 minutos y las diarias una vez al día a partir de `HORA_TAREAS`. Si se corre con varios
+procesos o se prefiere un cron, se apaga y se programa la consola:
+
+```bash
+python -m scripts.tareas              # las diarias y envía la cola
+python -m scripts.tareas enviar_cola  # solo la cola (cada 5–15 minutos)
+python -m scripts.tareas --lista
+```
+
+En Windows, con el Programador de tareas: acción `C:\ruta\Shelfie-main\backend\.venv\Scripts\python.exe`,
+argumentos `-m scripts.tareas` y "Iniciar en" la carpeta `backend`.
 
 ## 🌐 El OPAC y la cuenta del lector
 

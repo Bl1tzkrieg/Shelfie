@@ -202,7 +202,8 @@ const NOMBRE_CARGO: Record<string, string> = {
 
 function OperacionDialog({ operacion, carnet, saldo, cargos, onClose, onSuccess }: OperacionDialogProps) {
   const [monto, setMonto] = useState(saldo.toFixed(2))
-  // Condonar una reposición concreta evita reintegrarla si el ejemplar aparece.
+  // Aplicar a un cargo concreto: condonar una reposición evita reintegrarla si el
+  // ejemplar aparece; pagar una multa concreta deja claro qué quedó saldado.
   const [cargo, setCargo] = useState(GENERAL)
   const elegido = cargos.find((c) => String(c.id) === cargo)
   const tope = elegido ? elegido.pendiente : saldo
@@ -216,7 +217,7 @@ function OperacionDialog({ operacion, carnet, saldo, cargos, onClose, onSuccess 
     try {
       const ruta = `/users/${encodeURIComponent(carnet)}/account/${esPago ? "payments" : "waivers"}`
       const cuerpo = esPago
-        ? { monto: Number(monto), descripcion: texto.trim() || undefined }
+        ? { monto: Number(monto), descripcion: texto.trim() || undefined, cargo_id: elegido?.id ?? null }
         : { monto: Number(monto), motivo: texto.trim(), cargo_id: elegido?.id ?? null }
       const cuenta = await apiPost<EstadoCuenta>(ruta, cuerpo)
       toast.success(esPago ? "Pago registrado" : "Deuda condonada", {
@@ -246,7 +247,7 @@ function OperacionDialog({ operacion, carnet, saldo, cargos, onClose, onSuccess 
             </DialogDescription>
           </DialogHeader>
 
-          {!esPago && cargos.length > 0 && (
+          {cargos.length > 0 && (
             <div className="space-y-2">
               <Label htmlFor="cargo">Aplicar a</Label>
               <Select
@@ -259,7 +260,9 @@ function OperacionDialog({ operacion, carnet, saldo, cargos, onClose, onSuccess 
               >
                 <SelectTrigger id="cargo" className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={GENERAL}>La deuda en general</SelectItem>
+                  <SelectItem value={GENERAL}>
+                    {esPago ? "Los cargos más antiguos primero" : "La deuda en general"}
+                  </SelectItem>
                   {cargos.map((c) => (
                     <SelectItem key={c.id} value={String(c.id)}>
                       {NOMBRE_CARGO[c.tipo] ?? c.tipo} · Bs. {c.pendiente.toFixed(2)}

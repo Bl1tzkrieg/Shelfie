@@ -11,7 +11,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 from app import models
-from app.core.errores import NoEncontrado, ReglaIncumplida
+from app.core.errores import ErrorDeNegocio, NoEncontrado, ReglaIncumplida
 from app.core.tiempo import ahora, fecha_local, formatear_fecha, hoy
 from app.services import calendario, circulacion, cuentas, reservas, sedes, sugerencias
 
@@ -44,7 +44,9 @@ def resumen(db: Session, usuario: models.Usuario) -> dict:
     mis_reservas = db.query(models.Reserva).filter(
         models.Reserva.usuario_id == usuario.id,
         models.Reserva.estado.in_(reservas.ACTIVAS)).all()
+    from app.services.autenticacion import tiene_que_cambiar_clave
     return {
+        "debe_cambiar_clave": tiene_que_cambiar_clave(db, usuario),
         "carnet": usuario.nro_carnet,
         "nombre": usuario.nombre,
         "apellido": usuario.apellido,
@@ -158,7 +160,13 @@ def renovar_todos(db: Session, usuario: models.Usuario) -> dict:
     renovados, no = [], []
     for p in prestamos(db, usuario):
         if p["renovable"] and not p["cargo_al_renovar"]:
-            renovar(db, usuario, p["id"])
+            # Uno que falle (una reserva que entró recién) no deshace ni frena a los demás.
+            try:
+                renovar(db, usuario, p["id"])
+            except ErrorDeNegocio as error:
+                db.rollback()
+                no.append({"titulo": p["titulo"], "motivo": error.mensaje})
+                continue
             renovados.append(p["titulo"])
         elif p["renovable"]:
             no.append({"titulo": p["titulo"],
@@ -218,18 +226,15 @@ def reservar(db: Session, usuario: models.Usuario, datos: dict) -> dict:
     biblio = db.get(RB, datos["biblio_id"])
     if not biblio:
         raise NoEncontrado("Título no encontrado en el catálogo")
-    prestables = db.query(models.Item).outerjoin(
-        models.TipoItem, models.TipoItem.id == models.Item.tipo_item_id).filter(
-        models.Item.biblio_id == biblio.id, models.Item.estado != "Perdido",
-        (models.TipoItem.es_prestable == True) | (models.Item.tipo_item_id == None)  # noqa: E711,E712
-    ).count()
-    if not prestables:
-        raise ReglaIncumplida("Este título no tiene ejemplares que se presten a domicilio")
+    motivo = reservas.motivo_no_reservable(db, biblio.id)
+    if motivo:
+        raise ReglaIncumplida(motivo)
     if _deuda(db, usuario)["bloqueado"]:
         raise ReglaIncumplida("Tienes una deuda pendiente: págala en la biblioteca para reservar")
     r = reservas.reservar(db, biblio.id, usuario.nro_carnet,
                           biblioteca_retiro_id=datos.get("biblioteca_retiro_id"),
-                          fecha_limite=datos.get("fecha_limite"), notas=datos.get("notas"))
+                          fecha_limite=datos.get("fecha_limite"), notas=datos.get("notas"),
+                          para_el_lector=True)
     reserva = db.get(models.Reserva, r["reserva_id"])
     sede = db.get(models.Biblioteca, reserva.biblioteca_retiro_id) if reserva.biblioteca_retiro_id else None
     mensaje = f"Reservado. Estás en el turno {reserva.prioridad}"

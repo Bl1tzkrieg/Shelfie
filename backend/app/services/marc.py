@@ -21,7 +21,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import pymarc
 
 from app.core import marc_plantillas
-from app.core.errores import ErroresDeValidacion
+from app.core.errores import ErroresDeValidacion, ReglaIncumplida
 from app.core.marc_plantillas import Plantilla
 
 LONGITUD_LIDER = 24
@@ -53,7 +53,11 @@ def normalizar(marc: dict, plantilla: Optional[Plantilla] = None) -> dict:
     lider = (lider + " " * LONGITUD_LIDER)[:LONGITUD_LIDER]
 
     campos: List[Tuple[str, object]] = []
-    for i, campo in enumerate(marc.get("fields") or []):
+    campos_crudos = marc.get("fields") or []
+    if not isinstance(campos_crudos, list):
+        errores.append(_error("«fields» debe ser una lista de campos", "fields"))
+        campos_crudos = []
+    for i, campo in enumerate(campos_crudos):
         if not isinstance(campo, dict) or len(campo) != 1:
             errores.append(_error(f"El campo #{i + 1} no tiene la forma {{etiqueta: valor}}", i))
             continue
@@ -71,7 +75,11 @@ def normalizar(marc: dict, plantilla: Optional[Plantilla] = None) -> dict:
             errores.append(_error(f"El campo {tag} debe tener indicadores y subcampos", tag))
             continue
         subcampos = []
-        for sub in valor.get("subfields") or []:
+        crudos = valor.get("subfields") or []
+        if not isinstance(crudos, list):
+            errores.append(_error(f"Los subcampos de {tag} deben ser una lista", tag))
+            continue
+        for sub in crudos:
             if not isinstance(sub, dict) or len(sub) != 1:
                 errores.append(_error(f"Subcampo mal formado en {tag}", tag))
                 continue
@@ -185,10 +193,17 @@ def preparar(marc: dict, codigo_plantilla: Optional[str]) -> Tuple[dict, Plantil
 # --- Datos derivados --------------------------------------------------------------
 
 def normalizar_isbn(texto: Optional[str]) -> Optional[str]:
-    """"978-0-307-47472-8 (rústica)" → "978-0-307-47472-8"."""
+    """"978-0-307-47472-8 (rústica)" → "978-0-307-47472-8"; "9780307474728(pbk.)" → "9780307474728".
+
+    Se corta en el primer carácter que no sea dígito, X o guion (los calificadores van
+    pegados en muchos registros). Si no empieza por un dígito se deja como vino.
+    """
     if not texto:
         return None
     candidato = texto.strip().split(" ")[0].strip(" :;.,")
+    corte = re.match(r"[0-9][0-9Xx-]*", candidato)
+    if corte:
+        candidato = corte.group(0).rstrip("-")
     return candidato[:20] or None
 
 
@@ -244,10 +259,13 @@ def campo_008(ano: Optional[int] = None, idioma: str = "spa", pais: str = "ve ",
               creado: Optional[date] = None) -> str:
     """008 básico para libros: fecha de creación, año, país, idioma, fuente "d"."""
     creado = creado or date.today()
+    if ano is not None and not 0 <= ano <= 9999:
+        raise ReglaIncumplida(f"El año {ano} no cabe en el 008 (cuatro dígitos)")
     fecha1 = f"{ano:04d}" if ano else "    "
     valor = (f"{creado:%y%m%d}" + "s" + fecha1 + "    " + pais[:3].ljust(3)
              + " " * 17 + idioma[:3].ljust(3) + " " + "d")
-    assert len(valor) == LONGITUD_008
+    if len(valor) != LONGITUD_008:  # no debería pasar: los datos de entrada ya se acotaron
+        raise ReglaIncumplida("No se pudo armar el campo 008 con esos datos")
     return valor
 
 

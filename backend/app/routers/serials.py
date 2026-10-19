@@ -93,6 +93,13 @@ def reclamar(fasciculo_id: int, db: Session = Depends(get_db)):
     return seriadas.reclamar(db, fasciculo_id)
 
 
+@router.post("/suppliers/{proveedor_id}/claim")
+def reclamar_al_proveedor(proveedor_id: int, suscripcion_id: Optional[int] = None,
+                          db: Session = Depends(get_db)):
+    """Un correo al proveedor con sus números atrasados (de una suscripción, o de todas)."""
+    return seriadas.reclamar_por_correo(db, proveedor_id, suscripcion_id=suscripcion_id)
+
+
 @router.get("/issues/expected")
 def por_recibir(db: Session = Depends(get_db)):
     """Lo que se espera de todas las suscripciones activas."""

@@ -93,6 +93,14 @@ def _aplicar(db: Session, sede: models.Biblioteca, datos: dict) -> None:
     if "punto_retiro" in datos and datos["punto_retiro"] is not None:
         if not datos["punto_retiro"] and sede.id and _unico_punto_de_retiro(db, sede.id):
             raise ReglaIncumplida("Debe quedar al menos una sede donde retirar reservas")
+        if not datos["punto_retiro"] and sede.id and sede.punto_retiro:
+            pendientes = db.query(models.Reserva).filter(
+                models.Reserva.biblioteca_retiro_id == sede.id,
+                models.Reserva.estado.in_(("Pendiente", "EnTransito", "EnEspera"))).count()
+            if pendientes:
+                raise ReglaIncumplida(
+                    f"Hay {pendientes} reserva(s) activa(s) para retirar en {sede.nombre}: "
+                    "cámbiales la sede de retiro antes de quitarle el punto de retiro")
         sede.punto_retiro = bool(datos["punto_retiro"])
 
 

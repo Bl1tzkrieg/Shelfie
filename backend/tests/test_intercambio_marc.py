@@ -155,3 +155,57 @@ def test_exportar_marc_con_ejemplares_y_volver_a_leerlo(client, datos):
 
 def test_importar_exige_permiso_de_catalogo(como):
     assert _importar(como(["circulacion"]), _mrc(_libro("X"))).status_code == 403
+
+
+def _utf8_sin_marcar(r):
+    """Como exportan muchos sistemas: texto UTF-8 pero el líder/09 en blanco."""
+    crudo = r.as_marc()
+    return crudo[:9] + b" " + crudo[10:]
+
+
+def test_utf8_sin_marcar_en_el_lider_se_detecta(client, datos, db):
+    """M7: en «auto», si los bytes son UTF-8 válido se leen como UTF-8."""
+    archivo = _utf8_sin_marcar(_libro("Año de García Márquez"))
+    assert archivo[9:10] == b" "
+
+    vista = _importar(client, archivo, modo="vista").json()
+    assert vista["registros"][0]["titulo"].startswith("Año de García Márquez")
+    marc8 = _importar(client, archivo, modo="vista", codificacion="marc8").json()
+    assert not marc8["registros"][0]["titulo"].startswith("Año")
+    assert _importar(client, archivo, modo="vista", codificacion="ebcdic").status_code == 422
+
+
+def test_latin1_a_pedido(client, datos):
+    r = _libro("Canción")
+    r.leader = r.leader[:9] + " " + r.leader[10:]
+    r.force_utf8 = r.to_unicode = False  # así pymarc escribe en ISO 8859-1
+    archivo = r.as_marc()
+    assert "Canción".encode("latin-1") in archivo
+
+    vista = _importar(client, archivo, modo="vista", codificacion="latin1").json()
+    assert vista["registros"][0]["titulo"].startswith("Canción")
+
+
+def test_marcxml_con_bom(client, datos):
+    """B9: la marca de orden de bytes no impide reconocer el MARCXML."""
+    salida = io.BytesIO()
+    escritor = pymarc.XMLWriter(salida)
+    escritor.write(_libro("Con BOM"))
+    escritor.close(close_fh=False)
+    r = _importar(client, b"\xef\xbb\xbf" + salida.getvalue(), modo="vista")
+    assert r.status_code == 200 and r.json()["formato"] == "marcxml"
+
+
+def test_exportar_iso2709_avisa_si_un_campo_no_cabe(client, datos, db):
+    """M8: un campo de más de 9999 bytes no cabe en ISO 2709; MARCXML sí."""
+    r = client.post(f"{URL}/items", json={"titulo": "Resumen largo", "codigo_barras": "L-1"})
+    biblio = db.query(models.RegistroBibliografico).one()
+    marc = dict(biblio.marc_json)
+    marc["fields"] = marc["fields"] + [{"520": {"ind1": " ", "ind2": " ",
+                                                "subfields": [{"a": "x" * 10050}]}}]
+    biblio.marc_json = marc
+    db.commit()
+
+    r = client.get(f"{URL}/export", params={"formato": "marc"})
+    assert r.status_code == 400 and "MARCXML" in r.json()["detail"] and "520" in r.json()["detail"]
+    assert client.get(f"{URL}/export", params={"formato": "marcxml"}).status_code == 200

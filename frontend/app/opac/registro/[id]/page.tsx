@@ -5,13 +5,13 @@ import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
 import { BookmarkPlus, ListPlus, Loader2 } from "lucide-react"
 
-import { rutaDeEntrada, useLector } from "@/components/opac/lector-provider"
+import { rutaDeEntrada, useLector, vinoDesdeElOpac } from "@/components/opac/lector-provider"
 import { ListasDialog } from "@/components/opac/listas-dialog"
 import { ReservarDialog } from "@/components/opac/reservar-dialog"
 import { Disponibilidad } from "@/components/opac/titulo-resultado"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { apiGet, mensajeDeError } from "@/lib/api"
+import { ApiError, apiGet, mensajeDeError } from "@/lib/api"
 import type { FichaPublica, ReservaLector } from "@/lib/opac"
 import { cn } from "@/lib/utils"
 
@@ -26,12 +26,24 @@ export default function RegistroPage() {
   const [guardando, setGuardando] = useState(false)
 
   const cargar = useCallback(async () => {
+    // Un enlace roto (/opac/registro/abc) no llega al backend: su 422 no es para el lector.
+    if (!/^\d+$/.test(id)) {
+      setError("Ese enlace no corresponde a ningún título del catálogo.")
+      return
+    }
     try {
       setFicha(await apiGet<FichaPublica>(`/opac/record/${id}`))
     } catch (e) {
-      setError(mensajeDeError(e))
+      setError(e instanceof ApiError && e.status === 404
+        ? "Ese título ya no está en el catálogo."
+        : mensajeDeError(e))
     }
   }, [id])
+
+  // El título del registro en la pestaña (y al compartir o guardar el enlace).
+  useEffect(() => {
+    if (ficha) document.title = `${ficha.titulo} · Catálogo en línea`
+  }, [ficha])
 
   const cargarMiReserva = useCallback(async () => {
     if (!lector) return setMiReserva(null)
@@ -67,7 +79,10 @@ export default function RegistroPage() {
     <article className="space-y-8">
       <nav className="text-sm">
         <Link href="/opac/buscar" className="text-muted-foreground hover:text-foreground hover:underline"
-              onClick={(e) => { if (window.history.length > 1) { e.preventDefault(); window.history.back() } }}>
+              onClick={(e) => {
+                // Atrás solo si se llegó desde el propio catálogo: si no, saldría del sitio.
+                if (vinoDesdeElOpac()) { e.preventDefault(); window.history.back() }
+              }}>
           ← Volver a los resultados
         </Link>
       </nav>
@@ -112,6 +127,8 @@ export default function RegistroPage() {
                 </Link>
               </Button>
             )
+          ) : ficha.ejemplares_detalle.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Todavía no hay ejemplares para reservar</p>
           ) : (
             <p className="text-sm text-muted-foreground">Solo para consulta en sala</p>
           )}

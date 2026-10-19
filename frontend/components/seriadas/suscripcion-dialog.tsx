@@ -112,6 +112,8 @@ function Formulario({ onCancel }: { onCancel: () => void }) {
   // Vista previa del patrón: los próximos números que se esperarán.
   useEffect(() => {
     if (irregular || !primero) return
+    // Una respuesta vieja (de antes de seguir escribiendo) no pisa a la nueva.
+    let vigente = true
     const t = setTimeout(() => {
       apiPost<FasciculoPredicho[]>("/serials/prediction", {
         frecuencia_unidad: f.unidad,
@@ -124,15 +126,20 @@ function Formulario({ onCancel }: { onCancel: () => void }) {
         cantidad: 6,
       })
         .then((p) => {
+          if (!vigente) return
           setPrevista(p)
           setErrorPatron(null)
         })
         .catch((e) => {
+          if (!vigente) return
           setPrevista([])
           setErrorPatron(mensajeDeError(e))
         })
     }, 300)
-    return () => clearTimeout(t)
+    return () => {
+      vigente = false
+      clearTimeout(t)
+    }
   }, [irregular, f.unidad, f.cada, numeracion, usaVolumen, porVolumen, volumen, numero, primero])
 
   const valido =

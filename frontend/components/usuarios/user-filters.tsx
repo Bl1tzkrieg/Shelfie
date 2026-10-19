@@ -103,8 +103,8 @@ export function UserFilters({
                 <SelectContent>
                   <SelectItem value="all">Cualquier estado</SelectItem>
                   <SelectItem value="active">Activo</SelectItem>
-                  <SelectItem value="inactive">Inactivo</SelectItem>
-                  <SelectItem value="suspended">Con multas</SelectItem>
+                  <SelectItem value="inactive">Suspendido</SelectItem>
+                  <SelectItem value="suspended">Bloqueado por deuda</SelectItem>
                 </SelectContent>
               </Select>
             </div>

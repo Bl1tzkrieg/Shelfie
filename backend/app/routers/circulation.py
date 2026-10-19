@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app import models, schemas
@@ -46,8 +46,11 @@ def declarar_perdido(prestamo_id: int, db: Session = Depends(get_db),
 
 
 @router.get("/loans")
-def get_all_loans(db: Session = Depends(get_db)):
-    return circulacion.listar_prestamos(db)
+def get_all_loans(estado: Optional[str] = Query(None, pattern="^(activos|vencidos)$"),
+                  limite: Optional[int] = Query(None, ge=1, le=500),
+                  db: Session = Depends(get_db)):
+    """Préstamos, del más reciente al más viejo. `estado=vencidos` para las alertas."""
+    return circulacion.listar_prestamos(db, estado, limite)
 
 
 @router.get("/loans/export")
@@ -124,10 +127,12 @@ def enviar_traslado(traslado_id: int, db: Session = Depends(get_db),
 
 @router.post("/transfers/{traslado_id}/receive")
 def recibir_traslado(traslado_id: int, db: Session = Depends(get_db),
-                     actor: models.Usuario = Depends(CIRCULA)):
-    return traslados.recibir(db, traslado_id, actor.id)
+                     actor: models.Usuario = Depends(CIRCULA),
+                     sede: Optional[int] = Depends(sede_de_trabajo)):
+    return traslados.recibir(db, traslado_id, actor.id, sede_trabajo=sede)
 
 
 @router.post("/transfers/{traslado_id}/cancel", dependencies=[Depends(CIRCULA)])
-def cancelar_traslado(traslado_id: int, db: Session = Depends(get_db)):
-    return traslados.cancelar(db, traslado_id)
+def cancelar_traslado(traslado_id: int, db: Session = Depends(get_db),
+                      sede: Optional[int] = Depends(sede_de_trabajo)):
+    return traslados.cancelar(db, traslado_id, sede_trabajo=sede)

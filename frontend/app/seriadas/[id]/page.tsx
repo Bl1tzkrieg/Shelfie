@@ -8,7 +8,7 @@ import { toast } from "sonner"
 
 import { AppLayout } from "@/components/layout/app-layout"
 import { Header } from "@/components/layout/header"
-import { EstadoFasciculoBadge, enlaceReclamo, fechaIso } from "@/components/seriadas/comun"
+import { EstadoFasciculoBadge, fechaIso } from "@/components/seriadas/comun"
 import { RecibirFasciculoDialog } from "@/components/seriadas/recibir-fasciculo-dialog"
 import {
   AlertDialog,
@@ -79,6 +79,19 @@ export default function SuscripcionPage() {
     }
     return [...grupos.entries()]
   }, [s])
+
+  async function reclamarPorCorreo() {
+    if (!s?.proveedor_id) return
+    try {
+      const r = await apiPost<{ reclamados: number; destinatario?: string }>(
+        `/serials/suppliers/${s.proveedor_id}/claim?suscripcion_id=${s.id}`)
+      toast.success(r.reclamados ? `Reclamo enviado a ${r.destinatario}` : "No había números por reclamar",
+                    { description: r.reclamados ? `${r.reclamados} número(s) quedan como reclamados` : undefined })
+      setS(await apiGet<Suscripcion>(`/serials/subscriptions/${s.id}`))
+    } catch (e) {
+      toast.error("No se pudo reclamar", { description: mensajeDeError(e) })
+    }
+  }
 
   async function accion(ruta: string, aviso: string, cuerpo: unknown = {}) {
     try {
@@ -156,11 +169,10 @@ export default function SuscripcionPage() {
             <p className="text-sm text-foreground">
               {atrasados.length} número(s) atrasado(s): {atrasados.map((f) => f.numero).join(", ")}.
             </p>
-            <a className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-               href={enlaceReclamo(s.proveedor_email, s.titulo, atrasados.map((f) => f.numero))}>
-              <Mail className="h-4 w-4" />
+            <Button size="sm" variant="outline" onClick={reclamarPorCorreo}>
+              <Mail className="mr-2 h-4 w-4" />
               Reclamar por correo
-            </a>
+            </Button>
           </div>
         )}
 

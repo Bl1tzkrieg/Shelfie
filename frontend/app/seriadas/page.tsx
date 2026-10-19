@@ -8,7 +8,7 @@ import { toast } from "sonner"
 
 import { AppLayout } from "@/components/layout/app-layout"
 import { Header } from "@/components/layout/header"
-import { EstadoFasciculoBadge, enlaceReclamo, fechaIso } from "@/components/seriadas/comun"
+import { EstadoFasciculoBadge, fechaIso } from "@/components/seriadas/comun"
 import { RecibirFasciculoDialog } from "@/components/seriadas/recibir-fasciculo-dialog"
 import { NuevaSuscripcionDialog } from "@/components/seriadas/suscripcion-dialog"
 import { Badge } from "@/components/ui/badge"
@@ -201,13 +201,13 @@ function Contenido() {
               <section key={proveedor} className="rounded-lg border bg-card">
                 <div className="flex items-center justify-between border-b px-4 py-3">
                   <h3 className="font-semibold text-foreground">{proveedor}</h3>
-                  {lista[0].proveedor_email && (
-                    <a className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-                       href={enlaceReclamo(lista[0].proveedor_email, lista.map((f) => f.titulo).filter((t, i, a) => a.indexOf(t) === i).join(", "),
-                                           lista.map((f) => `${f.titulo}: ${f.numero}`))}>
-                      <Mail className="h-4 w-4" />
+                  {lista[0].proveedor_email && lista[0].proveedor_id && (
+                    <Button size="sm" variant="outline"
+                            onClick={() => accion(`/serials/suppliers/${lista[0].proveedor_id}/claim`,
+                                                  `Reclamo enviado a ${lista[0].proveedor_email}`)}>
+                      <Mail className="mr-2 h-4 w-4" />
                       Reclamar todo por correo
-                    </a>
+                    </Button>
                   )}
                 </div>
                 <ul className="divide-y divide-border">

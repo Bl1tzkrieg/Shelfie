@@ -1,6 +1,6 @@
-from typing import List
+from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 from sqlalchemy.orm import Session
 
 from app import models, schemas
@@ -49,7 +49,7 @@ def estado_de_cuenta(nro_carnet: str, db: Session = Depends(get_db)):
 def registrar_pago(nro_carnet: str, payload: schemas.PagoRequest, db: Session = Depends(get_db),
                    actor: models.Usuario = Depends(requiere(Permiso.CIRCULACION))):
     return cuentas.pagar(db, usuarios.obtener_por_carnet(db, nro_carnet), payload.monto,
-                         payload.descripcion, actor.id)
+                         payload.descripcion, actor.id, payload.cargo_id)
 
 
 @router.post("/users/{nro_carnet}/account/waivers", response_model=schemas.EstadoCuentaResponse)
@@ -88,7 +88,9 @@ def export_users(db: Session = Depends(get_db)):
 
 
 @router.post("/users-import", dependencies=LECTORES)
-def import_users(filas: List[schemas.NuevoUsuarioRequest], db: Session = Depends(get_db)):
+def import_users(filas: List[Dict[str, Any]] = Body(..., max_length=20000),
+                 db: Session = Depends(get_db)):
+    """Cada fila se valida por separado: las inválidas se informan con su número."""
     return usuarios.importar(db, filas)
 
 

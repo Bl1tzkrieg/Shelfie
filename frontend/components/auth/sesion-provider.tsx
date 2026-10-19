@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react"
 
 import { apiGet, apiPost, ApiError, EVENTO_SESION_EXPIRADA } from "@/lib/api"
 import type { ApiUser, Permiso } from "@/lib/types"
+import { ClaveObligatoria } from "@/components/auth/clave-obligatoria"
 
 type EstadoSesion = {
   usuario: ApiUser | null
@@ -26,6 +27,13 @@ function esRutaPublica(pathname: string) {
     RUTAS_PUBLICAS.includes(pathname) ||
     PREFIJOS_PUBLICOS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
   )
+}
+
+/** La página actual con su query string, si `pathname` es la que se está viendo. */
+function conBusqueda(pathname: string) {
+  return typeof window !== "undefined" && window.location.pathname === pathname
+    ? pathname + window.location.search
+    : pathname
 }
 
 /** Ruta de login con la página actual como destino de regreso. */
@@ -53,7 +61,7 @@ export function SesionProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     function alExpirar() {
       setUsuario(null)
-      if (!esRutaPublica(pathname)) router.replace(rutaDeLogin(pathname))
+      if (!esRutaPublica(pathname)) router.replace(rutaDeLogin(conBusqueda(pathname)))
     }
     window.addEventListener(EVENTO_SESION_EXPIRADA, alExpirar)
     return () => window.removeEventListener(EVENTO_SESION_EXPIRADA, alExpirar)
@@ -97,13 +105,28 @@ export function SesionProvider({ children }: { children: React.ReactNode }) {
       return
     }
     if (!cargando && !usuario) {
-      router.replace(saliendo.current ? "/login" : rutaDeLogin(pathname))
+      router.replace(saliendo.current ? "/login" : rutaDeLogin(conBusqueda(pathname)))
     }
   }, [cargando, usuario, esPublica, pathname, router])
 
   // Las páginas privadas no se montan sin sesión: así no disparan peticiones
   // que terminarían en 401 antes de redirigir al login.
   const puedeMostrar = esPublica || (!cargando && usuario !== null)
+
+  // Con la contraseña provisional el backend rechaza todo lo demás (403):
+  // antes de montar la intranet se pide la nueva.
+  if (puedeMostrar && !esPublica && usuario?.debe_cambiar_clave) {
+    return (
+      <SesionContext.Provider value={valor}>
+        <ClaveObligatoria
+          nombre={usuario.nombre}
+          ruta="/auth/password"
+          onListo={() => setUsuario({ ...usuario, debe_cambiar_clave: false })}
+          onSalir={cerrarSesion}
+        />
+      </SesionContext.Provider>
+    )
+  }
 
   return (
     <SesionContext.Provider value={valor}>

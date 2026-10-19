@@ -79,6 +79,15 @@ def cancelar_reserva(reserva_id: int, lector: Lector = Depends(get_lector),
     cuenta_opac.cancelar_reserva(db, lector, reserva_id)
 
 
+@router.get("/notices")
+def mis_avisos(lector: Lector = Depends(get_lector), db: Session = Depends(get_db)):
+    """Los correos que la biblioteca le mandó al lector (sin los de recuperar la contraseña)."""
+    from app.services import avisos
+    return [{k: a[k] for k in ("id", "tipo", "asunto", "cuerpo", "estado", "creado", "enviado")}
+            for a in avisos.listar(db, carnet=lector.nro_carnet, limite=50)
+            if a["codigo"] != "RECUPERAR_CLAVE"]
+
+
 # --- Multas y sugerencias -------------------------------------------------------------------
 
 @router.get("/charges")

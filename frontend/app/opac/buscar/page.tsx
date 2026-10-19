@@ -8,8 +8,17 @@ import { ChevronLeft, ChevronRight, Loader2, X } from "lucide-react"
 import { ClaveFaceta, FacetasBusqueda } from "@/components/catalogo/facetas-busqueda"
 import { TituloResultado } from "@/components/opac/titulo-resultado"
 import { Button } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { apiGet, mensajeDeError } from "@/lib/api"
 import type { ResultadosOpac } from "@/lib/opac"
+import type { OrdenBusqueda } from "@/lib/types"
+
+const ORDENES: Record<OrdenBusqueda, string> = {
+  relevancia: "Más relevantes",
+  titulo: "Título (A–Z)",
+  ano_desc: "Más recientes",
+  ano_asc: "Más antiguos",
+}
 
 const POR_PAGINA = 20
 const FACETAS: ClaveFaceta[] = ["disponible", "tipo", "materia", "autor", "decada"]
@@ -49,6 +58,13 @@ function Resultados() {
     apiGet<ResultadosOpac>(`/opac/search?${p}`)
       .then((r) => {
         if (!vigente) return
+        // ?pagina=50 con 3 páginas: se va a la última en vez de mostrar una lista vacía.
+        if (r.paginas >= 1 && pagina > r.paginas) {
+          const corregida = new URLSearchParams(clave)
+          corregida.set("pagina", String(r.paginas))
+          router.replace(`${pathname}?${corregida}`)
+          return
+        }
         setRespuesta(r)
         setError(null)
       })
@@ -57,7 +73,7 @@ function Resultados() {
     return () => {
       vigente = false
     }
-  }, [clave, pagina])
+  }, [clave, pagina, pathname, router])
 
   function cambiar(cambios: Record<string, string | null>) {
     const p = new URLSearchParams(clave)
@@ -89,9 +105,24 @@ function Resultados() {
             {q ? <>Resultados para «{q}»</> : "Todo el catálogo"}
           </h1>
           {respuesta && (
-            <p className="text-sm tabular-nums text-muted-foreground">
-              {respuesta.total} título{respuesta.total === 1 ? "" : "s"}
-            </p>
+            <div className="flex items-center gap-3">
+              <p className="text-sm tabular-nums text-muted-foreground">
+                {respuesta.total} título{respuesta.total === 1 ? "" : "s"}
+              </p>
+              {respuesta.total > 1 && (
+                <Select value={(params.get("orden") as OrdenBusqueda) || "relevancia"}
+                        onValueChange={(v) => cambiar({ orden: v === "relevancia" ? null : v })}>
+                  <SelectTrigger size="sm" className="w-40" aria-label="Ordenar resultados">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(ORDENES) as OrdenBusqueda[]).map((o) => (
+                      <SelectItem key={o} value={o}>{ORDENES[o]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
           )}
         </div>
 
@@ -105,7 +136,10 @@ function Resultados() {
                 className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-sm text-primary hover:bg-primary/15"
               >
                 {k === "disponible" ? (v === "si" ? "Con ejemplares libres" : "Sin ejemplares libres")
-                  : k === "decada" ? `${v}–${Number(v) + 9}` : v}
+                  : k === "decada" ? `${v}–${Number(v) + 9}`
+                  // El tipo llega como código (LIB): se muestra su nombre, como en el panel.
+                  : k === "tipo" ? (respuesta?.facetas.tipos.find((t) => String(t.valor) === v)?.etiqueta ?? v)
+                  : v}
                 <X className="h-3.5 w-3.5" aria-label="Quitar" />
               </button>
             ))}

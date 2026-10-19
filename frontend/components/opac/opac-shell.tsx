@@ -5,7 +5,7 @@ import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { BookMarked, LogIn, LogOut, Search, UserRound } from "lucide-react"
 
-import { rutaDeEntrada, useLector } from "@/components/opac/lector-provider"
+import { destinoActual, registrarPaginaVista, rutaDeEntrada, useLector } from "@/components/opac/lector-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { apiGet } from "@/lib/api"
@@ -14,6 +14,11 @@ import type { Biblioteca } from "@/lib/opac"
 /** Cabecera, buscador y pie del catálogo público. */
 export function OpacShell({ children }: { children: React.ReactNode }) {
   const [biblioteca, setBiblioteca] = useState<Biblioteca | null>(null)
+  const pathname = usePathname()
+
+  useEffect(() => {
+    registrarPaginaVista()
+  }, [pathname])
 
   useEffect(() => {
     apiGet<Biblioteca>("/opac/library").then(setBiblioteca).catch(() => setBiblioteca(null))
@@ -79,7 +84,11 @@ function Cabecera({ nombre }: { nombre: string | null }) {
             </>
           ) : (
             <Button asChild size="sm">
-              <Link href={rutaDeEntrada(pathname)}>
+              <Link href={rutaDeEntrada(pathname)} onClick={(e) => {
+                // Con la búsqueda incluida: al entrar se vuelve a los mismos resultados.
+                e.preventDefault()
+                router.push(rutaDeEntrada(destinoActual(pathname)))
+              }}>
                 <LogIn className="mr-1.5 h-4 w-4" />
                 Entrar
               </Link>

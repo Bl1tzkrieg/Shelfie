@@ -81,7 +81,7 @@ def test_un_token_no_sirve_del_otro_lado(anonimo, client, datos):
     assert client.get(CUENTA).status_code == 401
     token = jwt.decode(crear_token_acceso(lector, "opac"), settings.SECRET_KEY,
                        algorithms=["HS256"], audience="opac")
-    assert token["carnet"] == "1001"
+    assert token["sub"] == str(lector.id) and "carnet" not in token
 
 
 @pytest.mark.parametrize("metodo,ruta", [
@@ -210,7 +210,8 @@ def test_reservar_suspender_cambiar_sede_y_cancelar(entrar, datos, db):
     assert "userName" not in h and "itemBarcode" not in h
 
     otra = lector.post(f"{CUENTA}/holds", json={"biblio_id": novela.id})
-    assert otra.status_code == 400
+    # M15: el mensaje le habla al lector, no al bibliotecario.
+    assert otra.status_code == 400 and otra.json()["detail"].startswith("Ya tienes una reserva")
 
     id_ = h["id"]
     cambiada = lector.patch(f"{CUENTA}/holds/{id_}",
@@ -404,3 +405,25 @@ def test_renovar_un_vencido_pide_aceptar_el_cargo(entrar, datos, db):
     r = lector.post(f"{CUENTA}/loans/{vencido.id}/renew", json={"aceptar_cargo": True})
     assert r.status_code == 200 and "Bs. 19,50" in r.json()["mensaje"]
     assert lector.get(CUENTA).json()["saldo"] == 19.5
+
+
+def test_mensajes_de_reserva_para_el_lector(entrar, datos, db):
+    """M15: préstamo del mismo título y límite de reservas, en segunda persona."""
+    novela = datos.titulo()
+    item = datos.ejemplar(novela, "A")
+    lector = entrar("1001")
+    usuario = db.query(models.Usuario).filter_by(nro_carnet="1001").one()
+    datos.prestamo(item, usuario)
+    item.estado = "Prestado"
+    db.commit()
+
+    r = lector.post(f"{CUENTA}/holds", json={"biblio_id": novela.id})
+    assert r.status_code == 400 and r.json()["detail"] == "Ya tienes prestado un ejemplar de este título"
+
+    db.query(models.ReglaCirculacion).update({models.ReglaCirculacion.max_reservas: 0})
+    db.commit()
+    otro = datos.titulo("Otro", None)
+    datos.ejemplar(otro, "B", estado="Prestado")
+    r = lector.post(f"{CUENTA}/holds", json={"biblio_id": otro.id})
+    assert r.status_code == 400 and r.json()["detail"].startswith("Llegaste al máximo de 0")
+    assert "usuario" not in r.json()["detail"].lower()

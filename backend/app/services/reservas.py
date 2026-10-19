@@ -57,12 +57,66 @@ def _liberar(db: Session, item: models.Item) -> None:
 
 # --- Pasos del ciclo (los usa traslados.ubicar) ----------------------------------------
 
-def siguiente_para(db: Session, item: models.Item) -> Optional[models.Reserva]:
-    """La primera reserva pendiente y no suspendida del título del ejemplar."""
-    return db.query(Rs).filter(
+def _contexto_atencion(db: Session) -> tuple:
+    return ({t.id: t for t in db.query(models.TipoItem)}, db.query(models.ReglaCirculacion).all())
+
+
+def puede_atender(db: Session, usuario: Optional[models.Usuario], item: models.Item,
+                  contexto: Optional[tuple] = None) -> bool:
+    """¿Este ejemplar le sirve a este lector? Activo, y el material se le presta a domicilio."""
+    if not usuario or not usuario.activo:
+        return False
+    tipos, todas = contexto or _contexto_atencion(db)
+    tipo = tipos.get(item.tipo_item_id)
+    if tipo is not None and not tipo.es_prestable:
+        return False
+    regla = reglas.elegir(todas, usuario.categoria_id, item.tipo_item_id,
+                          item.biblioteca_actual_id or item.biblioteca_propia_id)
+    return bool(regla is None or regla.prestable)
+
+
+def siguiente_para(db: Session, item: models.Item,
+                   bloquear: bool = False) -> Optional[models.Reserva]:
+    """La primera reserva pendiente, no suspendida, a la que este ejemplar le sirve.
+
+    Se saltan los lectores suspendidos y aquellos a quienes este material no se les presta
+    (una copia de sala no atiende reservas). Con `bloquear`, la reserva elegida queda tomada
+    (FOR UPDATE SKIP LOCKED): dos devoluciones simultáneas no se llevan la misma.
+    """
+    consulta = db.query(Rs).filter(
         Rs.biblio_id == item.biblio_id, Rs.estado == PENDIENTE,
         Rs.suspendida == False).order_by(  # noqa: E712
-        Rs.prioridad, Rs.fecha_reserva, Rs.id).first()
+        Rs.prioridad, Rs.fecha_reserva, Rs.id)
+    if bloquear:
+        consulta = consulta.with_for_update(skip_locked=True)
+    contexto = None
+    for reserva in consulta:
+        contexto = contexto or _contexto_atencion(db)
+        if puede_atender(db, db.get(models.Usuario, reserva.usuario_id), item, contexto):
+            return reserva
+    return None
+
+
+def motivo_no_reservable(db: Session, biblio_id: int) -> Optional[str]:
+    """Por qué no se puede reservar un título (None si se puede).
+
+    Hace falta al menos un ejemplar que se preste a domicilio y no esté perdido ni dado
+    de baja, o una línea de pedido abierta (el título viene en camino).
+    """
+    I, T = models.Item, models.TipoItem
+    prestables = db.query(I.id).outerjoin(T, T.id == I.tipo_item_id).filter(
+        I.biblio_id == biblio_id, I.estado.notin_(("Perdido", "Retirado")),
+        (T.es_prestable == True) | (I.tipo_item_id == None)).first()  # noqa: E711,E712
+    if prestables:
+        return None
+    L, S = models.LineaOrden, models.Suscripcion
+    en_pedido = db.query(L.id).filter(L.biblio_id == biblio_id,
+                                      L.estado.in_(("Pendiente", "Parcial"))).first()
+    suscrita = db.query(S.id).filter(S.biblio_id == biblio_id, S.estado == "Activa",
+                                     S.crear_ejemplares == True).first()  # noqa: E712
+    if en_pedido or suscrita:
+        return None
+    return "Este título no tiene ejemplares que se presten a domicilio"
 
 
 def poner_en_espera(db: Session, reserva: models.Reserva, item: models.Item) -> None:
@@ -74,6 +128,21 @@ def poner_en_espera(db: Session, reserva: models.Reserva, item: models.Item) -> 
     reserva.fecha_expiracion = fin_del_dia(vence)
     item.estado = "Reservado"
     renumerar(db, item.biblio_id)
+    _avisar(db, "RESERVA_LISTA", reserva, f"RESERVA_LISTA:{reserva.id}:{item.id}",
+            retirar_hasta=formatear_fecha(reserva.fecha_expiracion))
+
+
+def _avisar(db: Session, codigo: str, reserva: models.Reserva, clave: str, **extra) -> None:
+    from app.services import avisos
+
+    usuario = db.get(models.Usuario, reserva.usuario_id)
+    biblio = db.get(models.RegistroBibliografico, reserva.biblio_id)
+    sede = db.get(models.Biblioteca, reserva.biblioteca_retiro_id) \
+        if reserva.biblioteca_retiro_id else None
+    if usuario and biblio:
+        avisos.para_lector(db, codigo, usuario, {
+            "titulo": biblio.titulo, "autor": biblio.autor or "",
+            "sede": sede.nombre if sede else "la biblioteca", **extra}, clave=clave)
 
 
 def poner_en_transito(db: Session, reserva: models.Reserva, item: models.Item) -> None:
@@ -119,6 +188,7 @@ def expirar_vencidas(db: Session) -> int:
     vencidas = db.query(Rs).filter(Rs.estado == EN_ESPERA, Rs.fecha_expiracion < ahora()).all()
     for reserva in vencidas:
         _cerrar(reserva, EXPIRADA)
+        _avisar(db, "RESERVA_EXPIRADA", reserva, f"RESERVA_EXPIRADA:{reserva.id}")
         item = db.get(models.Item, reserva.item_id) if reserva.item_id else None
         if item and item.estado == "Reservado":
             _liberar(db, item)
@@ -147,10 +217,17 @@ def resolver_al_prestar(db: Session, usuario: models.Usuario, item: models.Item)
     estado_previo, otro_item_id = propia.estado, propia.item_id
     _cerrar(propia, CUMPLIDA)
     renumerar(db, item.biblio_id)
-    if estado_previo == EN_ESPERA and otro_item_id and otro_item_id != item.id:
-        otro = db.get(models.Item, otro_item_id)
-        if otro and otro.estado == "Reservado":
-            _liberar(db, otro)
+    if not otro_item_id or otro_item_id == item.id:
+        return
+    otro = db.get(models.Item, otro_item_id)
+    if not otro:
+        return
+    if estado_previo == EN_ESPERA and otro.estado == "Reservado":
+        _liberar(db, otro)
+    elif estado_previo == EN_TRANSITO:
+        # El otro ejemplar iba hacia su sede para él: si no salió, no tiene que viajar.
+        from app.services import traslados  # importa reservas: se resuelve al usarlo
+        traslados.anular_si_no_salio(db, propia.id, otro)
 
 
 def hay_cola(db: Session, biblio_id: int) -> bool:
@@ -176,7 +253,12 @@ def _punto_de_retiro_por_defecto(db: Session, usuario: models.Usuario,
 
 def reservar(db: Session, biblio_id: int, nro_carnet: str, *,
              biblioteca_retiro_id: Optional[int] = None, fecha_limite: Optional[date] = None,
-             notas: Optional[str] = None, sede_trabajo: Optional[int] = None) -> dict:
+             notas: Optional[str] = None, sede_trabajo: Optional[int] = None,
+             para_el_lector: bool = False) -> dict:
+    """Crea la reserva. `para_el_lector`: los mensajes le hablan al lector (OPAC), no al personal."""
+    def msg(personal: str, lector: str) -> str:
+        return lector if para_el_lector else personal
+
     usuario = db.query(models.Usuario).filter(
         models.Usuario.nro_carnet == nro_carnet,
         models.Usuario.activo == True).first()  # noqa: E712
@@ -189,25 +271,34 @@ def reservar(db: Session, biblio_id: int, nro_carnet: str, *,
 
     if db.query(Rs).filter(Rs.biblio_id == biblio.id, Rs.usuario_id == usuario.id,
                            Rs.estado.in_(ACTIVAS)).first():
-        raise ReglaIncumplida("El usuario ya tiene una reserva activa sobre este título")
+        raise ReglaIncumplida(msg("El usuario ya tiene una reserva activa sobre este título",
+                                  "Ya tienes una reserva de este título: la ves en Mi cuenta"))
 
     tiene_prestado = db.query(models.Prestamo).join(
         models.Item, models.Item.id == models.Prestamo.item_id).filter(
         models.Item.biblio_id == biblio.id, models.Prestamo.usuario_id == usuario.id,
         models.Prestamo.fecha_devolucion == None).first()  # noqa: E711
     if tiene_prestado:
-        raise ReglaIncumplida("El usuario ya tiene prestado un ejemplar de este título")
+        raise ReglaIncumplida(msg("El usuario ya tiene prestado un ejemplar de este título",
+                                  "Ya tienes prestado un ejemplar de este título"))
 
     saldo, umbral = cuentas.saldo(db, usuario.id), cuentas.umbral_de_bloqueo(db)
     if cuentas.esta_bloqueado(saldo, umbral):
-        raise ReglaIncumplida(
-            f"El usuario debe Bs. {saldo:.2f} (supera el máximo de Bs. {umbral:.2f})")
+        raise ReglaIncumplida(msg(
+            f"El usuario debe Bs. {saldo:.2f} (supera el máximo de Bs. {umbral:.2f})",
+            f"Tienes una deuda de Bs. {saldo:.2f}: págala en la biblioteca para reservar"))
 
     regla = reglas.regla_para(db, usuario.categoria_id, None, usuario.biblioteca_id)
     activas = db.query(Rs).filter(Rs.usuario_id == usuario.id, Rs.estado.in_(ACTIVAS)).count()
     if activas >= regla.max_reservas:
-        raise ReglaIncumplida(
-            f"El usuario alcanzó su límite de {regla.max_reservas} reservas activas")
+        raise ReglaIncumplida(msg(
+            f"El usuario alcanzó su límite de {regla.max_reservas} reservas activas",
+            f"Llegaste al máximo de {regla.max_reservas} reservas activas: cancela alguna "
+            "o espera a retirarlas"))
+
+    motivo = motivo_no_reservable(db, biblio.id)
+    if motivo:
+        raise ReglaIncumplida(motivo)
 
     if fecha_limite is not None and fecha_limite < hoy():
         raise ReglaIncumplida("La fecha límite no puede estar en el pasado")
@@ -278,6 +369,9 @@ def modificar(db: Session, reserva_id: int, datos: dict) -> dict:
         reserva.biblioteca_retiro_id = sedes.validar_punto_de_retiro(
             db, datos["biblioteca_retiro_id"])
 
+    # Mandar solo la fecha de reanudación es pedir la suspensión hasta ese día.
+    if datos.get("suspendida_hasta") is not None and datos.get("suspendida") is None:
+        datos = {**datos, "suspendida": True}
     if "suspendida" in datos and datos["suspendida"] is not None:
         solo_pendiente("la suspensión")
         hasta = datos.get("suspendida_hasta")
@@ -410,16 +504,25 @@ def por_sacar(db: Session, sede_id: Optional[int] = None) -> List[dict]:
     for reserva, lector in db.query(Rs, models.Usuario).join(
             models.Usuario, models.Usuario.id == Rs.usuario_id).filter(
             Rs.biblio_id.in_(titulos), Rs.estado == PENDIENTE,
-            Rs.suspendida == False).order_by(  # noqa: E712
+            Rs.suspendida == False, models.Usuario.activo == True).order_by(  # noqa: E712
             Rs.biblio_id, Rs.prioridad, Rs.fecha_reserva, Rs.id):
         primeras.setdefault(reserva.biblio_id, (reserva, lector))
 
     nombres_sedes = sedes.nombres(db)
+    contexto = _contexto_atencion(db)
     resultado = []
     for biblio_id in titulos:
+        if biblio_id not in primeras:
+            continue
         biblio = biblios[biblio_id]
         reserva, lector = primeras[biblio_id]
-        del_titulo = [i for i in items if i.biblio_id == biblio_id]
+        # Solo las copias que le sirven; primero las que ya están en su sede de retiro.
+        del_titulo = sorted(
+            (i for i in items if i.biblio_id == biblio_id
+             and puede_atender(db, lector, i, contexto)),
+            key=lambda i: i.biblioteca_actual_id != reserva.biblioteca_retiro_id)
+        if not del_titulo:
+            continue
         resultado.append({
             "biblioId": str(biblio_id),
             "title": biblio.titulo,

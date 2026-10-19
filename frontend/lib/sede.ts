@@ -28,7 +28,18 @@ export function guardarSede(id: number | null) {
   window.dispatchEvent(new Event(EVENTO_SEDE))
 }
 
+/**
+ * La sede que resolvió el proveedor (elegida, la del usuario o la primera). Vive en memoria,
+ * no en el navegador: así viaja siempre en las peticiones y la intranet y el backend operan
+ * con la misma sede, sin que una persona herede la de quien usó antes el equipo.
+ */
+let sedeEfectiva: number | null = null
+
+export function fijarSedeEfectiva(id: number | null) {
+  sedeEfectiva = id
+}
+
 export function cabeceraDeSede(): Record<string, string> {
-  const sede = leerSede()
+  const sede = leerSede() ?? sedeEfectiva
   return sede === null ? {} : { [CABECERA_SEDE]: String(sede) }
 }

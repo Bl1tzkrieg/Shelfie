@@ -10,6 +10,23 @@ from fastapi.responses import StreamingResponse
 BOM = "﻿"
 
 
+# Una celda que empieza así se interpreta como fórmula en Excel y LibreOffice.
+_INICIO_DE_FORMULA = ("=", "+", "-", "@", "\t", "\r")
+
+
+def celda_segura(valor):
+    """Neutraliza la inyección de fórmulas: un nombre como «=HYPERLINK(...)» se exporta
+    con un apóstrofo delante, que la hoja de cálculo muestra como texto. Los números
+    (incluidos los negativos) se dejan tal cual."""
+    if isinstance(valor, str) and valor.startswith(_INICIO_DE_FORMULA):
+        try:
+            float(valor)
+            return valor
+        except ValueError:
+            return "'" + valor
+    return valor
+
+
 def respuesta_csv(
     filas: List[dict],
     nombre_archivo: str,
@@ -23,7 +40,7 @@ def respuesta_csv(
         campos = list(columnas) if columnas else (list(filas[0].keys()) if filas else [])
         writer = csv.DictWriter(buffer, fieldnames=campos, extrasaction="ignore")
         writer.writeheader()
-        writer.writerows(filas)
+        writer.writerows({k: celda_segura(v) for k, v in fila.items()} for fila in filas)
 
     return StreamingResponse(
         iter([BOM + buffer.getvalue()]),

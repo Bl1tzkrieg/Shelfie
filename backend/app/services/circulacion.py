@@ -9,7 +9,6 @@ from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import models
@@ -91,7 +90,9 @@ def prestar(db: Session, codigo_barras: str, nro_carnet: str,
     if not usuario:
         raise NoEncontrado("Usuario no encontrado o inactivo")
 
-    item = db.query(models.Item).filter(models.Item.codigo_barras == codigo_barras).first()
+    # Bloqueo de fila: dos mostradores con el mismo código no pasan juntos la comprobación.
+    item = db.query(models.Item).filter(
+        models.Item.codigo_barras == codigo_barras).with_for_update().first()
     if not item:
         raise NoEncontrado("Ejemplar de biblioteca no encontrado")
     if item.estado == "EnTransito":
@@ -149,7 +150,9 @@ def devolver(db: Session, codigo_barras: str, personal_id: Optional[int] = None,
     reservas.expirar_vencidas(db)
     sede_id = sede_id or _sede_por_defecto(db)
 
-    item = db.query(models.Item).filter(models.Item.codigo_barras == codigo_barras).first()
+    # Bloqueo de fila: dos mostradores con el mismo código no pasan juntos la comprobación.
+    item = db.query(models.Item).filter(
+        models.Item.codigo_barras == codigo_barras).with_for_update().first()
     if not item:
         raise NoEncontrado("Ejemplar de biblioteca no encontrado")
     if item.estado == "Perdido":
@@ -244,21 +247,19 @@ def _recuperar_perdido(db: Session, item: models.Item, personal_id: Optional[int
     reintegro, lector = Decimal("0.00"), None
     if prestamo:
         lector = db.get(models.Usuario, prestamo.usuario_id)
-        M = models.MovimientoCuenta
-        reposiciones = db.query(M.id).filter(M.prestamo_id == prestamo.id,
-                                             M.tipo == "REPOSICION")
-        # Se reintegra lo cargado por reposición menos lo ya reintegrado y lo condonado
-        # de ese cargo: lo perdonado no se devuelve.
-        cargado = db.query(func.coalesce(func.sum(M.monto), 0)).filter(
-            M.prestamo_id == prestamo.id,
-            M.tipo.in_(("REPOSICION", "REINTEGRO"))
-            | ((M.tipo == "CONDONACION") & M.cargo_id.in_(reposiciones))).scalar()
-        reintegro = Decimal(str(cargado)).quantize(Decimal("0.01"))
+        # Lo cargado por reposición menos lo perdonado y lo ya reintegrado: se devuelve lo
+        # pagado y se anula lo que seguía pendiente. Las condonaciones y pagos "en general"
+        # cuentan, porque la imputación los asigna a los cargos más viejos.
+        reposiciones = [c for c in cuentas.imputacion_de(db, prestamo.usuario_id).values()
+                        if c["cargo"].tipo == "REPOSICION"
+                        and c["cargo"].prestamo_id == prestamo.id]
+        reintegro = sum((c["monto"] - c["condonado"] - c["reintegrado"] for c in reposiciones),
+                        Decimal("0.00")).quantize(Decimal("0.01"))
         if lector and reintegro > 0:
             cuentas.registrar(
                 db, lector, "REINTEGRO", -reintegro, prestamo_id=prestamo.id,
                 descripcion=f"Reintegro: apareció el ejemplar {item.codigo_barras}",
-                personal_id=personal_id, cargo_id=reposiciones.order_by(M.id.desc()).scalar())
+                personal_id=personal_id, cargo_id=max(c["cargo"].id for c in reposiciones))
         else:
             reintegro = Decimal("0.00")
 
@@ -268,7 +269,7 @@ def _recuperar_perdido(db: Session, item: models.Item, personal_id: Optional[int
 
 
 def renovar(db: Session, prestamo_id: int, personal_id: Optional[int] = None) -> dict:
-    prestamo = db.get(models.Prestamo, prestamo_id)
+    prestamo = db.get(models.Prestamo, prestamo_id, with_for_update=True)
     if not prestamo:
         raise NoEncontrado("Préstamo no encontrado")
     if prestamo.fecha_devolucion:
@@ -319,7 +320,7 @@ def renovar(db: Session, prestamo_id: int, personal_id: Optional[int] = None) ->
 
 def declarar_perdido(db: Session, prestamo_id: int, personal_id: Optional[int] = None) -> dict:
     """Cierra el préstamo, marca el ejemplar como perdido y cobra la reposición."""
-    prestamo = db.get(models.Prestamo, prestamo_id)
+    prestamo = db.get(models.Prestamo, prestamo_id, with_for_update=True)
     if not prestamo:
         raise NoEncontrado("Préstamo no encontrado")
     if prestamo.fecha_devolucion:
@@ -327,9 +328,20 @@ def declarar_perdido(db: Session, prestamo_id: int, personal_id: Optional[int] =
 
     usuario = db.get(models.Usuario, prestamo.usuario_id)
     item = db.get(models.Item, prestamo.item_id)
+    ajustes = configuracion.leer(db, "circulacion")
     precio = item.precio_reposicion
     if precio is None:
-        precio = configuracion.leer(db, "circulacion")["precio_reposicion"]
+        precio = ajustes["precio_reposicion"]
+
+    # La mora acumulada hasta hoy no se borra por perder el libro (Koha: WhenLostForgiveFine).
+    momento, multa = ahora(), Decimal("0.00")
+    if not ajustes.get("perdonar_mora_al_perder") and momento > prestamo.fecha_vencimiento:
+        multa = calcular_multa(calendario.cargar(db), regla_del_prestamo(db, usuario, item),
+                               prestamo.fecha_vencimiento, momento)
+        if multa > 0:
+            cuentas.registrar(db, usuario, "MULTA_ATRASO", multa, prestamo_id=prestamo.id,
+                              descripcion=f"Atraso de {item.codigo_barras} hasta declararlo perdido",
+                              personal_id=personal_id)
 
     cuentas.registrar(db, usuario, "REPOSICION", precio, prestamo_id=prestamo.id,
                       descripcion=f"Reposición del ejemplar perdido {item.codigo_barras}",
@@ -339,7 +351,8 @@ def declarar_perdido(db: Session, prestamo_id: int, personal_id: Optional[int] =
     prestamo.perdido = True
     item.estado = "Perdido"
     db.commit()
-    return {"mensaje": "Ejemplar declarado perdido", "cargo_reposicion": float(precio)}
+    return {"mensaje": "Ejemplar declarado perdido", "cargo_reposicion": float(precio),
+            "multa_atraso": float(multa)}
 
 
 # --- Consultas --------------------------------------------------------------------
@@ -374,10 +387,24 @@ def _vista_prestamo(p, item, biblio, momento) -> dict:
     }
 
 
-def listar_prestamos(db: Session) -> List[dict]:
-    """Vista de préstamos que consume la tabla de circulación."""
+def listar_prestamos(db: Session, estado: Optional[str] = None,
+                     limite: Optional[int] = None) -> List[dict]:
+    """Vista de préstamos que consume la tabla de circulación.
+
+    `estado`: «vencidos» (sin devolver y ya vencidos) o «activos» (sin devolver); sin él,
+    todos, históricos incluidos. `limite`: los N más recientes (el panel pide 5).
+    """
     momento = ahora()
-    filas = _consulta_prestamos(db).order_by(models.Prestamo.id.desc()).all()
+    P = models.Prestamo
+    consulta = _consulta_prestamos(db)
+    if estado in ("activos", "vencidos"):
+        consulta = consulta.filter(P.fecha_devolucion == None)  # noqa: E711
+    if estado == "vencidos":
+        consulta = consulta.filter(P.fecha_vencimiento < momento)
+    consulta = consulta.order_by(P.id.desc())
+    if limite:
+        consulta = consulta.limit(limite)
+    filas = consulta.all()
     todas_las_reglas = db.query(models.ReglaCirculacion).all()
     sede = _sede_por_defecto(db)
 

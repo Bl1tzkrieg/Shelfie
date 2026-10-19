@@ -30,3 +30,6 @@ out/
 # Sistema operativo
 .DS_Store
 Thumbs.db
+
+# Correos de prueba (CORREO_MODO=archivo)
+backend/correo_saliente/

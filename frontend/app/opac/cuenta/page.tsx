@@ -5,6 +5,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { KeyRound, Loader2 } from "lucide-react"
 
 import { CambiarClaveDialog } from "@/components/auth/cambiar-clave-dialog"
+import { ClaveObligatoria } from "@/components/auth/clave-obligatoria"
+import { AvisosLector } from "@/components/opac/cuenta/avisos-lector"
 import { HistorialLector } from "@/components/opac/cuenta/historial-lector"
 import { ListasLector } from "@/components/opac/cuenta/listas-lector"
 import { MultasLector } from "@/components/opac/cuenta/multas-lector"
@@ -16,7 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { formatoBs } from "@/lib/opac"
 
-const VISTAS = ["prestamos", "reservas", "multas", "historial", "listas", "sugerencias"] as const
+const VISTAS = ["prestamos", "reservas", "multas", "historial", "listas", "sugerencias", "avisos"] as const
 type Vista = (typeof VISTAS)[number]
 
 export default function CuentaPage() {
@@ -31,19 +33,34 @@ function Cuenta() {
   const router = useRouter()
   const pathname = usePathname()
   const params = useSearchParams()
-  const { lector, cargando } = useLector()
+  const { lector, cargando, errorDeConexion, recargar, salir } = useLector()
   const [cambiandoClave, setCambiandoClave] = useState(false)
   const pedida = params.get("vista")
   const vista: Vista = VISTAS.find((v) => v === pedida) ?? "prestamos"
 
   useEffect(() => {
-    if (!cargando && !lector) {
+    if (!cargando && !lector && !errorDeConexion) {
       const actual = params.toString() ? `${pathname}?${params}` : pathname
       router.replace(rutaDeEntrada(actual))
     }
-  }, [cargando, lector, pathname, params, router])
+  }, [cargando, lector, errorDeConexion, pathname, params, router])
 
+  if (!lector && errorDeConexion && !cargando) {
+    return (
+      <div role="alert" className="mx-auto mt-12 max-w-md space-y-3 text-center">
+        <p className="font-medium text-foreground">No pudimos abrir tu cuenta</p>
+        <p className="text-sm text-muted-foreground">{errorDeConexion}</p>
+        <Button variant="outline" onClick={() => void recargar()}>Reintentar</Button>
+      </div>
+    )
+  }
   if (!lector) return <Loader2 className="mx-auto mt-12 h-6 w-6 animate-spin text-muted-foreground" />
+  if (lector.debe_cambiar_clave) {
+    return (
+      <ClaveObligatoria nombre={lector.nombre} ruta="/opac/account/password" pantallaCompleta={false}
+                        onListo={() => void recargar()} onSalir={() => void salir()} />
+    )
+  }
 
   const contadores: Partial<Record<Vista, number>> = {
     prestamos: lector.prestamos,
@@ -90,7 +107,7 @@ function Cuenta() {
             {VISTAS.map((v) => (
               <TabsTrigger key={v} value={v}>
                 {{ prestamos: "Préstamos", reservas: "Reservas", multas: "Multas", historial: "Historial",
-                   listas: "Mis listas", sugerencias: "Sugerencias" }[v]}
+                   listas: "Mis listas", sugerencias: "Sugerencias", avisos: "Avisos" }[v]}
                 {contadores[v] ? <span className="ml-1.5 tabular-nums text-muted-foreground">{contadores[v]}</span> : null}
               </TabsTrigger>
             ))}
@@ -102,6 +119,7 @@ function Cuenta() {
         <TabsContent value="historial" className="pt-4"><HistorialLector /></TabsContent>
         <TabsContent value="listas" className="pt-4"><ListasLector /></TabsContent>
         <TabsContent value="sugerencias" className="pt-4"><SugerenciasLector /></TabsContent>
+        <TabsContent value="avisos" className="pt-4"><AvisosLector /></TabsContent>
       </Tabs>
 
       <CambiarClaveDialog open={cambiandoClave} onOpenChange={setCambiandoClave} ruta="/opac/account/password" />

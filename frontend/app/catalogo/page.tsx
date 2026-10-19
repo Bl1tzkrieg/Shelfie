@@ -140,7 +140,10 @@ function CatalogoContenido() {
 
   const navegar = useCallback(
     (cambios: Record<string, string | null>, { reiniciarPagina = true } = {}) => {
-      const p = new URLSearchParams(searchParams.toString())
+      // La URL de este momento, no la del render en que se creó la función: el buscador
+      // navega 300 ms después de la tecla y en ese tiempo pudo elegirse una faceta u orden.
+      const p = new URLSearchParams(
+        typeof window !== "undefined" ? window.location.search : searchParams.toString())
       for (const [k, v] of Object.entries(cambios)) {
         if (v === null || v === "") p.delete(k)
         else p.set(k, v)
@@ -238,7 +241,7 @@ function CatalogoContenido() {
               filtrosActivos={filtrosActivos}
             />
           </div>
-          <div className="flex shrink-0 gap-2">
+          <div className="flex flex-wrap gap-2 sm:shrink-0">
             <Button variant="outline" onClick={() => setIntercambio(true)}>
               <ArrowLeftRight className="mr-2 h-4 w-4" />
               Importar / Exportar
@@ -266,7 +269,7 @@ function CatalogoContenido() {
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            <AgregarMaterialDialog onSuccess={recargar} />
+            {puedeCatalogar && <AgregarMaterialDialog onSuccess={recargar} />}
           </div>
         </div>
 

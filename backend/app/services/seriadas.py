@@ -15,6 +15,7 @@ import re
 from datetime import date, timedelta
 from typing import List, Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import models
@@ -42,21 +43,23 @@ NOMBRE_FRECUENCIA = {
 
 # --- Patrón de predicción -------------------------------------------------------------
 
-def _sumar_meses(fecha: date, meses: int) -> date:
+def _sumar_meses(fecha: date, meses: int, dia: Optional[int] = None) -> date:
     total = fecha.month - 1 + meses
     ano, mes = fecha.year + total // 12, total % 12 + 1
-    return date(ano, mes, min(fecha.day, calendar.monthrange(ano, mes)[1]))
+    return date(ano, mes, min(dia or fecha.day, calendar.monthrange(ano, mes)[1]))
 
 
-def sumar(fecha: date, unidad: str, cada: int) -> date:
+def sumar(fecha: date, unidad: str, cada: int, dia_ancla: Optional[int] = None) -> date:
+    """La fecha siguiente. `dia_ancla`: el día del mes del primer número, para que un
+    mensual del 31 vaya 31 ene → 28 feb → 31 mar, y no se quede en el 28."""
     if unidad == "dia":
         return fecha + timedelta(days=cada)
     if unidad == "semana":
         return fecha + timedelta(weeks=cada)
     if unidad == "mes":
-        return _sumar_meses(fecha, cada)
+        return _sumar_meses(fecha, cada, dia_ancla)
     if unidad == "anio":
-        return _sumar_meses(fecha, 12 * cada)
+        return _sumar_meses(fecha, 12 * cada, dia_ancla)
     raise ReglaIncumplida("Una suscripción irregular no predice fechas")
 
 
@@ -78,6 +81,27 @@ def validar_patron(unidad: str, cada: int, numeracion: str,
         raise ReglaIncumplida("La numeración necesita al menos un marcador, p. ej. Núm. {Y}")
     if "X" in usados and not numeros_por_volumen:
         raise ReglaIncumplida("Con {X} (volumen) indica cuántos números trae cada volumen")
+    if unidad != "irregular":
+        _exigir_rotulos_distintos(unidad, usados, numeros_por_volumen)
+
+
+def _exigir_rotulos_distintos(unidad: str, usados: set, numeros_por_volumen: Optional[int]) -> None:
+    """La numeración tiene que distinguir cada número del anterior: si se repite, la
+    predicción no puede crear el siguiente esperado."""
+    if numeros_por_volumen and "X" not in usados:
+        raise ReglaIncumplida(
+            "Con números por volumen la numeración necesita {X}: al empezar el volumen "
+            "siguiente, «Núm. {Y}» volvería a «Núm. 1»")
+    if usados & {"X", "Y"}:
+        return
+    if unidad in ("dia", "semana"):
+        raise ReglaIncumplida(
+            "Con frecuencia diaria o semanal la numeración necesita {Y}: {MES} y {ANO} se repiten")
+    faltan = ({"ANO", "MES"} if unidad == "mes" else {"ANO"}) - usados
+    if faltan:
+        raise ReglaIncumplida(
+            "La numeración se repetiría: agrega " + " y ".join(f"{{{m}}}" for m in sorted(faltan))
+            + " o {Y}")
 
 
 def rotulo(numeracion: str, volumen: int, numero: int, fecha: date) -> str:
@@ -98,13 +122,13 @@ def predecir(unidad: str, cada: int, numeracion: str, numeros_por_volumen: Optio
     validar_patron(unidad, cada, numeracion, numeros_por_volumen)
     if unidad == "irregular":
         return []
-    salida = []
+    salida, ancla = [], fecha.day
     for _ in range(max(1, min(cantidad, 60))):
         salida.append({"numero": rotulo(numeracion, volumen, numero, fecha),
                        "fecha_esperada": fecha.isoformat(), "volumen": volumen,
                        "secuencia": numero})
         volumen, numero = _avanzar(volumen, numero, numeros_por_volumen)
-        fecha = sumar(fecha, unidad, cada)
+        fecha = sumar(fecha, unidad, cada, dia_ancla=ancla)
     return salida
 
 
@@ -289,7 +313,9 @@ def crear(db: Session, datos: dict) -> dict:
     db.add(s)
     db.flush()
     if unidad != "irregular":
-        volumen, numero = int(datos.get("volumen_inicial") or 1), int(datos.get("numero_inicial") or 1)
+        # 0 es válido (la vista previa lo respeta): solo si no vino se empieza en 1.
+        volumen = 1 if datos.get("volumen_inicial") is None else int(datos["volumen_inicial"])
+        numero = 1 if datos.get("numero_inicial") is None else int(datos["numero_inicial"])
         db.add(F(suscripcion_id=s.id, numero=rotulo(numeracion, volumen, numero, primero),
                  fecha_esperada=primero, estado=ESPERADO, recibido=False, volumen=volumen,
                  secuencia=numero))
@@ -303,16 +329,21 @@ def actualizar(db: Session, suscripcion_id: int, datos: dict) -> dict:
         raise NoEncontrado("Proveedor no encontrado")
     if datos.get("biblioteca_id") is not None and not db.get(models.Biblioteca, datos["biblioteca_id"]):
         raise NoEncontrado("Sede no encontrada")
-    for campo in ("proveedor_id", "biblioteca_id", "fecha_fin", "dias_gracia", "crear_ejemplares",
-                  "issn"):
+    for campo in ("proveedor_id", "biblioteca_id", "fecha_fin", "issn"):
         if campo in datos:
+            setattr(s, campo, datos[campo])
+    # Estos no admiten «vacío»: un null explícito se toma como «sin cambio».
+    for campo in ("dias_gracia", "crear_ejemplares"):
+        if datos.get(campo) is not None:
             setattr(s, campo, datos[campo])
     if "notas" in datos:
         s.notas = (datos["notas"] or "").strip() or None
     if datos.get("tipo_item_codigo"):
         s.tipo_item_id = _tipo_item(db, datos["tipo_item_codigo"]).id
-    patron = {k: datos[k] for k in ("frecuencia_unidad", "frecuencia_cada", "numeracion",
-                                    "numeros_por_volumen") if k in datos}
+    patron = {k: datos[k] for k in ("frecuencia_unidad", "frecuencia_cada", "numeracion")
+              if datos.get(k) is not None}
+    if "numeros_por_volumen" in datos:  # aquí null sí significa algo: sin volúmenes
+        patron["numeros_por_volumen"] = datos["numeros_por_volumen"]
     if patron:
         # El patrón nuevo rige para los próximos fascículos que se predigan.
         nuevo = {"frecuencia_unidad": s.frecuencia_unidad, "frecuencia_cada": s.frecuencia_cada,
@@ -367,12 +398,17 @@ def _predecir_siguiente(db: Session, s: models.Suscripcion) -> Optional[models.F
     if not ultimo or not ultimo.fecha_esperada:
         return None
     volumen, numero = _avanzar(ultimo.volumen or 1, ultimo.secuencia, s.numeros_por_volumen)
-    fecha = sumar(ultimo.fecha_esperada, s.frecuencia_unidad, s.frecuencia_cada)
+    primera = db.query(func.min(F.fecha_esperada)).filter(F.suscripcion_id == s.id).scalar()
+    fecha = sumar(ultimo.fecha_esperada, s.frecuencia_unidad, s.frecuencia_cada,
+                  dia_ancla=primera.day if primera else None)
     if s.fecha_fin and fecha > s.fecha_fin:
         return None
     rot = rotulo(s.numeracion, volumen, numero, fecha)
     if db.query(F).filter(F.suscripcion_id == s.id, F.numero == rot).first():
-        return None
+        # Sin el siguiente esperado la suscripción desaparecería de «por recibir».
+        raise ReglaIncumplida(
+            f"El próximo número según el patrón («{rot}») ya existe en la suscripción: "
+            "corrige la numeración o el último número registrado")
     nuevo = F(suscripcion_id=s.id, numero=rot, fecha_esperada=fecha, estado=ESPERADO,
               recibido=False, volumen=volumen, secuencia=numero)
     db.add(nuevo)
@@ -480,6 +516,7 @@ def atrasados(db: Session) -> List[dict]:
             continue
         p = proveedores.get(s.proveedor_id)
         resultado.append({**_vista_fasciculo(f, s, {}), "titulo": s.titulo, "issn": s.issn,
+                          "proveedor_id": s.proveedor_id,
                           "proveedor_nombre": p.nombre if p else None,
                           "proveedor_email": p.email if p else None})
     return resultado
@@ -491,3 +528,46 @@ def por_recibir(db: Session) -> List[dict]:
         F.estado.in_(ABIERTOS), S.estado == "Activa").order_by(F.fecha_esperada, S.titulo).all()
     return [{**_vista_fasciculo(f, s, {}), "titulo": s.titulo, "issn": s.issn}
             for f, s in filas]
+
+
+def reclamar_por_correo(db: Session, proveedor_id: int,
+                        dias_entre_reclamos: Optional[int] = None,
+                        suscripcion_id: Optional[int] = None) -> dict:
+    """Un correo al proveedor con todos sus números atrasados, y cada uno queda reclamado.
+
+    Con `dias_entre_reclamos` (la tarea automática) se saltan los reclamados hace menos
+    de esos días, para no insistir todos los días.
+    """
+    from app.services import avisos
+
+    proveedor = db.get(models.Proveedor, proveedor_id)
+    if not proveedor:
+        raise NoEncontrado("Proveedor no encontrado")
+    if not proveedor.email:
+        raise ReglaIncumplida(f"{proveedor.nombre} no tiene correo: agrégalo en Adquisiciones")
+    limite = ahora() - timedelta(days=dias_entre_reclamos) if dias_entre_reclamos else None
+    pendientes = [a for a in atrasados(db) if a["proveedor_id"] == proveedor.id
+                  and (suscripcion_id is None or a["suscripcion_id"] == suscripcion_id)]
+    if limite is not None:
+        reclamados_hace_poco = {f.id for f in db.query(F).filter(
+            F.id.in_([a["id"] for a in pendientes]), F.fecha_reclamo != None,  # noqa: E711
+            F.fecha_reclamo > limite)}
+        pendientes = [a for a in pendientes if a["id"] not in reclamados_hace_poco]
+    if not pendientes:
+        return {"proveedor": proveedor.nombre, "reclamados": 0}
+    numeros = "\n".join(
+        f"- {a['titulo']}{' (ISSN ' + a['issn'] + ')' if a.get('issn') else ''}: {a['numero']}, "
+        f"esperado el {formatear_fecha(date.fromisoformat(a['fecha_esperada']))}"
+        for a in pendientes)
+    avisos.encolar(db, "RECLAMO_SERIADA",
+                   {**avisos.datos_de_la_biblioteca(db), "proveedor": proveedor.nombre,
+                    "numeros": numeros},
+                   destinatario=proveedor.email, proveedor_id=proveedor.id)
+    for a in pendientes:
+        f = db.get(F, a["id"])
+        f.estado = RECLAMADO
+        f.reclamos = (f.reclamos or 0) + 1
+        f.fecha_reclamo = ahora()
+    db.commit()
+    return {"proveedor": proveedor.nombre, "reclamados": len(pendientes),
+            "destinatario": proveedor.email}

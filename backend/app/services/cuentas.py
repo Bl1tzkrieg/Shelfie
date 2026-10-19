@@ -1,7 +1,7 @@
 """Cuentas del lector: multas, reposiciones, pagos y condonaciones."""
 
 from decimal import ROUND_HALF_UP, Decimal
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -49,10 +49,70 @@ def registrar(db: Session, usuario: models.Usuario, tipo: str, monto, *,
     return movimiento
 
 
-def aplicado_a(db: Session, cargo_id: int) -> Decimal:
-    """Lo acreditado directamente a un cargo (condonaciones dirigidas), en negativo."""
-    return _dinero(db.query(func.coalesce(func.sum(models.MovimientoCuenta.monto), 0)).filter(
-        models.MovimientoCuenta.cargo_id == cargo_id).scalar())
+# --- A qué cargo va cada crédito ----------------------------------------------------------
+#
+# Un crédito (pago, condonación, reintegro) puede apuntar a un cargo concreto (cargo_id) o
+# ir "a la deuda en general". Los generales se imputan a los cargos más viejos con algo
+# pendiente (FIFO), como hace Koha con los pagos sin línea elegida. Así cada cargo sabe
+# cuánto se le pagó, cuánto se le perdonó y cuánto le queda, y el reintegro de un
+# ejemplar perdido que aparece devuelve solo lo que corresponde.
+
+_CLASE = {"PAGO": "pagado", "CONDONACION": "condonado", "REINTEGRO": "reintegrado",
+          "AJUSTE": "condonado"}
+
+
+def imputacion(movimientos: List[models.MovimientoCuenta]) -> Dict[int, dict]:
+    """Por cada cargo (débito): monto, pagado, condonado, reintegrado y pendiente."""
+    orden = sorted(movimientos, key=lambda m: (m.fecha, m.id))
+    cargos: Dict[int, dict] = {}
+    for m in orden:
+        if m.monto > 0:
+            cargos[m.id] = {"cargo": m, "monto": _dinero(m.monto), "pagado": Decimal("0.00"),
+                            "condonado": Decimal("0.00"), "reintegrado": Decimal("0.00")}
+    # Reintegros anteriores a cargo_id: van a la reposición de su mismo préstamo.
+    reposicion_de = {m.prestamo_id: m.id for m in orden
+                     if m.tipo == "REPOSICION" and m.prestamo_id is not None}
+
+    def pendiente(c: dict) -> Decimal:
+        return c["monto"] - c["pagado"] - c["condonado"] - c["reintegrado"]
+
+    generales = []
+    for m in orden:
+        if m.monto >= 0:
+            continue
+        clase, restante = _CLASE.get(m.tipo, "condonado"), -_dinero(m.monto)
+        destino = m.cargo_id
+        if destino is None and m.tipo == "REINTEGRO":
+            destino = reposicion_de.get(m.prestamo_id)
+        if destino in cargos:
+            # Un reintegro devuelve lo pagado: puede dejar el cargo "pagado" en negativo
+            # neto, pero nunca imputa más de lo que el cargo tiene.
+            aplicado = min(restante, pendiente(cargos[destino]) if clase != "reintegrado"
+                           else cargos[destino]["monto"] - cargos[destino]["condonado"]
+                           - cargos[destino]["reintegrado"])
+            aplicado = max(aplicado, Decimal("0.00"))
+            cargos[destino][clase] += aplicado
+            restante -= aplicado
+        if restante > 0:
+            generales.append([clase, restante])
+    for credito in generales:
+        clase, restante = credito
+        for c in cargos.values():
+            if restante <= 0:
+                break
+            hueco = pendiente(c)
+            if hueco > 0:
+                aplicado = min(hueco, restante)
+                c[clase] += aplicado
+                restante -= aplicado
+    for c in cargos.values():
+        c["pendiente"] = max(pendiente(c), Decimal("0.00"))
+    return cargos
+
+
+def imputacion_de(db: Session, usuario_id: int) -> Dict[int, dict]:
+    return imputacion(db.query(models.MovimientoCuenta).filter(
+        models.MovimientoCuenta.usuario_id == usuario_id).all())
 
 
 def _credito(db: Session, usuario: models.Usuario, tipo: str, monto, descripcion: str,
@@ -68,9 +128,9 @@ def _credito(db: Session, usuario: models.Usuario, tipo: str, monto, descripcion
         cargo = db.get(models.MovimientoCuenta, cargo_id)
         if not cargo or cargo.usuario_id != usuario.id or cargo.monto <= 0:
             raise NoEncontrado("Cargo no encontrado en la cuenta del lector")
-        restante = _dinero(cargo.monto) + aplicado_a(db, cargo.id)
+        restante = imputacion_de(db, usuario.id)[cargo.id]["pendiente"]
         if monto > restante:
-            raise ReglaIncumplida(f"A ese cargo le quedan Bs. {restante:.2f} por condonar")
+            raise ReglaIncumplida(f"A ese cargo le quedan Bs. {restante:.2f} pendientes")
         prestamo_id = cargo.prestamo_id
     registrar(db, usuario, tipo, -monto, descripcion=descripcion, personal_id=personal_id,
               prestamo_id=prestamo_id, cargo_id=cargo_id)
@@ -79,13 +139,15 @@ def _credito(db: Session, usuario: models.Usuario, tipo: str, monto, descripcion
 
 
 def pagar(db: Session, usuario: models.Usuario, monto, descripcion: Optional[str],
-          personal_id: Optional[int]) -> dict:
-    return _credito(db, usuario, "PAGO", monto, descripcion or "Pago en mostrador", personal_id)
+          personal_id: Optional[int], cargo_id: Optional[int] = None) -> dict:
+    """Con `cargo_id` el pago va a ese cargo; si no, a los más viejos primero."""
+    return _credito(db, usuario, "PAGO", monto, descripcion or "Pago en mostrador", personal_id,
+                    cargo_id)
 
 
 def condonar(db: Session, usuario: models.Usuario, monto, motivo: str,
              personal_id: Optional[int], cargo_id: Optional[int] = None) -> dict:
-    """Perdona deuda. Con `cargo_id`, se aplica a ese cargo (cuenta para los reintegros)."""
+    """Perdona deuda: a un cargo con `cargo_id`, o a los más viejos primero."""
     if not motivo or not motivo.strip():
         raise ReglaIncumplida("Indica el motivo de la condonación")
     return _credito(db, usuario, "CONDONACION", monto, motivo.strip(), personal_id, cargo_id)
@@ -96,16 +158,7 @@ def estado_de_cuenta(db: Session, usuario: models.Usuario) -> dict:
         models.MovimientoCuenta.usuario_id == usuario.id).order_by(
         models.MovimientoCuenta.fecha.desc(), models.MovimientoCuenta.id.desc()).all()
     actual, umbral = saldo(db, usuario.id), umbral_de_bloqueo(db)
-    aplicados: dict = {}
-    # Reintegros anteriores a cargo_id: se aplican a la reposición de su mismo préstamo.
-    reposicion_de = {m.prestamo_id: m.id for m in movimientos
-                     if m.tipo == "REPOSICION" and m.prestamo_id is not None}
-    for m in movimientos:
-        destino = m.cargo_id
-        if destino is None and m.tipo == "REINTEGRO":
-            destino = reposicion_de.get(m.prestamo_id)
-        if destino is not None:
-            aplicados[destino] = aplicados.get(destino, Decimal("0.00")) + _dinero(m.monto)
+    cargos = imputacion(movimientos)
     return {
         "saldo": float(actual),
         "umbral_bloqueo": float(umbral),
@@ -122,13 +175,13 @@ def estado_de_cuenta(db: Session, usuario: models.Usuario) -> dict:
             }
             for m in movimientos
         ],
-        # Débitos con algo por condonar: a qué se le puede aplicar una condonación.
+        # Cargos con algo pendiente: a qué se le puede aplicar un pago o una condonación.
         "cargos": [
             {"id": m.id, "tipo": m.tipo, "descripcion": m.descripcion,
              "fecha": formatear_fecha_hora(m.fecha), "monto": float(m.monto),
-             "pendiente": float(min(restante, max(actual, Decimal("0.00"))))}
-            for m in movimientos if m.monto > 0
-            for restante in [_dinero(m.monto) + aplicados.get(m.id, Decimal("0.00"))]
-            if restante > 0 and actual > 0
+             "pagado": float(c["pagado"]), "condonado": float(c["condonado"]),
+             "pendiente": float(c["pendiente"])}
+            for m in movimientos if m.id in cargos
+            for c in [cargos[m.id]] if c["pendiente"] > 0
         ],
     }

@@ -1,4 +1,3 @@
-import pytest
 
 from app import models
 
@@ -95,6 +94,7 @@ def test_reservas_forman_cola_por_prioridad(client, datos):
     datos.lector("1001")
     datos.lector("1002")
     libro = datos.titulo()
+    datos.ejemplar(libro, "R-1", estado="Prestado")
 
     assert _reservar(client, libro.id, "1001").json()["prioridad"] == 1
     assert _reservar(client, libro.id, "1002").json()["prioridad"] == 2
@@ -116,6 +116,7 @@ def test_reserva_duplicada_o_invalida_es_rechazada(client, datos):
 def test_cancelar_reserva(client, datos, db):
     datos.lector("1001")
     libro = datos.titulo()
+    datos.ejemplar(libro, "R-1", estado="Prestado")
     reserva_id = _reservar(client, libro.id, "1001").json()["reserva_id"]
 
     assert client.delete(f"/api/v1/catalog/reservations/{reserva_id}").status_code == 200
@@ -128,6 +129,7 @@ def test_prioridad_no_se_repite_tras_cancelar(client, datos):
     for carnet in ("1001", "1002", "1003"):
         datos.lector(carnet)
     libro = datos.titulo()
+    datos.ejemplar(libro, "R-1", estado="Prestado")
     primera = _reservar(client, libro.id, "1001").json()["reserva_id"]
     _reservar(client, libro.id, "1002")
     client.delete(f"/api/v1/catalog/reservations/{primera}")

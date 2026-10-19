@@ -3,6 +3,8 @@
 import hashlib
 import hmac
 import os
+import secrets
+from urllib.parse import urlsplit
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -63,8 +65,10 @@ def huella_de_clave(usuario: models.Usuario) -> str:
 
 def crear_token_acceso(usuario: models.Usuario, audiencia: Optional[str] = None) -> str:
     expira = datetime.now(timezone.utc) + timedelta(hours=settings.SESION_HORAS)
-    payload = {"sub": str(usuario.id), "carnet": usuario.nro_carnet, "exp": expira,
-               "clave": huella_de_clave(usuario)}
+    # Sin el carnet: el token solo identifica al usuario por su id.
+    # jti: identifica este token para poder anularlo al cerrar la sesión.
+    payload = {"sub": str(usuario.id), "exp": expira, "clave": huella_de_clave(usuario),
+               "jti": secrets.token_hex(16)}
     if audiencia:
         payload["aud"] = audiencia
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
@@ -84,7 +88,25 @@ def abrir_sesion(response: Response, usuario: models.Usuario) -> None:
     _poner_cookie(response, COOKIE_SESION, crear_token_acceso(usuario))
 
 
-def cerrar_sesion(response: Response) -> None:
+def _anular_token(request: Optional[Request], db: Optional[Session], cookie: str,
+                  audiencia: Optional[str]) -> None:
+    """Guarda el jti del token de la cookie: aunque alguien lo haya copiado, ya no sirve."""
+    token = request.cookies.get(cookie) if request is not None else None
+    if not token or db is None:
+        return
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"], audience=audiencia)
+    except jwt.InvalidTokenError:
+        return  # vencido o inválido: ya no vale
+    if payload.get("jti") and not db.get(models.SesionCerrada, payload["jti"]):
+        db.add(models.SesionCerrada(jti=payload["jti"],
+                                    expira=datetime.fromtimestamp(payload["exp"], timezone.utc)))
+        db.commit()
+
+
+def cerrar_sesion(response: Response, request: Optional[Request] = None,
+                  db: Optional[Session] = None) -> None:
+    _anular_token(request, db, COOKIE_SESION, None)
     _borrar_cookie(response, COOKIE_SESION)
 
 
@@ -92,7 +114,9 @@ def abrir_sesion_opac(response: Response, usuario: models.Usuario) -> None:
     _poner_cookie(response, COOKIE_OPAC, crear_token_acceso(usuario, AUDIENCIA_OPAC))
 
 
-def cerrar_sesion_opac(response: Response) -> None:
+def cerrar_sesion_opac(response: Response, request: Optional[Request] = None,
+                       db: Optional[Session] = None) -> None:
+    _anular_token(request, db, COOKIE_OPAC, AUDIENCIA_OPAC)
     _borrar_cookie(response, COOKIE_OPAC)
 
 
@@ -100,14 +124,19 @@ def verificar_origen(request: Request) -> None:
     """Defensa CSRF: una escritura con cookie solo se acepta desde orígenes conocidos.
 
     SameSite=Lax ya impide que otro sitio envíe la cookie en un POST; esto cubre
-    además subdominios hermanos y navegadores antiguos. Las peticiones sin
-    cabecera Origin (scripts, curl, tests) no vienen de un navegador ajeno.
+    además subdominios hermanos y navegadores antiguos. Sin Origin se mira el Referer
+    (algunos navegadores viejos solo mandan ese); sin ninguno de los dos (scripts,
+    curl, tests) la petición no viene de un navegador ajeno.
     """
     if request.method in _METODOS_SEGUROS:
         return
     origen = request.headers.get("origin")
     if not origen:
-        return
+        referer = request.headers.get("referer")
+        if not referer:
+            return
+        partes = urlsplit(referer)
+        origen = f"{partes.scheme}://{partes.netloc}"
     propio = str(request.base_url).rstrip("/")
     if origen != propio and origen not in settings.cors_origins_list:
         raise HTTPException(status_code=403, detail="Origen no autorizado")
@@ -130,13 +159,27 @@ def _usuario_del_token(request: Request, db: Session, cookie: str,
 
     verificar_origen(request)
 
+    if payload.get("jti") and db.get(models.SesionCerrada, payload["jti"]):
+        raise HTTPException(status_code=401, detail="La sesión se cerró, inicia sesión nuevamente")
     usuario = db.get(models.Usuario, int(payload["sub"]))
     if not usuario or not usuario.activo:
         raise HTTPException(status_code=401, detail="Usuario inexistente o suspendido")
     if payload.get("clave") != huella_de_clave(usuario):
         raise HTTPException(status_code=401,
                             detail="La contraseña cambió: inicia sesión nuevamente")
+    if usuario.debe_cambiar_clave and request.url.path not in _SIN_CAMBIO_DE_CLAVE:
+        from app.services.autenticacion import tiene_que_cambiar_clave
+        if tiene_que_cambiar_clave(db, usuario):
+            raise HTTPException(status_code=403, detail=CAMBIO_DE_CLAVE_PENDIENTE)
     return usuario
+
+
+# Con una contraseña que no eligió el usuario solo se puede ver quién es, cambiarla o salir.
+CAMBIO_DE_CLAVE_PENDIENTE = "Tienes que elegir una contraseña nueva antes de seguir"
+_SIN_CAMBIO_DE_CLAVE = {
+    "/api/v1/auth/me", "/api/v1/auth/password", "/api/v1/auth/logout",
+    "/api/v1/opac/account", "/api/v1/opac/account/password", "/api/v1/opac/logout",
+}
 
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> models.Usuario:

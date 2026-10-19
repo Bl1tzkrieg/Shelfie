@@ -10,7 +10,7 @@ def test_cambiar_la_propia_contrasena(como, anonimo):
     yo = como(["circulacion"], carnet="P-1")
 
     malo = yo.post("/api/v1/auth/password", json={"actual": "otra", "nueva": "nueva-clave-1"})
-    assert malo.status_code == 401 and "actual" in malo.json()["detail"]
+    assert malo.status_code == 400 and "actual" in malo.json()["detail"]
     for nueva, texto in [("corta", "8 caracteres"), ("P-1", "distinta")]:
         r = yo.post("/api/v1/auth/password", json={"actual": "P-1", "nueva": nueva})
         assert r.status_code == 400 and texto in r.json()["detail"]

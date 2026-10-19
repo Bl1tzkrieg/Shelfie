@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useCallback, useEffect, useState } from "react"
+import { Suspense, useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { ArrowRight, BookmarkCheck, Loader2, PackageCheck, Plus, RefreshCw, ScanBarcode, Send, X } from "lucide-react"
@@ -79,19 +79,26 @@ function GestionDeTraslados() {
   const [nuevo, setNuevo] = useState(false)
   const [trabajando, setTrabajando] = useState<number | null>(null)
 
+  // Solo la última petición pinta: al cambiar de pestaña rápido, la lista de otra vista
+  // que llega tarde no queda bajo la pestaña activa.
+  const ultima = useRef(0)
   const cargar = useCallback(async () => {
+    const id = ++ultima.current
     setCargando(true)
     try {
       const [f, r] = await Promise.all([
         apiGet<Traslado[]>(`/circulation/transfers?vista=${vista}&todas_las_sedes=${todasLasSedes}`),
         apiGet<ResumenTraslados>("/circulation/transfers/summary"),
       ])
+      if (id !== ultima.current) return
       setFilas(f)
       setResumen(r)
     } catch (error) {
-      toast.error("No se pudieron cargar los traslados", { description: mensajeDeError(error) })
+      if (id === ultima.current) {
+        toast.error("No se pudieron cargar los traslados", { description: mensajeDeError(error) })
+      }
     } finally {
-      setCargando(false)
+      if (id === ultima.current) setCargando(false)
     }
   }, [vista, todasLasSedes])
 

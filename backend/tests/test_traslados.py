@@ -280,3 +280,44 @@ def test_sede_de_trabajo_desconocida_usa_la_del_personal(como, db, sedes):
     cliente.headers["X-Shelfie-Sede"] = "999"
 
     assert cliente.get(f"{TRASLADOS}/summary").json()["sede_id"] == sur.id
+
+
+def test_prestar_otra_copia_anula_el_traslado_que_no_salio(client, datos, db, sedes):
+    """M3: la reserva en tránsito se cumple con otra copia; la primera ya no viaja."""
+    from app.services import traslados
+    norte, sur, _ = sedes
+    beto = datos.lector("B2")
+    libro = datos.titulo()
+    viajero = datos.ejemplar(libro, "B-001", sede=norte)
+    datos.ejemplar(libro, "B-002", sede=norte)
+    reserva_id = _reservar(client, libro.id, "B2", sur)
+    traslados.ubicar(db, viajero, norte.id, en_mano=False)
+    db.commit()
+    assert db.get(models.Reserva, reserva_id).estado == "EnTransito"
+    assert db.query(models.Traslado).one().estado == "Solicitado"
+
+    r = en(client, norte).post("/api/v1/circulation/checkout",
+                               json={"codigo_barras": "B-002", "nro_carnet": beto.nro_carnet})
+
+    assert r.status_code in (200, 201), r.text
+    assert db.get(models.Reserva, reserva_id).estado == "Cumplida"
+    assert db.query(models.Traslado).one().estado == "Cancelado"
+    db.refresh(viajero)
+    assert (viajero.estado, viajero.biblioteca_actual_id) == ("Disponible", norte.id)
+
+
+def test_recibir_solo_desde_destino_y_no_cancelar_lo_que_va_en_camino(client, datos, db, sedes):
+    """B2: el mostrador que no tiene el ejemplar no lo recibe ni lo «devuelve» al origen."""
+    norte, sur, este = sedes
+    libro, item, *_ = _prestado_en_norte(datos, sedes)
+    _reservar(client, libro.id, "B2", sur)
+    en(client, norte).post(CHECKIN, json={"codigo_barras": "B-001"})
+    traslado = db.query(models.Traslado).one()
+
+    r = en(client, este).post(f"{TRASLADOS}/{traslado.id}/receive")
+    assert r.status_code == 400 and "Sede Sur" in r.json()["detail"]
+    r = en(client, sur).post(f"{TRASLADOS}/{traslado.id}/cancel")
+    assert r.status_code == 400 and "en camino" in r.json()["detail"]
+    db.refresh(item)
+    assert item.estado == "EnTransito"
+    assert en(client, sur).post(f"{TRASLADOS}/{traslado.id}/receive").status_code == 200

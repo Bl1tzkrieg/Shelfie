@@ -91,6 +91,7 @@ export interface ResumenLector {
   saldo: number
   umbral_bloqueo: number
   bloqueado: boolean
+  debe_cambiar_clave?: boolean
 }
 
 export interface PrestamoLector {

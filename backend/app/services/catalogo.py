@@ -23,15 +23,18 @@ def sede_por_defecto(db: Session) -> Optional[int]:
     return sede[0] if sede else None
 
 
-def buscar_por_isbn(db: Session, isbn: Optional[str]) -> Optional[models.RegistroBibliografico]:
+def buscar_por_isbn(db: Session, isbn: Optional[str],
+                    excluir_id: Optional[int] = None) -> Optional[models.RegistroBibliografico]:
     """Mismo ISBN aunque uno tenga guiones o espacios y el otro no."""
     digitos = re.sub(r"[^0-9X]", "", (isbn or "").upper())
     if not digitos:
         return None
     RB = models.RegistroBibliografico
-    return db.query(RB).filter(
-        func.upper(func.regexp_replace(RB.isbn, "[^0-9Xx]", "", "g")) == digitos).order_by(
-        RB.id).first()
+    consulta = db.query(RB).filter(
+        func.upper(func.regexp_replace(RB.isbn, "[^0-9Xx]", "", "g")) == digitos)
+    if excluir_id:
+        consulta = consulta.filter(RB.id != excluir_id)
+    return consulta.order_by(RB.id).first()
 
 
 def _obtener_registro(db: Session, biblio_id: int) -> models.RegistroBibliografico:
@@ -201,9 +204,7 @@ def vista_marc(biblio: models.RegistroBibliografico) -> dict:
 def _avisar_isbn_duplicado(db: Session, isbn: Optional[str], propio_id: Optional[int]) -> None:
     if not isbn:
         return
-    otro = db.query(models.RegistroBibliografico).filter(
-        models.RegistroBibliografico.isbn == isbn,
-        models.RegistroBibliografico.id != (propio_id or 0)).first()
+    otro = buscar_por_isbn(db, isbn, excluir_id=propio_id)
     if otro:
         raise ReglaIncumplida(
             f"El ISBN {isbn} ya está en «{otro.titulo}» (registro {otro.id}). "
@@ -246,8 +247,88 @@ def eliminar_registro(db: Session, biblio_id: int) -> None:
     reservas_del_titulo = db.query(models.Reserva).filter(models.Reserva.biblio_id == biblio.id)
     if reservas_del_titulo.filter(models.Reserva.estado.in_(RESERVAS_ACTIVAS)).count():
         raise ReglaIncumplida("El registro tiene reservas activas")
+    # Como Koha: un pedido o una suscripción sin su registro no podría crear ejemplares.
+    lineas = db.query(models.LineaOrden).filter(models.LineaOrden.biblio_id == biblio.id).count()
+    if lineas:
+        raise ReglaIncumplida(f"El registro está en {lineas} línea(s) de pedido de adquisiciones")
+    suscripciones = db.query(models.Suscripcion).filter(
+        models.Suscripcion.biblio_id == biblio.id).count()
+    if suscripciones:
+        raise ReglaIncumplida(f"El registro tiene {suscripciones} suscripción(es) de seriadas")
     reservas_del_titulo.delete(synchronize_session=False)
     db.delete(biblio)
+    db.commit()
+
+
+# Estados que la circulación maneja sola: mientras el ejemplar esté así no se cambia a mano.
+_EN_CIRCULACION = ("Prestado", "Reservado", "EnTransito")
+
+
+def _obtener_ejemplar(db: Session, biblio_id: int, item_id: int) -> models.Item:
+    item = db.query(models.Item).filter(models.Item.id == item_id,
+                                        models.Item.biblio_id == biblio_id).with_for_update().first()
+    if not item:
+        raise NoEncontrado("Ejemplar no encontrado en este registro")
+    return item
+
+
+def editar_ejemplar(db: Session, biblio_id: int, item_id: int, datos: dict) -> List[dict]:
+    """Corrige un ejemplar: código, signatura, tipo, sede propia, precio o baja (Retirado)."""
+    item = _obtener_ejemplar(db, biblio_id, item_id)
+    if "codigo_barras" in datos:
+        codigo = (datos["codigo_barras"] or "").strip()
+        if not codigo:
+            raise ReglaIncumplida("El código de barras no puede quedar vacío")
+        otro = db.query(models.Item.id).filter(models.Item.codigo_barras == codigo,
+                                               models.Item.id != item.id).first()
+        if otro:
+            raise ReglaIncumplida(f"Ya existe un ejemplar con el código de barras {codigo}")
+        item.codigo_barras = codigo
+    if datos.get("tipo_item_codigo") is not None:
+        tipo = db.query(models.TipoItem).filter(
+            models.TipoItem.codigo == datos["tipo_item_codigo"]).first()
+        if not tipo:
+            raise ReglaIncumplida(f"No existe el tipo de ítem '{datos['tipo_item_codigo']}'")
+        item.tipo_item_id = tipo.id
+    for campo in ("signatura_topografica", "enumeracion"):
+        if campo in datos:
+            item.__setattr__(campo, (datos[campo] or "").strip() or None)
+    if "precio_reposicion" in datos:
+        item.precio_reposicion = datos["precio_reposicion"]
+    if datos.get("biblioteca_propia_id") is not None:
+        if not db.get(models.Biblioteca, datos["biblioteca_propia_id"]):
+            raise ReglaIncumplida("La sede elegida no existe")
+        item.biblioteca_propia_id = datos["biblioteca_propia_id"]
+    if datos.get("estado") and datos["estado"] != item.estado:
+        _cambiar_estado(item, datos["estado"])
+    db.commit()
+    return listar_ejemplares(db, biblio_id)
+
+
+def _cambiar_estado(item: models.Item, nuevo: str) -> None:
+    if item.estado in _EN_CIRCULACION:
+        raise ReglaIncumplida(
+            f"El ejemplar está {item.estado}: su estado lo cambia la circulación "
+            "(devolverlo, cancelar la reserva o recibir el traslado)")
+    if nuevo == "Disponible" and item.estado == "Perdido":
+        raise ReglaIncumplida(
+            "Un ejemplar perdido que apareció se pasa por Devoluciones: así se reintegra "
+            "lo que pagó el lector")
+    item.estado = nuevo
+
+
+def eliminar_ejemplar(db: Session, biblio_id: int, item_id: int) -> None:
+    """Borra un ejemplar cargado por error. Con historial se da de baja (Retirado) en su lugar."""
+    item = _obtener_ejemplar(db, biblio_id, item_id)
+    if item.estado in _EN_CIRCULACION:
+        raise ReglaIncumplida(f"El ejemplar está {item.estado}: no se puede eliminar")
+    if db.query(models.Prestamo.id).filter(models.Prestamo.item_id == item.id).first():
+        raise ReglaIncumplida(
+            "El ejemplar tiene historial de préstamos: márcalo como Retirado para darlo de baja")
+    # Las reservas cerradas que lo mencionan conservan el título, no el ejemplar.
+    db.query(models.Reserva).filter(models.Reserva.item_id == item.id).update(
+        {models.Reserva.item_id: None}, synchronize_session=False)
+    db.delete(item)
     db.commit()
 
 
@@ -256,20 +337,21 @@ def listar_ejemplares(db: Session, biblio_id: int) -> List[dict]:
     items = db.query(models.Item).filter(models.Item.biblio_id == biblio_id).order_by(
         models.Item.id).all()
     nombres = {b.id: b.nombre for b in db.query(models.Biblioteca).all()}
+    tipos = {t.id: t.codigo for t in db.query(models.TipoItem).all()}
     destinos = {t.item_id: t.hacia_id for t in db.query(models.Traslado).filter(
         models.Traslado.item_id.in_([i.id for i in items]),
         models.Traslado.estado.in_(("Solicitado", "Enviado")))} if items else {}
 
+    # Préstamos abiertos y sus lectores en una sola consulta (no una por ejemplar).
+    abiertos = {p.item_id: (p, u) for p, u in db.query(models.Prestamo, models.Usuario).outerjoin(
+        models.Usuario, models.Usuario.id == models.Prestamo.usuario_id).filter(
+        models.Prestamo.item_id.in_([i.id for i in items]),
+        models.Prestamo.fecha_devolucion == None)} if items else {}  # noqa: E711
+
     resultado = []
     for item in items:
-        prestamo = db.query(models.Prestamo).filter(
-            models.Prestamo.item_id == item.id,
-            models.Prestamo.fecha_devolucion == None).first()  # noqa: E711
-        lector = None
-        if prestamo:
-            usuario = db.query(models.Usuario).filter(
-                models.Usuario.id == prestamo.usuario_id).first()
-            lector = f"{usuario.nombre} {usuario.apellido}" if usuario else None
+        prestamo, usuario = abiertos.get(item.id, (None, None))
+        lector = f"{usuario.nombre} {usuario.apellido}" if usuario else None
 
         resultado.append({
             "id": str(item.id),
@@ -282,6 +364,9 @@ def listar_ejemplares(db: Session, biblio_id: int) -> List[dict]:
             "branch": nombres.get(item.biblioteca_actual_id),
             "homeBranch": nombres.get(item.biblioteca_propia_id),
             "transitTo": nombres.get(destinos.get(item.id)),
+            "itemType": tipos.get(item.tipo_item_id),
+            "homeBranchId": item.biblioteca_propia_id,
+            "price": float(item.precio_reposicion) if item.precio_reposicion is not None else None,
         })
     return resultado
 

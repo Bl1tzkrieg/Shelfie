@@ -89,25 +89,31 @@ def fondo_utilizable(db: Session, fondo_id: Optional[int]) -> Optional[models.Fo
     """El fondo existe, está activo y su presupuesto también (o no se indicó fondo)."""
     if fondo_id is None:
         return None
-    fondo = db.get(F, fondo_id)
+    # Bloqueo de fila: dos pedidos a la vez sobre el mismo fondo no pasan juntos la
+    # comprobación de saldo (se espera hasta que el otro termine).
+    fondo = db.get(F, fondo_id, with_for_update=True)
     if not fondo:
         raise NoEncontrado("Fondo no encontrado")
     presupuesto = db.get(P, fondo.presupuesto_id)
     if not fondo.activo or not presupuesto.activo:
         raise ReglaIncumplida(f"El fondo {fondo.codigo} no está activo para pedidos nuevos")
+    if presupuesto.bloqueado:
+        raise ReglaIncumplida(
+            f"El presupuesto {presupuesto.nombre} está bloqueado (ejercicio cerrado): "
+            "no admite pedidos ni gastos nuevos")
     return fondo
 
 
 def exigir_saldo(db: Session, fondo: Optional[models.Fondo], monto_nuevo: Decimal,
-                 monto_previo: Decimal = CERO) -> None:
+                 monto_previo: Decimal = CERO, que: str = "la línea compromete") -> None:
     """El fondo cubre `monto_nuevo` (descontando lo que esta misma línea ya comprometía)."""
     if fondo is None or monto_nuevo <= monto_previo:
         return
     libre = disponible(db, fondo) + monto_previo
     if monto_nuevo > libre:
         raise ReglaIncumplida(
-            f"El fondo {fondo.codigo} tiene Bs. {libre:.2f} disponibles y la línea "
-            f"compromete Bs. {monto_nuevo:.2f}")
+            f"El fondo {fondo.codigo} tiene Bs. {libre:.2f} disponibles y {que} "
+            f"Bs. {monto_nuevo:.2f}")
 
 
 # --- Presupuestos ---------------------------------------------------------------------
@@ -179,7 +185,7 @@ def _validar_presupuesto(db: Session, p: models.Presupuesto) -> None:
 def crear(db: Session, datos: dict) -> dict:
     p = P(nombre=(datos.get("nombre") or "").strip(), fecha_inicio=datos["fecha_inicio"],
           fecha_fin=datos["fecha_fin"], monto_total=_d(datos["monto_total"]),
-          activo=datos.get("activo", True), bloqueado=False)
+          activo=datos.get("activo") is not False, bloqueado=False)
     _validar_presupuesto(db, p)
     db.add(p)
     db.commit()

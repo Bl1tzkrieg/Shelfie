@@ -23,7 +23,8 @@ def update_settings(payload: schemas.ActualizarConfiguracionRequest,
     """Guarda solo las secciones enviadas; las omitidas quedan intactas."""
     return configuracion.guardar(db, {
         "institucion": payload.institucion,
-        "politicas_prestamo": payload.politicas_prestamo,
+        "politicas_prestamo": (payload.politicas_prestamo.model_dump(exclude_none=True) or None
+                               if payload.politicas_prestamo else None),
         "notificaciones": payload.notificaciones,
         "circulacion": (payload.circulacion.model_dump(exclude_none=True) or None
                         if payload.circulacion else None),

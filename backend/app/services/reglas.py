@@ -1,9 +1,13 @@
 """Reglas de circulación: categoría de lector × tipo de ítem × sede.
 
 Una regla puede dejar cualquiera de las tres dimensiones en NULL ("todas").
-Para un préstamo se aplica la regla más específica que coincida, con el mismo
-orden de precedencia que Koha: la sede pesa más que el tipo de ítem, y el tipo
-de ítem más que la categoría. La regla general (todo NULL) siempre existe.
+Para un préstamo se aplica la regla más específica que coincida: la sede pesa más
+que el tipo de ítem, y el tipo de ítem más que la categoría. Ojo: Koha ordena
+sede > categoría > tipo; aquí el tipo gana a la categoría para que una regla
+«este tipo no se presta» valga para todas las categorías sin repetirla en cada una.
+Así, para un estudiante con una obra de referencia, «todas × REF» le gana a
+«EST × todos» en Shelfie, y en Koha al revés.
+La regla general (todo NULL) siempre existe.
 """
 
 from typing import List, Optional

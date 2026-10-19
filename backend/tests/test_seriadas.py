@@ -60,6 +60,11 @@ def test_vista_previa_y_patrones_invalidos(client):
         ({"numeracion": "Sin marcadores"}, "al menos un marcador"),
         ({"numeracion": "Vol. {X}", "numeros_por_volumen": None}, "cuántos números"),
         ({"frecuencia_unidad": "lustro"}, "Frecuencia desconocida"),
+        # M10: numeraciones que se repetirían y dejarían la suscripción sin próximo número.
+        ({"numeracion": "Núm. {Y}", "numeros_por_volumen": 12}, "necesita {X}"),
+        ({"frecuencia_unidad": "semana", "numeracion": "{MES} {ANO}"}, "necesita {Y}"),
+        ({"frecuencia_unidad": "mes", "numeracion": "Año {ANO}"}, "agrega {MES}"),
+        ({"frecuencia_unidad": "anio", "numeracion": "{MES}"}, "agrega {ANO}"),
     ]:
         r = client.post(f"{SER}/prediction", json={"primer_fasciculo": "2026-01-05", **patron})
         assert r.status_code == 400 and texto in r.json()["detail"], (patron, r.text)
@@ -148,7 +153,7 @@ def test_atrasos_y_reclamos(client, datos):
     p = client.post("/api/v1/acquisitions/suppliers",
                     json={"nombre": "Suscripciones Andinas", "email": "s@example.com"}).json()
     hace_20 = (hoy() - timedelta(days=20)).isoformat()
-    sus = _suscripcion(client, proveedor_id=p["id"], primer_fasciculo=hace_20, dias_gracia=15)
+    _suscripcion(client, proveedor_id=p["id"], primer_fasciculo=hace_20, dias_gracia=15)
     _suscripcion(client, titulo="Al día", primer_fasciculo=hoy().isoformat())
 
     late = client.get(f"{SER}/issues/late").json()
@@ -215,3 +220,19 @@ def test_proveedores_para_seriadas(como):
 
     solo_seriadas = como(["seriadas"], carnet="S-1")
     assert [p["nombre"] for p in solo_seriadas.get(f"{SER}/suppliers").json()] == ["Activo"]
+
+
+def test_si_el_proximo_rotulo_ya_existe_se_avisa(client, db):
+    """M10: no se pierde en silencio el próximo esperado."""
+    sus = _suscripcion(client, frecuencia_cada=1)
+    esperado = db.query(models.Fasciculo).filter_by(suscripcion_id=sus["id"], estado="Esperado").one()
+    # Alguien registró a mano el número que tocaría después.
+    s = db.get(models.Suscripcion, sus["id"])
+    vol, num = seriadas._avanzar(esperado.volumen, esperado.secuencia, s.numeros_por_volumen)
+    siguiente = seriadas.sumar(esperado.fecha_esperada, "mes", 1)
+    db.add(models.Fasciculo(suscripcion_id=s.id, estado="Recibido", recibido=True,
+                            numero=seriadas.rotulo(s.numeracion, vol, num, siguiente)))
+    db.commit()
+
+    r = client.post(f"{SER}/issues/{esperado.id}/receive", json={})
+    assert r.status_code == 400 and "ya existe" in r.json()["detail"]

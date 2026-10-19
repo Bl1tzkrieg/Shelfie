@@ -103,6 +103,9 @@ function FormularioLogin() {
             Entrar
           </Button>
         </form>
+        <p className="mt-4 text-center text-sm">
+          <a href="/opac/recuperar" className="text-primary hover:underline">¿Olvidaste tu contraseña?</a>
+        </p>
         <p className="mt-6 text-center text-sm text-muted-foreground">
           ¿Eres lector?{" "}
           <a href="/opac" className="font-medium text-primary hover:underline">Entra al catálogo en línea</a>

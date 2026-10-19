@@ -88,10 +88,19 @@ export function IntercambioMarcDialog({
   )
 }
 
+const CODIFICACIONES = {
+  auto: "Detectar (recomendado)",
+  utf8: "UTF-8",
+  marc8: "MARC-8",
+  latin1: "Latin-1 (ISO 8859-1)",
+} as const
+type Codificacion = keyof typeof CODIFICACIONES
+
 function Importar({ onImportado }: { onImportado: () => void }) {
   const entrada = useRef<HTMLInputElement>(null)
   const [archivo, setArchivo] = useState<File | null>(null)
   const [duplicados, setDuplicados] = useState<Duplicados>("omitir")
+  const [codificacion, setCodificacion] = useState<Codificacion>("auto")
   const [vista, setVista] = useState<ResultadoImportacion | null>(null)
   const [trabajando, setTrabajando] = useState<"vista" | "aplicar" | null>(null)
 
@@ -100,7 +109,7 @@ function Importar({ onImportado }: { onImportado: () => void }) {
     setTrabajando(modo)
     try {
       const r = await apiUpload<ResultadoImportacion>(
-        `/catalog/import?modo=${modo}&duplicados=${duplicados}`,
+        `/catalog/import?modo=${modo}&duplicados=${duplicados}&codificacion=${codificacion}`,
         archivo
       )
       setVista(r)
@@ -145,6 +154,21 @@ function Importar({ onImportado }: { onImportado: () => void }) {
                 <SelectItem key={d} value={d}>
                   {DUPLICADOS[d]}
                 </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="importar-codificacion">Texto (solo ISO 2709)</Label>
+          <Select value={codificacion}
+                  onValueChange={(v) => { setCodificacion(v as Codificacion); setVista(null) }}>
+            <SelectTrigger id="importar-codificacion" className="w-56"
+                           title="Si en la revisión ves letras raras (A©ło en vez de Año), prueba otra">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(CODIFICACIONES) as Codificacion[]).map((c) => (
+                <SelectItem key={c} value={c}>{CODIFICACIONES[c]}</SelectItem>
               ))}
             </SelectContent>
           </Select>
