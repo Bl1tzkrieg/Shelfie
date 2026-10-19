@@ -10,7 +10,7 @@ from app import models
 from app.core.errores import ErrorDeNegocio, NoEncontrado, ReglaIncumplida
 from app.core.tiempo import ahora
 from app.security import hash_password
-from app.services import cuentas
+from app.services import cuentas, registro
 
 
 def _debe_cambiar(db: Session, u: models.Usuario) -> bool:
@@ -142,13 +142,20 @@ def crear(db: Session, datos) -> dict:
     # Sin contraseña explícita se usa el carnet como clave inicial.
     usuario.password_hash = hash_password(datos.password or carnet)
     db.add(usuario)
+    db.flush()
+    registro.anotar(db, "lectores", "alta", f"Alta de {registro.nombre(usuario)} ({categoria.descripcion})",
+                    lector=usuario, objeto=("usuario", usuario.id))
     db.commit()
     db.refresh(usuario)
     return vista_de_usuario(db, usuario)
 
 
+_CAMPOS_FICHA = ("nombre", "apellido", "email", "departamento", "biblioteca_id", "categoria_id")
+
+
 def editar(db: Session, nro_carnet: str, datos) -> dict:
     usuario = obtener_por_carnet(db, nro_carnet)
+    antes = {c: getattr(usuario, c) for c in _CAMPOS_FICHA}
 
     if datos.email and datos.email.lower() != usuario.email.lower():
         if db.query(models.Usuario).filter(
@@ -172,6 +179,11 @@ def editar(db: Session, nro_carnet: str, datos) -> dict:
             raise ReglaIncumplida(f"No existe la categoría '{datos.categoria_codigo}'")
         usuario.categoria_id = categoria.id
 
+    cambios = registro.diferencias(antes, {c: getattr(usuario, c) for c in _CAMPOS_FICHA})
+    if cambios:
+        registro.anotar(db, "lectores", "edicion",
+                        f"Cambió {', '.join(cambios)} de {registro.nombre(usuario)}",
+                        lector=usuario, objeto=("usuario", usuario.id), datos={"cambios": cambios})
     db.commit()
     db.refresh(usuario)
     return vista_de_usuario(db, usuario)
@@ -189,6 +201,10 @@ def cambiar_estado(db: Session, nro_carnet: str, activo: bool) -> dict:
             raise ReglaIncumplida(
                 f"No se puede suspender: el usuario tiene {activos} préstamo(s) sin devolver")
 
+    if usuario.activo != activo:
+        registro.anotar(db, "lectores", "reactivacion" if activo else "suspension",
+                        f"{'Reactivó' if activo else 'Suspendió'} la cuenta de {registro.nombre(usuario)}",
+                        lector=usuario, objeto=("usuario", usuario.id))
     usuario.activo = activo
     db.commit()
     db.refresh(usuario)
@@ -258,6 +274,10 @@ def importar(db: Session, filas: list) -> dict:
             db.rollback()
             omitidos.append({"fila": i, "carnet": _carnet(fila, crudo),
                              "motivo": f"La base rechazó la fila ({type(e).__name__})"})
+    registro.anotar(db, "lectores", "importacion",
+                    f"Importación de lectores: {creados} creados y {len(omitidos)} omitidos "
+                    f"de {len(filas)} filas", datos={"omitidos": omitidos[:100]})
+    db.commit()
     return {"creados": creados, "omitidos": omitidos, "total": len(filas)}
 
 

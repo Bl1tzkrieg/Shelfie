@@ -101,6 +101,12 @@ def _anular_token(request: Optional[Request], db: Optional[Session], cookie: str
     if payload.get("jti") and not db.get(models.SesionCerrada, payload["jti"]):
         db.add(models.SesionCerrada(jti=payload["jti"],
                                     expira=datetime.fromtimestamp(payload["exp"], timezone.utc)))
+        if audiencia is None:  # salida de la intranet (las del OPAC no se registran)
+            from app.services import registro
+            usuario = db.get(models.Usuario, int(payload["sub"]))
+            db.info["ip"] = ip_de(request)
+            registro.anotar(db, "sesion", "salida", f"Salió de la intranet: {registro.nombre(usuario)}",
+                            actor=usuario, lector=usuario)
         db.commit()
 
 
@@ -142,6 +148,20 @@ def verificar_origen(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Origen no autorizado")
 
 
+def ip_de(request: Optional[Request]) -> Optional[str]:
+    return request.client.host if request is not None and request.client else None
+
+
+def marcar_actor(db: Session, request: Optional[Request], usuario: Optional[models.Usuario],
+                 desde_opac: bool = False) -> None:
+    """Deja en la sesión de base de datos quién actúa (lo lee app/services/registro.py)."""
+    db.info["actor_id"] = usuario.id if usuario else None
+    db.info["desde_opac"] = desde_opac
+    db.info["ip"] = ip_de(request)
+    db.info["sede_cabecera"] = request.headers.get("X-Shelfie-Sede") if request is not None else None
+    db.info.pop("sede_id", None)
+
+
 def _usuario_del_token(request: Request, db: Session, cookie: str,
                        audiencia: Optional[str]) -> models.Usuario:
     token = request.cookies.get(cookie)
@@ -167,6 +187,8 @@ def _usuario_del_token(request: Request, db: Session, cookie: str,
     if payload.get("clave") != huella_de_clave(usuario):
         raise HTTPException(status_code=401,
                             detail="La contraseña cambió: inicia sesión nuevamente")
+    # Para el registro de acciones: quién actúa en esta petición, desde dónde y en qué sede.
+    marcar_actor(db, request, usuario, desde_opac=audiencia == AUDIENCIA_OPAC)
     if usuario.debe_cambiar_clave and request.url.path not in _SIN_CAMBIO_DE_CLAVE:
         from app.services.autenticacion import tiene_que_cambiar_clave
         if tiene_que_cambiar_clave(db, usuario):
@@ -215,4 +237,6 @@ def sede_de_trabajo(request: Request, usuario: models.Usuario = Depends(requiere
                     db: Session = Depends(get_db)) -> Optional[int]:
     """Sede donde opera el personal (cabecera X-Shelfie-Sede; ver app/services/sedes.py)."""
     from app.services import sedes
-    return sedes.de_trabajo(db, usuario, request.headers.get(sedes.CABECERA))
+    sede = sedes.de_trabajo(db, usuario, request.headers.get(sedes.CABECERA))
+    db.info["sede_id"] = sede
+    return sede

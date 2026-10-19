@@ -41,15 +41,19 @@ cd Shelfie
 
 ### 2. Backend
 
+El entorno virtual va en la raíz del repositorio (`.venv`, ignorado por git); los comandos
+del backend se corren desde `backend/`, donde están `alembic.ini` y `.env`.
+
 ```bash
-cd backend
-python -m venv venv
+python -m venv .venv
 
-# Windows
-./venv/Scripts/python.exe -m pip install -r requirements.txt
+# Windows (PowerShell)
+.\.venv\Scripts\Activate.ps1
 # Linux / macOS
-# source venv/bin/activate && pip install -r requirements.txt
+# source .venv/bin/activate
 
+pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+cd backend
 cp .env.example .env    # y editar DATABASE_URL y SECRET_KEY
 ```
 
@@ -59,7 +63,7 @@ instalador los crea con una cuenta administradora (solo durante la instalación;
 crea también `shelfie_test`, aplica las migraciones y opcionalmente carga datos de ejemplo:
 
 ```bash
-./venv/Scripts/python.exe -m scripts.inicializar_bd --seed
+python -m scripts.inicializar_bd --seed
 # otra cuenta administradora:  --admin-user mi_admin
 ```
 
@@ -72,7 +76,7 @@ Es idempotente: correrlo de nuevo solo aplica las migraciones pendientes. Despu�
 Levantar la API:
 
 ```bash
-./venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload   # con el .venv activo, en backend/
 ```
 
 ### 3. Frontend
@@ -97,7 +101,7 @@ propia (lo mismo para cualquier usuario recién creado o con la contraseña rest
 En una instalación real, crea el tuyo:
 
 ```bash
-./venv/Scripts/python.exe -m scripts.crear_admin
+python -m scripts.crear_admin
 ```
 
 Si el carnet ya existe, lo convierte en superbibliotecario. Desde ahí, en **Usuarios → ⋯ →
@@ -125,13 +129,12 @@ npm run typecheck   # tsc --noEmit
 npm run lint        # ESLint
 npm run build       # build de producción
 
-# Backend
-./venv/Scripts/python.exe -m pip install -r requirements-dev.txt
-./venv/Scripts/python.exe -m pytest
+# Backend (con el .venv activo, en backend/)
+python -m pytest
 
 # Migraciones
-./venv/Scripts/alembic.exe revision --autogenerate -m "describe el cambio"
-./venv/Scripts/alembic.exe upgrade head
+alembic revision --autogenerate -m "describe el cambio"
+alembic upgrade head
 ```
 
 Los tests corren contra un PostgreSQL real, en una base **dedicada** que se borra y se
@@ -224,6 +227,7 @@ bytes no cabe en ISO 2709: se exporta en MARCXML.
 | `configuracion` | Datos de la institución, políticas, avisos y tareas programadas |
 | `adquisiciones` | Proveedores y órdenes de compra |
 | `seriadas` | Suscripciones y fascículos |
+| `registro` | Consultar el registro de acciones |
 | `superbibliotecario` | Todo lo anterior y la gestión de permisos |
 
 En catálogo, circulación, usuarios y configuración cualquier miembro del personal puede
@@ -234,6 +238,21 @@ del personal los registró.
 
 Cualquiera del personal puede operar "desde" cualquier sede (la elige en la cabecera), como
 Koha sin *IndependentBranches*: la sede de trabajo dice dónde está físicamente, no restringe.
+
+## 🕵️ Registro de acciones
+
+Como los `action_logs` de Koha: cada operación anota quién la hizo, cuándo, desde qué IP y
+sede, y sobre qué lector, registro o ejemplar, con el detalle (antes → después en las
+ediciones, el MARC anterior al editar un registro, montos en los cobros). Se consulta en
+**Registro** (permiso `registro`) y en el "Historial de cambios" de cada ficha.
+
+- La anotación entra en la misma transacción que la operación: si la operación falla, no queda.
+- Nunca se guardan contraseñas, tokens ni claves, aunque vengan en los datos.
+- En **Registro → Qué se registra** (permiso `configuracion`) se apaga o enciende cada módulo y
+  se fija cuántos días se guarda (730 por defecto; 0 = siempre). La tarea de limpieza borra lo
+  más viejo. Cambiar estos ajustes siempre queda registrado.
+- Lo hecho por un lector desde el OPAC (renovar, reservar) se marca "desde el OPAC"; lo que
+  hacen las tareas programadas figura como "Sistema".
 
 ## 🔒 Contraseñas y sesiones
 
@@ -275,7 +294,7 @@ python -m scripts.tareas enviar_cola  # solo la cola (cada 5–15 minutos)
 python -m scripts.tareas --lista
 ```
 
-En Windows, con el Programador de tareas: acción `C:\ruta\Shelfie-main\backend\.venv\Scripts\python.exe`,
+En Windows, con el Programador de tareas: acción `C:\ruta\Shelfie\.venv\Scripts\python.exe`,
 argumentos `-m scripts.tareas` y "Iniciar en" la carpeta `backend`.
 
 ## 🌐 El OPAC y la cuenta del lector

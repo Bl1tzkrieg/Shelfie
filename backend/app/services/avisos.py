@@ -152,6 +152,14 @@ def guardar_plantilla(db: Session, codigo: str, datos: dict) -> dict:
         actual["activo"] = bool(datos["activo"])
     if datos.get("restablecer"):
         actual = {"activo": actual.get("activo", True)}
+    from app.services import registro
+    previa = _guardadas(db).get(codigo, {})
+    cambios = registro.diferencias(previa, actual)
+    if cambios:
+        registro.anotar(db, "configuracion", "plantilla",
+                        f"{'Restableció' if datos.get('restablecer') else 'Editó'} la plantilla "
+                        f"«{codigo}» ({', '.join(cambios)})", objeto=("plantilla", None),
+                        datos={"codigo": codigo, "cambios": cambios})
     todas = {**_guardadas(db), codigo: actual}
     _guardar_config(db, {"plantillas": todas})
     return plantilla(db, codigo)

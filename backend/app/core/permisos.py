@@ -17,6 +17,7 @@ class Permiso(str, Enum):
     CONFIGURACION = "configuracion"
     ADQUISICIONES = "adquisiciones"
     SERIADAS = "seriadas"
+    REGISTRO = "registro"
     SUPERBIBLIOTECARIO = "superbibliotecario"
 
 
@@ -28,6 +29,7 @@ DESCRIPCIONES = {
     Permiso.CONFIGURACION: "Institución, reglas de circulación y calendario",
     Permiso.ADQUISICIONES: "Proveedores y órdenes de compra",
     Permiso.SERIADAS: "Suscripciones y kardex de fascículos",
+    Permiso.REGISTRO: "Consultar el registro de acciones (quién hizo qué y cuándo)",
     Permiso.SUPERBIBLIOTECARIO: "Acceso total, incluida la gestión de permisos del personal",
 }
 

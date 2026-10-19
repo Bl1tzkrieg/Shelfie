@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.core.errores import NoEncontrado, ReglaIncumplida
+from app.services import registro
 
 R = models.ReglaCirculacion
 CAMPOS_EDITABLES = ("prestable", "dias_prestamo", "max_prestamos", "max_renovaciones",
@@ -112,12 +113,21 @@ def guardar(db: Session, datos) -> dict:
         R.tipo_item_id.is_(None) if datos.tipo_item_id is None else R.tipo_item_id == datos.tipo_item_id,
         R.biblioteca_id.is_(None) if datos.biblioteca_id is None else R.biblioteca_id == datos.biblioteca_id,
     ).first()
+    nueva = regla is None
     if regla is None:
         regla = R(categoria_id=datos.categoria_id, tipo_item_id=datos.tipo_item_id,
                   biblioteca_id=datos.biblioteca_id)
         db.add(regla)
+    antes = {c: getattr(regla, c) for c in CAMPOS_EDITABLES}
     for campo in CAMPOS_EDITABLES:
         setattr(regla, campo, getattr(datos, campo))
+    db.flush()
+    cambios = registro.diferencias(antes, {c: getattr(regla, c) for c in CAMPOS_EDITABLES})
+    if nueva or cambios:
+        registro.anotar(db, "configuracion", "reglas",
+                        f"{'Creó' if nueva else 'Cambió'} la regla {_combinacion(db, regla)}"
+                        + ("" if nueva else f": {', '.join(cambios)}"),
+                        objeto=("regla", regla.id), datos={"cambios": cambios})
     db.commit()
     db.refresh(regla)
     return vista(regla, _nombres(db))
@@ -129,8 +139,20 @@ def eliminar(db: Session, regla_id: int) -> None:
         raise NoEncontrado("Regla no encontrada")
     if regla.categoria_id is None and regla.tipo_item_id is None and regla.biblioteca_id is None:
         raise ReglaIncumplida("La regla general no se puede eliminar: es la que aplica por defecto")
+    registro.anotar(db, "configuracion", "reglas", f"Eliminó la regla {_combinacion(db, regla)}",
+                    objeto=("regla", regla.id),
+                    datos={c: getattr(regla, c) for c in CAMPOS_EDITABLES})
     db.delete(regla)
     db.commit()
+
+
+def _combinacion(db: Session, regla: models.ReglaCirculacion) -> str:
+    def nombre(modelo, id_, campo):
+        fila = db.get(modelo, id_) if id_ else None
+        return getattr(fila, campo) if fila else "todas"
+    return (f"{nombre(models.CategoriaUsuario, regla.categoria_id, 'descripcion')} × "
+            f"{nombre(models.TipoItem, regla.tipo_item_id, 'descripcion')} × "
+            f"{nombre(models.Biblioteca, regla.biblioteca_id, 'nombre')}")
 
 
 def asegurar_regla_de_categoria(db: Session, categoria: models.CategoriaUsuario,

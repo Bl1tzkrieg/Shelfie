@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.core.errores import NoEncontrado, ReglaIncumplida
 from app.core.tiempo import ahora, formatear_fecha_hora
-from app.services import configuracion
+from app.services import configuracion, registro
 
 DEBITOS = {"MULTA_ATRASO", "REPOSICION", "AJUSTE"}
 CENTIMO = Decimal("0.01")
@@ -134,6 +134,13 @@ def _credito(db: Session, usuario: models.Usuario, tipo: str, monto, descripcion
         prestamo_id = cargo.prestamo_id
     registrar(db, usuario, tipo, -monto, descripcion=descripcion, personal_id=personal_id,
               prestamo_id=prestamo_id, cargo_id=cargo_id)
+    que = "Pago" if tipo == "PAGO" else "Condonación"
+    a_que = f" del cargo «{cargo.descripcion or cargo.tipo}»" if cargo_id is not None else ""
+    registro.anotar(
+        db, "cuentas", "pago" if tipo == "PAGO" else "condonacion",
+        f"{que} de Bs. {monto:.2f}{a_que} a {registro.nombre(usuario)}: {descripcion}",
+        lector=usuario, objeto=("cargo", cargo_id) if cargo_id is not None else None,
+        datos={"monto": monto, "deuda_antes": pendiente, "deuda_despues": pendiente - monto})
     db.commit()
     return estado_de_cuenta(db, usuario)
 

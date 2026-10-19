@@ -5,7 +5,7 @@ arbitrario: **Alembic → tests → autenticación → circulación** es la secu
 cada paso protege al siguiente. De la Fase 4 en adelante el orden puede ajustarse a lo que la
 biblioteca necesite primero.
 
-Estado al 2026-10-19.
+Estado al 2026-10-19 (Fase 8 en curso).
 
 ---
 
@@ -392,7 +392,20 @@ medios y 69 bajos. Corregidos todos menos A2 (acción manual, abajo). Migración
 
 ## Fase 8 — Herramientas y extras
 
-- [ ] Registro de auditoría, inventario, etiquetas y códigos de barras, modificación por lotes.
+- [x] **Registro de acciones** (migración `0015`, `action_logs` de Koha): quién hizo qué,
+      cuándo, desde qué IP y sede, y sobre qué lector, registro o ejemplar. Cubre préstamos,
+      devoluciones, renovaciones, pérdidas y traslados; reservas; pagos y condonaciones; altas,
+      cambios, suspensiones, contraseñas y permisos; registros MARC (con el MARC anterior) y
+      ejemplares; ajustes, reglas, calendario, sedes y plantillas (antes → después); entradas,
+      fallos y salidas de la intranet; adquisiciones y seriadas. Lo hecho desde el OPAC se marca.
+- [x] La anotación entra en la misma transacción que la operación: lo rechazado no queda.
+      Nunca se guardan contraseñas ni tokens.
+- [x] Pantalla **Registro** (permiso nuevo `registro`): filtros por módulo, acción, quién,
+      lector, código de barras, fechas y texto; detalle con antes/después; exportar CSV.
+      "Historial de cambios" en la ficha del lector y en la del registro.
+- [x] Qué módulos se registran y cuántos días se guarda (por defecto 730; la limpieza diaria
+      borra lo más viejo). Apagar un módulo también queda registrado.
+- [ ] Inventario, etiquetas y códigos de barras, modificación por lotes.
 - [ ] Reportes armables por el usuario (con cuidado si se permite SQL).
 - [ ] Portadas.
 - [ ] Más adelante: préstamo interbibliotecario, reservas de curso, autopréstamo, i18n.
@@ -403,8 +416,8 @@ medios y 69 bajos. Corregidos todos menos A2 (acción manual, abajo). Migración
 
 | Comprobación | Resultado |
 |---|---|
-| `pytest` | ✅ 386 pasan, 0 `xfail` |
-| Migraciones `0001`→`0014` subir/bajar con datos, `alembic check` | ✅ |
+| `pytest` | ✅ 400 pasan, 0 `xfail` |
+| Migraciones `0001`→`0015` subir/bajar con datos, `alembic check` | ✅ |
 | Navegador real (Chromium): login y permisos (Fase 2) | ✅ 15/15 comprobaciones |
 | Navegador real: multa, bloqueo, pago, reserva, apartado, pérdida (Fase 3) | ✅ 14/14 comprobaciones |
 | Navegador real: reglas, calendario, ajustes, ejemplar recuperado, devolución por código | ✅ 18/18 comprobaciones |
@@ -413,6 +426,7 @@ medios y 69 bajos. Corregidos todos menos A2 (acción manual, abajo). Migración
 | Navegador real: editor MARC, plantilla de tesis, errores, importación y exportación | ✅ 11/11 comprobaciones |
 | Navegador real: OPAC sin sesión, ficha, entrar, reservar, listas, renovar, sugerir, sesiones separadas, teléfono (Fase 6) | ✅ 14/14 comprobaciones |
 | Navegador real: plantilla con vista previa, reserva lista → cola → correo, tarea de vencidos, correo de prueba, recuperar contraseña con el enlace (Fase 7) | ✅ 14/14 comprobaciones |
+| Navegador real: registro de acciones (entrada fallida, préstamo, devolución, ajustes con antes/después, filtros, historial en las fichas, apagar un módulo) (Fase 8) | ✅ 12/12 comprobaciones |
 | Navegador real: cambio de contraseña obligatorio (intranet y OPAC), sede en el alta, editar y dar de baja un ejemplar, codificación MARC, menú del celular, pausar hasta una fecha, orden y paginación del OPAC, Salir anula el token (auditoría) | ✅ 18/18 comprobaciones |
 | `alembic upgrade` / `downgrade` / `check` en base vacía | ✅ |
 | API antes vs. después de la capa de servicios | ✅ respuestas idénticas (33 peticiones) |

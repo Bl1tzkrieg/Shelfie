@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.core.errores import ReglaIncumplida
 from app.core.permisos import DESCRIPCIONES, PERFILES, Permiso, normalizar
-from app.services import usuarios
+from app.services import registro, usuarios
 
 
 def catalogo_de_permisos() -> dict:
@@ -44,8 +44,15 @@ def asignar(db: Session, actor: models.Usuario, nro_carnet: str,
             "No puedes quitarte tu propio permiso de superbibliotecario; "
             "pídeselo a otro administrador")
 
+    antes = {"es_personal": bool(destino.es_personal), "permisos": list(destino.permisos or [])}
     destino.es_personal = es_personal
     destino.permisos = permisos
+    cambios = registro.diferencias(antes, {"es_personal": es_personal, "permisos": permisos})
+    if cambios:
+        detalle = (", ".join(permisos) or "ninguno") if es_personal else "sin acceso a la intranet"
+        registro.anotar(db, "lectores", "permisos",
+                        f"Permisos de {registro.nombre(destino)}: {detalle}",
+                        lector=destino, objeto=("usuario", destino.id), datos={"cambios": cambios})
     db.commit()
     db.refresh(destino)
     return usuarios.vista_de_usuario(db, destino)

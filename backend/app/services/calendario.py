@@ -86,6 +86,9 @@ def agregar_feriado(db: Session, fecha: date, descripcion: str) -> dict:
     if db.query(models.Feriado).filter(models.Feriado.fecha == fecha).first():
         raise ReglaIncumplida(f"Ya hay un feriado registrado el {fecha.isoformat()}")
     db.add(models.Feriado(fecha=fecha, descripcion=descripcion))
+    from app.services import registro
+    registro.anotar(db, "configuracion", "calendario",
+                    f"Agregó el feriado {fecha.isoformat()} ({descripcion})")
     db.commit()
     return vista(db)
 
@@ -94,6 +97,9 @@ def eliminar_feriado(db: Session, feriado_id: int) -> dict:
     feriado = db.get(models.Feriado, feriado_id)
     if not feriado:
         raise NoEncontrado("Feriado no encontrado")
+    from app.services import registro
+    registro.anotar(db, "configuracion", "calendario",
+                    f"Quitó el feriado {feriado.fecha.isoformat()} ({feriado.descripcion})")
     db.delete(feriado)
     db.commit()
     return vista(db)

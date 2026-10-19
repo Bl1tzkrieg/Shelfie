@@ -8,7 +8,7 @@ from app import models
 from app.core.errores import (AccesoDenegado, CredencialesInvalidas, DemasiadosIntentos,
                               ReglaIncumplida)
 from app.security import hash_password, verify_password
-from app.services import usuarios
+from app.services import registro, usuarios
 
 
 # --- Entrar ------------------------------------------------------------------------------
@@ -68,12 +68,26 @@ def _verificar(db: Session, identificador: str, password: str, ip: Optional[str]
 
 def autenticar_personal(db: Session, identificador: str, password: str,
                         ip: Optional[str] = None):
-    """Devuelve el usuario si las credenciales son válidas y tiene acceso a la intranet."""
-    usuario = _verificar(db, identificador, password, ip, "Usuario o contraseña incorrectos")
-    if not usuario.activo:
-        raise AccesoDenegado("La cuenta está suspendida")
-    if not usuario.es_personal:
-        raise AccesoDenegado("Esta cuenta no tiene acceso a la intranet")
+    """Devuelve el usuario si las credenciales son válidas y tiene acceso a la intranet.
+
+    Entradas y fallos quedan en el registro (módulo «sesion»), con el identificador
+    que se escribió; nunca la contraseña."""
+    db.info["ip"] = ip
+    try:
+        usuario = _verificar(db, identificador, password, ip, "Usuario o contraseña incorrectos")
+        if not usuario.activo:
+            raise AccesoDenegado("La cuenta está suspendida")
+        if not usuario.es_personal:
+            raise AccesoDenegado("Esta cuenta no tiene acceso a la intranet")
+    except (CredencialesInvalidas, AccesoDenegado) as error:
+        registro.anotar(db, "sesion", "entrada_fallida",
+                        f"Intento fallido de entrar a la intranet como «{(identificador or '').strip()[:60]}»"
+                        f": {error.mensaje}", actor=None)
+        db.commit()
+        raise
+    registro.anotar(db, "sesion", "entrada", f"Entró a la intranet: {registro.nombre(usuario)}",
+                    actor=usuario, lector=usuario)
+    db.commit()
     return usuario
 
 
@@ -110,6 +124,8 @@ def cambiar_clave(db: Session, usuario: models.Usuario, actual: str, nueva: str)
     validar_clave_nueva(usuario, nueva)
     usuario.password_hash = hash_password(nueva)
     usuario.debe_cambiar_clave = False
+    registro.anotar(db, "lectores", "clave_cambiada",
+                    f"{registro.nombre(usuario)} cambió su contraseña", lector=usuario)
     db.commit()
 
 
@@ -125,6 +141,8 @@ def restablecer_clave(db: Session, actor: models.Usuario, usuario: models.Usuari
     validar_clave_nueva(usuario, nueva)
     usuario.password_hash = hash_password(nueva)
     usuario.debe_cambiar_clave = True
+    registro.anotar(db, "lectores", "clave_restablecida",
+                    f"Restableció la contraseña de {registro.nombre(usuario)}", lector=usuario)
     db.commit()
 
 
@@ -200,4 +218,7 @@ def restablecer_con_enlace(db: Session, token: str, nueva: str) -> None:
     usuario.password_hash = hash_password(nueva)
     usuario.debe_cambiar_clave = False
     fila.usado = ahora()
+    registro.anotar(db, "lectores", "clave_restablecida",
+                    f"{registro.nombre(usuario)} eligió una contraseña nueva con el enlace del correo",
+                    lector=usuario, actor=usuario)
     db.commit()

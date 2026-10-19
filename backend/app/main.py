@@ -15,6 +15,7 @@ from app.routers import (
     opac_account,
     personal,
     politicas,
+    registro as registro_router,
     reports,
     serials,
     settings as settings_router,
@@ -75,6 +76,7 @@ app.include_router(opac_account.router)
 app.include_router(personal.router)
 app.include_router(politicas.router)
 app.include_router(notices.router)
+app.include_router(registro_router.router)
 
 
 @app.on_event("startup")

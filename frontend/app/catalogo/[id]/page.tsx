@@ -15,6 +15,7 @@ import {
 } from "@/components/catalogo/accion-ejemplar-dialog"
 import { AgregarEjemplarDialog } from "@/components/catalogo/agregar-ejemplar-dialog"
 import { EditarEjemplarDialog } from "@/components/catalogo/editar-ejemplar-dialog"
+import { HistorialFicha } from "@/components/registro/historial-ficha"
 import { EditorMarc } from "@/components/catalogo/editor-marc"
 import { useSesion } from "@/components/auth/sesion-provider"
 import {
@@ -86,6 +87,7 @@ function FichaCatalogo() {
   const [accion, setAccion] = useState<AccionEjemplar | null>(null)
   const [editando, setEditando] = useState<Ejemplar | null>(null)
 
+  const [version, setVersion] = useState(0)
   const cargar = useCallback(async () => {
     try {
       const [b, e, r] = await Promise.all([
@@ -96,6 +98,7 @@ function FichaCatalogo() {
       setBook(b)
       setEjemplares(e)
       setReservas(r)
+      setVersion((v) => v + 1)
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
         setNoEncontrado(true)
@@ -419,6 +422,10 @@ function FichaCatalogo() {
                 </ol>
               </div>
             )}
+
+            <div className="mt-6">
+              <HistorialFicha filtro={{ biblio_id: Number(book.id) }} recarga={version} />
+            </div>
           </TabsContent>
         </Tabs>
       </div>

@@ -139,9 +139,12 @@ def limpieza(db: Session) -> dict:
         models.IntentoAcceso.fecha < ahora() - timedelta(days=1)).delete(synchronize_session=False)
     cerradas = db.query(models.SesionCerrada).filter(
         models.SesionCerrada.expira < ahora()).delete(synchronize_session=False)
+    from app.services import registro
+    acciones = registro.depurar(db)
     db.commit()
     return {"enlaces_borrados": viejos, "registros_borrados": corridas,
-            "intentos_borrados": intentos, "sesiones_borradas": cerradas}
+            "intentos_borrados": intentos, "sesiones_borradas": cerradas,
+            "acciones_borradas": acciones}
 
 
 def enviar_cola(db: Session) -> dict:
@@ -174,8 +177,9 @@ TAREAS: Dict[str, dict] = {
                           "descripcion": "Reclama por correo los números atrasados a cada "
                                          "proveedor (si está activado)."},
     "limpieza": {"nombre": "Limpieza", "funcion": limpieza,
-                 "descripcion": "Borra enlaces de recuperación vencidos, intentos de acceso viejos "
-                                "y registros de más de 90 días."},
+                 "descripcion": "Borra enlaces de recuperación vencidos, intentos de acceso viejos, "
+                                "corridas de tareas de más de 90 días y el registro de acciones "
+                                "más viejo que su retención."},
 }
 
 
@@ -302,5 +306,12 @@ def guardar_ajustes(db: Session, datos: dict) -> dict:
         if datos.get(clave) is not None:
             propios[clave] = datos[clave]
     if propios:
+        from app.services import registro
+        anteriores = configuracion.leer(db, avisos.CLAVE_CONFIG)
+        cambios = registro.diferencias(anteriores, {**anteriores, **propios}, campos=propios.keys())
+        if cambios:
+            registro.anotar(db, "configuracion", "ajustes",
+                            f"Cambió los ajustes de avisos: {', '.join(cambios)}",
+                            datos={"seccion": "avisos", "cambios": cambios})
         avisos._guardar_config(db, propios)
     return ajustes(db)

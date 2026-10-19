@@ -398,12 +398,18 @@ def importar(db: Session, contenido: bytes, *, aplicar: bool, duplicados: str = 
     ctx = _Contexto(db)
     resultados = [_importar_uno(db, ctx, r, n, aplicar, duplicados, plantilla)
                   for n, r in enumerate(registros, start=1)]
-    if aplicar:
-        db.commit()
-
     def contar(accion):
         return sum(1 for r in resultados if r.accion == accion)
 
+    if aplicar:
+        from app.services import registro
+        registro.anotar(
+            db, "catalogo", "importacion",
+            f"Importó {formato.upper()}: {contar('nuevo')} nuevos, {contar('reemplazar')} "
+            f"reemplazados, {contar('omitir')} omitidos y {contar('error')} con errores",
+            datos={"duplicados": duplicados, "plantilla": plantilla, "codificacion": codificacion,
+                   "registros": [r.registro_id for r in resultados if r.registro_id][:500]})
+        db.commit()
     return {
         "formato": formato,
         "aplicado": aplicar,

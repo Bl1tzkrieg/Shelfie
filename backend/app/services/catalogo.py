@@ -13,7 +13,7 @@ from app import models
 from app.core.errores import NoEncontrado, ReglaIncumplida
 from app.core.tiempo import ahora, formatear_fecha
 from app.core import marc_plantillas
-from app.services import busqueda
+from app.services import busqueda, registro
 from app.services.reservas import ACTIVAS as RESERVAS_ACTIVAS
 from app.services import marc as marc_svc
 
@@ -137,8 +137,12 @@ def dar_de_alta(db: Session, datos) -> dict:
         db.add(biblio)
         db.flush()
 
-    _nuevo_item(db, biblio, datos.codigo_barras, tipo, datos.signatura_topografica,
-                datos.precio_reposicion)
+    item = _nuevo_item(db, biblio, datos.codigo_barras, tipo, datos.signatura_topografica,
+                       datos.precio_reposicion)
+    db.flush()
+    registro.anotar(db, "catalogo", "alta",
+                    f"Alta rápida: ejemplar {item.codigo_barras} de «{biblio.titulo}»",
+                    biblio=biblio, item=item)
     db.commit()
     db.refresh(biblio)
     return vista_de_titulo(db, biblio)
@@ -171,8 +175,12 @@ def agregar_ejemplar(db: Session, biblio_id: int, datos) -> dict:
         models.TipoItem.codigo == datos.tipo_item_codigo).first()
     if not tipo:
         raise ReglaIncumplida(f"No existe el tipo de ítem '{datos.tipo_item_codigo}'")
-    _nuevo_item(db, biblio, datos.codigo_barras, tipo, datos.signatura_topografica,
-                datos.precio_reposicion)
+    item = _nuevo_item(db, biblio, datos.codigo_barras, tipo, datos.signatura_topografica,
+                       datos.precio_reposicion)
+    db.flush()
+    registro.anotar(db, "catalogo", "alta",
+                    f"Nuevo ejemplar {item.codigo_barras} de «{biblio.titulo}»",
+                    biblio=biblio, item=item)
     db.commit()
     return vista_de_titulo(db, biblio)
 
@@ -215,12 +223,22 @@ def obtener_marc(db: Session, biblio_id: int) -> dict:
     return vista_marc(_obtener_registro(db, biblio_id))
 
 
+_CAMPOS_DERIVADOS = ("titulo", "autor", "isbn", "ano_publicacion", "materia", "plantilla")
+
+
 def guardar_marc(db: Session, biblio_id: int, datos) -> dict:
     biblio = _obtener_registro(db, biblio_id)
     marc, plantilla = marc_svc.preparar(datos.marc, datos.plantilla)
     if not datos.permitir_duplicado:
         _avisar_isbn_duplicado(db, marc_svc.derivar(marc)["isbn"], biblio.id)
+    antes = {c: getattr(biblio, c) for c in _CAMPOS_DERIVADOS}
+    marc_antes = biblio.marc_json
     aplicar_marc(biblio, marc, plantilla)
+    cambios = registro.diferencias(antes, {c: getattr(biblio, c) for c in _CAMPOS_DERIVADOS})
+    if marc_antes != biblio.marc_json:
+        # Como el CataloguingLog de Koha: queda el MARC anterior para ver qué cambió.
+        registro.anotar(db, "catalogo", "edicion", f"Editó el registro MARC de «{biblio.titulo}»",
+                        biblio=biblio, datos={"cambios": cambios, "marc_anterior": marc_antes})
     db.commit()
     db.refresh(biblio)
     return vista_marc(biblio)
@@ -234,6 +252,9 @@ def crear_registro(db: Session, datos) -> dict:
     biblio = models.RegistroBibliografico()
     aplicar_marc(biblio, marc, plantilla)
     db.add(biblio)
+    db.flush()
+    registro.anotar(db, "catalogo", "alta", f"Catalogó «{biblio.titulo}» ({biblio.plantilla})",
+                    biblio=biblio)
     db.commit()
     db.refresh(biblio)
     return vista_marc(biblio)
@@ -256,6 +277,9 @@ def eliminar_registro(db: Session, biblio_id: int) -> None:
     if suscripciones:
         raise ReglaIncumplida(f"El registro tiene {suscripciones} suscripción(es) de seriadas")
     reservas_del_titulo.delete(synchronize_session=False)
+    # Sin `biblio=`: el registro se borra; quedan su número y su MARC en la anotación.
+    registro.anotar(db, "catalogo", "eliminacion", f"Eliminó el registro «{biblio.titulo}»",
+                    objeto=("registro", biblio.id), datos={"marc": biblio.marc_json})
     db.delete(biblio)
     db.commit()
 
@@ -272,9 +296,14 @@ def _obtener_ejemplar(db: Session, biblio_id: int, item_id: int) -> models.Item:
     return item
 
 
+_CAMPOS_EJEMPLAR = ("codigo_barras", "tipo_item_id", "signatura_topografica", "enumeracion",
+                    "precio_reposicion", "biblioteca_propia_id", "estado")
+
+
 def editar_ejemplar(db: Session, biblio_id: int, item_id: int, datos: dict) -> List[dict]:
     """Corrige un ejemplar: código, signatura, tipo, sede propia, precio o baja (Retirado)."""
     item = _obtener_ejemplar(db, biblio_id, item_id)
+    antes = {c: getattr(item, c) for c in _CAMPOS_EJEMPLAR}
     if "codigo_barras" in datos:
         codigo = (datos["codigo_barras"] or "").strip()
         if not codigo:
@@ -301,6 +330,14 @@ def editar_ejemplar(db: Session, biblio_id: int, item_id: int, datos: dict) -> L
         item.biblioteca_propia_id = datos["biblioteca_propia_id"]
     if datos.get("estado") and datos["estado"] != item.estado:
         _cambiar_estado(item, datos["estado"])
+    db.flush()
+    cambios = registro.diferencias(antes, {c: getattr(item, c) for c in _CAMPOS_EJEMPLAR})
+    if cambios:
+        baja = cambios.get("estado", [None, None])[1] == "Retirado"
+        registro.anotar(db, "catalogo", "baja" if baja else "edicion",
+                        f"{'Dio de baja' if baja else 'Editó'} el ejemplar {item.codigo_barras}"
+                        + ("" if baja else f" ({', '.join(cambios)})"),
+                        biblio=item.biblio_id, item=item, datos={"cambios": cambios})
     db.commit()
     return listar_ejemplares(db, biblio_id)
 
@@ -328,6 +365,11 @@ def eliminar_ejemplar(db: Session, biblio_id: int, item_id: int) -> None:
     # Las reservas cerradas que lo mencionan conservan el título, no el ejemplar.
     db.query(models.Reserva).filter(models.Reserva.item_id == item.id).update(
         {models.Reserva.item_id: None}, synchronize_session=False)
+    registro.anotar(db, "catalogo", "eliminacion",
+                    f"Eliminó el ejemplar {item.codigo_barras} (cargado por error)",
+                    biblio=item.biblio_id, objeto=("ejemplar", item.id),
+                    datos={"codigo_barras": item.codigo_barras,
+                           "signatura": item.signatura_topografica})
     db.delete(item)
     db.commit()
 

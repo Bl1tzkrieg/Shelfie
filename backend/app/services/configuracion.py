@@ -112,9 +112,32 @@ def _politicas_desde_reglas(db: Session) -> dict:
     return resultado
 
 
-def guardar(db: Session, secciones: dict) -> dict:
-    """Guarda solo las secciones enviadas (las `None` quedan intactas)."""
+NOMBRE_SECCION = {
+    "institucion": "datos de la institución", "politicas_prestamo": "políticas de préstamo",
+    "notificaciones": "avisos", "circulacion": "ajustes de circulación",
+    "calendario": "días cerrados", "seguridad": "seguridad", "registro": "registro de acciones",
+}
+
+
+def guardar(db: Session, secciones: dict, anotar: bool = True) -> dict:
+    """Guarda solo las secciones enviadas (las `None` quedan intactas).
+
+    Lo que cambió queda en el registro de acciones (antes → después, por campo)."""
+    from app.services import registro
     momento = ahora()
+    if anotar:
+        for clave, valor in secciones.items():
+            if valor is None:
+                continue
+            antes = leer(db, clave)
+            if clave == "politicas_prestamo":
+                antes = {**antes, **_politicas_desde_reglas(db)}
+            cambios = registro.diferencias(antes, {**antes, **valor}, campos=valor.keys())
+            if cambios:
+                registro.anotar(db, "configuracion", "ajustes",
+                                f"Cambió {NOMBRE_SECCION.get(clave, clave)}: {', '.join(cambios)}",
+                                objeto=("configuracion", None), datos={"seccion": clave,
+                                                                        "cambios": cambios})
     for clave, valor in secciones.items():
         if valor is None:
             continue

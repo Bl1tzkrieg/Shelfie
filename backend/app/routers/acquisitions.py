@@ -10,7 +10,7 @@ from app.core.errores import ReglaIncumplida
 from app.core.permisos import Permiso
 from app.database import get_db
 from app.security import requiere
-from app.services import adquisiciones, presupuestos, sugerencias
+from app.services import adquisiciones, presupuestos, registro, sugerencias
 
 ADQUIERE = requiere(Permiso.ADQUISICIONES)
 
@@ -36,13 +36,17 @@ def listar_proveedores(db: Session = Depends(get_db)):
 
 @router.post("/suppliers", status_code=201)
 def crear_proveedor(payload: schemas.ProveedorRequest, db: Session = Depends(get_db)):
-    return adquisiciones.crear_proveedor(db, _datos(payload))
+    r = adquisiciones.crear_proveedor(db, _datos(payload))
+    registro.anotar_y_guardar(db, "adquisiciones", "alta", f"Alta del proveedor {r['nombre']}", objeto=("proveedor", r["id"]))
+    return r
 
 
 @router.put("/suppliers/{proveedor_id}")
 def actualizar_proveedor(proveedor_id: int, payload: schemas.ProveedorRequest,
                          db: Session = Depends(get_db)):
-    return adquisiciones.actualizar_proveedor(db, proveedor_id, _datos(payload))
+    r = adquisiciones.actualizar_proveedor(db, proveedor_id, _datos(payload))
+    registro.anotar_y_guardar(db, "adquisiciones", "edicion", f"Editó el proveedor {r['nombre']}", objeto=("proveedor", proveedor_id))
+    return r
 
 
 @router.get("/suppliers/{proveedor_id}/receivable")
@@ -64,7 +68,9 @@ def crear_presupuesto(payload: schemas.PresupuestoRequest, db: Session = Depends
     for campo in ("nombre", "fecha_inicio", "fecha_fin", "monto_total"):
         if datos.get(campo) is None:
             raise ReglaIncumplida(f"Falta {campo.replace('_', ' ')}")
-    return presupuestos.crear(db, datos)
+    r = presupuestos.crear(db, datos)
+    registro.anotar_y_guardar(db, "adquisiciones", "alta", f"Creó el presupuesto {payload.nombre} (Bs. {payload.monto_total:.2f})", objeto=("presupuesto", r.get("id")))
+    return r
 
 
 @router.get("/budgets/{presupuesto_id}")
@@ -75,18 +81,25 @@ def obtener_presupuesto(presupuesto_id: int, db: Session = Depends(get_db)):
 @router.put("/budgets/{presupuesto_id}")
 def actualizar_presupuesto(presupuesto_id: int, payload: schemas.PresupuestoRequest,
                            db: Session = Depends(get_db)):
-    return presupuestos.actualizar(db, presupuesto_id, _datos(payload))
+    r = presupuestos.actualizar(db, presupuesto_id, _datos(payload))
+    registro.anotar_y_guardar(db, "adquisiciones", "edicion", f"Editó el presupuesto {r.get('nombre', presupuesto_id)}" + (" (bloqueado)" if r.get("bloqueado") else ""), datos=_datos(payload), objeto=("presupuesto", presupuesto_id))
+    return r
 
 
 @router.delete("/budgets/{presupuesto_id}")
 def eliminar_presupuesto(presupuesto_id: int, db: Session = Depends(get_db)):
+    nombre = presupuestos.obtener(db, presupuesto_id)["nombre"]
     presupuestos.eliminar(db, presupuesto_id)
+    registro.anotar_y_guardar(db, "adquisiciones", "eliminacion", f"Eliminó el presupuesto {nombre}",
+                              objeto=("presupuesto", presupuesto_id))
     return {"mensaje": "Presupuesto eliminado"}
 
 
 @router.post("/budgets/{presupuesto_id}/funds", status_code=201)
 def crear_fondo(presupuesto_id: int, payload: schemas.FondoRequest, db: Session = Depends(get_db)):
-    return presupuestos.crear_fondo(db, presupuesto_id, _datos(payload))
+    r = presupuestos.crear_fondo(db, presupuesto_id, _datos(payload))
+    registro.anotar_y_guardar(db, "adquisiciones", "alta", f"Creó el fondo {payload.codigo} (Bs. {payload.monto_asignado or 0:.2f}) en el presupuesto {presupuesto_id}", objeto=("presupuesto", presupuesto_id))
+    return r
 
 
 @router.get("/funds")
@@ -97,12 +110,16 @@ def fondos_para_pedir(db: Session = Depends(get_db)):
 
 @router.put("/funds/{fondo_id}")
 def actualizar_fondo(fondo_id: int, payload: schemas.FondoRequest, db: Session = Depends(get_db)):
-    return presupuestos.actualizar_fondo(db, fondo_id, _datos(payload))
+    r = presupuestos.actualizar_fondo(db, fondo_id, _datos(payload))
+    registro.anotar_y_guardar(db, "adquisiciones", "edicion", f"Editó el fondo {payload.codigo or fondo_id}", datos=_datos(payload), objeto=("fondo", fondo_id))
+    return r
 
 
 @router.delete("/funds/{fondo_id}")
 def eliminar_fondo(fondo_id: int, db: Session = Depends(get_db)):
     presupuestos.eliminar_fondo(db, fondo_id)
+    registro.anotar_y_guardar(db, "adquisiciones", "eliminacion", f"Eliminó el fondo {fondo_id}",
+                              objeto=("fondo", fondo_id))
     return {"mensaje": "Fondo eliminado"}
 
 
@@ -120,7 +137,9 @@ def crear_orden(payload: schemas.OrdenCompraRequest, db: Session = Depends(get_d
                 actor: models.Usuario = Depends(ADQUIERE)):
     datos = payload.model_dump()
     datos["lineas"] = [l.model_dump(exclude_unset=True) for l in payload.lineas]
-    return adquisiciones.crear_orden(db, datos, actor.id)
+    r = adquisiciones.crear_orden(db, datos, actor.id)
+    registro.anotar_y_guardar(db, "adquisiciones", "pedido", f"Creó el pedido «{r['nombre']}» a {r['proveedor_nombre']} ({r['titulos']} títulos)", objeto=("pedido", r["id"]))
+    return r
 
 
 @router.get("/orders/late")
@@ -136,45 +155,61 @@ def obtener_orden(orden_id: int, db: Session = Depends(get_db)):
 @router.put("/orders/{orden_id}")
 def actualizar_orden(orden_id: int, payload: schemas.EditarOrdenRequest,
                      db: Session = Depends(get_db)):
-    return adquisiciones.actualizar_orden(db, orden_id, _datos(payload))
+    r = adquisiciones.actualizar_orden(db, orden_id, _datos(payload))
+    registro.anotar_y_guardar(db, "adquisiciones", "pedido", f"Editó el pedido «{r['nombre']}»", objeto=("pedido", orden_id))
+    return r
 
 
 @router.post("/orders/{orden_id}/lines", status_code=201)
 def agregar_linea(orden_id: int, payload: schemas.LineaOrdenRequest, db: Session = Depends(get_db)):
-    return adquisiciones.agregar_linea(db, orden_id, _datos(payload))
+    r = adquisiciones.agregar_linea(db, orden_id, _datos(payload))
+    registro.anotar_y_guardar(db, "adquisiciones", "pedido", f"Agregó un título al pedido «{r['nombre']}»", objeto=("pedido", orden_id))
+    return r
 
 
 @router.put("/orders/{orden_id}/lines/{linea_id}")
 def actualizar_linea(orden_id: int, linea_id: int, payload: schemas.LineaOrdenRequest,
                      db: Session = Depends(get_db)):
-    return adquisiciones.actualizar_linea(db, orden_id, linea_id, _datos(payload))
+    r = adquisiciones.actualizar_linea(db, orden_id, linea_id, _datos(payload))
+    registro.anotar_y_guardar(db, "adquisiciones", "pedido", f"Cambió una línea del pedido «{r['nombre']}»", objeto=("pedido", orden_id))
+    return r
 
 
 @router.delete("/orders/{orden_id}/lines/{linea_id}")
 def eliminar_linea(orden_id: int, linea_id: int, db: Session = Depends(get_db)):
-    return adquisiciones.eliminar_linea(db, orden_id, linea_id)
+    r = adquisiciones.eliminar_linea(db, orden_id, linea_id)
+    registro.anotar_y_guardar(db, "adquisiciones", "pedido", f"Quitó un título del pedido «{r['nombre']}»", objeto=("pedido", orden_id))
+    return r
 
 
 @router.post("/orders/{orden_id}/lines/{linea_id}/cancel")
 def cancelar_pendiente(orden_id: int, linea_id: int, db: Session = Depends(get_db)):
     """Lo que falta recibir de la línea ya no llega."""
-    return adquisiciones.cancelar_pendiente(db, orden_id, linea_id)
+    r = adquisiciones.cancelar_pendiente(db, orden_id, linea_id)
+    registro.anotar_y_guardar(db, "adquisiciones", "pedido", f"Canceló lo pendiente de una línea del pedido «{r['nombre']}»", objeto=("pedido", orden_id))
+    return r
 
 
 @router.post("/orders/{orden_id}/close")
 def cerrar_orden(orden_id: int, db: Session = Depends(get_db)):
     """Se envía al proveedor: desde ahora se recibe."""
-    return adquisiciones.cerrar_orden(db, orden_id)
+    r = adquisiciones.cerrar_orden(db, orden_id)
+    registro.anotar_y_guardar(db, "adquisiciones", "pedido", f"Cerró (envió) el pedido «{r['nombre']}» a {r['proveedor_nombre']}", objeto=("pedido", orden_id))
+    return r
 
 
 @router.post("/orders/{orden_id}/reopen")
 def reabrir_orden(orden_id: int, db: Session = Depends(get_db)):
-    return adquisiciones.reabrir_orden(db, orden_id)
+    r = adquisiciones.reabrir_orden(db, orden_id)
+    registro.anotar_y_guardar(db, "adquisiciones", "pedido", f"Reabrió el pedido «{r['nombre']}»", objeto=("pedido", orden_id))
+    return r
 
 
 @router.post("/orders/{orden_id}/cancel")
 def cancelar_orden(orden_id: int, db: Session = Depends(get_db)):
-    return adquisiciones.cancelar_orden(db, orden_id)
+    r = adquisiciones.cancelar_orden(db, orden_id)
+    registro.anotar_y_guardar(db, "adquisiciones", "pedido", f"Canceló el pedido «{r['nombre']}»", objeto=("pedido", orden_id))
+    return r
 
 
 # --- Facturas y recepción -------------------------------------------------------------
@@ -189,7 +224,9 @@ def listar_facturas(proveedor_id: Optional[int] = None, abiertas: Optional[bool]
 def crear_factura(payload: schemas.FacturaRequest, db: Session = Depends(get_db)):
     if payload.proveedor_id is None:
         raise ReglaIncumplida("Indica el proveedor de la factura")
-    return adquisiciones.crear_factura(db, _datos(payload))
+    r = adquisiciones.crear_factura(db, _datos(payload))
+    registro.anotar_y_guardar(db, "adquisiciones", "factura", f"Registró la factura {r['numero']} de {r['proveedor_nombre']}", objeto=("factura", r["id"]))
+    return r
 
 
 @router.get("/invoices/{factura_id}")
@@ -202,35 +239,48 @@ def actualizar_factura(factura_id: int, payload: schemas.FacturaRequest,
                        db: Session = Depends(get_db)):
     datos = _datos(payload)
     datos.pop("proveedor_id", None)
-    return adquisiciones.actualizar_factura(db, factura_id, datos)
+    r = adquisiciones.actualizar_factura(db, factura_id, datos)
+    registro.anotar_y_guardar(db, "adquisiciones", "factura", f"Editó la factura {r['numero']}", objeto=("factura", factura_id))
+    return r
 
 
 @router.delete("/invoices/{factura_id}")
 def eliminar_factura(factura_id: int, db: Session = Depends(get_db)):
+    numero = adquisiciones.obtener_factura(db, factura_id)["numero"]
     adquisiciones.eliminar_factura(db, factura_id)
+    registro.anotar_y_guardar(db, "adquisiciones", "factura", f"Eliminó la factura {numero}",
+                              objeto=("factura", factura_id))
     return {"mensaje": "Factura eliminada"}
 
 
 @router.post("/invoices/{factura_id}/close")
 def cerrar_factura(factura_id: int, db: Session = Depends(get_db)):
-    return adquisiciones.cerrar_factura(db, factura_id, True)
+    r = adquisiciones.cerrar_factura(db, factura_id, True)
+    registro.anotar_y_guardar(db, "adquisiciones", "factura", f"Cerró la factura {r['numero']}", objeto=("factura", factura_id))
+    return r
 
 
 @router.post("/invoices/{factura_id}/reopen")
 def reabrir_factura(factura_id: int, db: Session = Depends(get_db)):
-    return adquisiciones.cerrar_factura(db, factura_id, False)
+    r = adquisiciones.cerrar_factura(db, factura_id, False)
+    registro.anotar_y_guardar(db, "adquisiciones", "factura", f"Reabrió la factura {r['numero']}", objeto=("factura", factura_id))
+    return r
 
 
 @router.post("/invoices/{factura_id}/receive")
 def recibir(factura_id: int, payload: schemas.RecepcionRequest, db: Session = Depends(get_db),
             actor: models.Usuario = Depends(ADQUIERE)):
     """Recibe unidades de una línea contra la factura y da de alta los ejemplares."""
-    return adquisiciones.recibir(db, factura_id, _datos(payload), actor.id)
+    r = adquisiciones.recibir(db, factura_id, _datos(payload), actor.id)
+    registro.anotar_y_guardar(db, "adquisiciones", "recepcion", f"Recibió {payload.cantidad or 'lo pendiente de'} la línea {payload.linea_id} con la factura {factura_id}", objeto=("factura", factura_id))
+    return r
 
 
 @router.delete("/receipts/{recepcion_id}")
 def deshacer_recepcion(recepcion_id: int, db: Session = Depends(get_db)):
-    return adquisiciones.deshacer_recepcion(db, recepcion_id)
+    r = adquisiciones.deshacer_recepcion(db, recepcion_id)
+    registro.anotar_y_guardar(db, "adquisiciones", "recepcion", f"Deshizo la recepción {recepcion_id}", objeto=("recepcion", recepcion_id))
+    return r
 
 
 # --- Sugerencias ----------------------------------------------------------------------
@@ -249,16 +299,22 @@ def crear_sugerencia(payload: schemas.SugerenciaRequest, db: Session = Depends(g
 @router.post("/suggestions/{sugerencia_id}/accept")
 def aceptar_sugerencia(sugerencia_id: int, payload: schemas.DecisionSugerenciaRequest,
                        db: Session = Depends(get_db), actor: models.Usuario = Depends(ADQUIERE)):
-    return sugerencias.decidir(db, sugerencia_id, True, payload.motivo, actor.id)
+    r = sugerencias.decidir(db, sugerencia_id, True, payload.motivo, actor.id)
+    registro.anotar_y_guardar(db, "adquisiciones", "sugerencia", f"Aceptó la sugerencia «{r['titulo']}»", objeto=("sugerencia", sugerencia_id))
+    return r
 
 
 @router.post("/suggestions/{sugerencia_id}/reject")
 def rechazar_sugerencia(sugerencia_id: int, payload: schemas.DecisionSugerenciaRequest,
                         db: Session = Depends(get_db), actor: models.Usuario = Depends(ADQUIERE)):
-    return sugerencias.decidir(db, sugerencia_id, False, payload.motivo, actor.id)
+    r = sugerencias.decidir(db, sugerencia_id, False, payload.motivo, actor.id)
+    registro.anotar_y_guardar(db, "adquisiciones", "sugerencia", f"Rechazó la sugerencia «{r['titulo']}»" + (f": {payload.motivo}" if payload.motivo else ""), objeto=("sugerencia", sugerencia_id))
+    return r
 
 
 @router.post("/suggestions/{sugerencia_id}/order")
 def pedir_sugerencia(sugerencia_id: int, payload: schemas.PedirSugerenciaRequest,
                      db: Session = Depends(get_db), actor: models.Usuario = Depends(ADQUIERE)):
-    return sugerencias.pedir(db, sugerencia_id, _datos(payload), actor.id)
+    r = sugerencias.pedir(db, sugerencia_id, _datos(payload), actor.id)
+    registro.anotar_y_guardar(db, "adquisiciones", "sugerencia", f"Pidió la sugerencia {sugerencia_id} en el pedido {payload.orden_id}", objeto=("sugerencia", sugerencia_id))
+    return r

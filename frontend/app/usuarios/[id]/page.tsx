@@ -20,6 +20,7 @@ import { useSesion } from "@/components/auth/sesion-provider"
 import { AppLayout } from "@/components/layout/app-layout"
 import { Header } from "@/components/layout/header"
 import { Button } from "@/components/ui/button"
+import { HistorialFicha } from "@/components/registro/historial-ficha"
 import { AvisosUsuario } from "@/components/usuarios/avisos-usuario"
 import { CuentaLector } from "@/components/usuarios/cuenta-lector"
 import { RestablecerClaveDialog } from "@/components/usuarios/restablecer-clave-dialog"
@@ -48,6 +49,8 @@ export default function PerfilUsuarioPage() {
   const [restableciendo, setRestableciendo] = useState(false)
   const { usuario: yo, tienePermiso } = useSesion()
 
+  // Sube cada vez que la ficha se recarga: el historial de cambios se vuelve a pedir.
+  const [version, setVersion] = useState(0)
   const cargar = useCallback(async () => {
     try {
       const [u, p] = await Promise.all([
@@ -56,6 +59,7 @@ export default function PerfilUsuarioPage() {
       ])
       setUsuario(u)
       setPrestamos(p)
+      setVersion((v) => v + 1)
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
         setNoEncontrado(true)
@@ -211,6 +215,10 @@ export default function PerfilUsuarioPage() {
         <CuentaLector carnet={usuario.nro_carnet} onChange={cargar} />
 
         <AvisosUsuario carnet={usuario.nro_carnet} />
+
+        <div className="mb-6">
+          <HistorialFicha filtro={{ lector: usuario.nro_carnet }} recarga={version} />
+        </div>
 
         <div className="rounded-lg border border-border bg-card">
           <div className="border-b border-border px-6 py-4">

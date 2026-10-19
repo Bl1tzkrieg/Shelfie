@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.core.errores import NoEncontrado, ReglaIncumplida
 from app.core.tiempo import ahora, fecha_local, formatear_fecha, formatear_fecha_hora, hoy
-from app.services import configuracion, reservas, sedes
+from app.services import configuracion, registro, reservas, sedes
 
 SOLICITADO, ENVIADO, RECIBIDO, CANCELADO = "Solicitado", "Enviado", "Recibido", "Cancelado"
 ABIERTOS = (SOLICITADO, ENVIADO)
@@ -199,6 +199,7 @@ def crear(db: Session, codigo_barras: str, hacia_id: int, *, comentario: Optiona
 
     traslado = _abrir(db, item, desde, destino.id, MANUAL, personal_id=personal_id,
                       comentario=(comentario or "").strip() or None)
+    _anotar(db, traslado, item, "traslado", f"Traslado a mano hacia {destino.nombre}")
     db.commit()
     return _vista(db, traslado)
 
@@ -225,6 +226,9 @@ def recibir(db: Session, traslado_id: int, personal_id: Optional[int] = None,
             f"Este traslado va hacia {destino}: se recibe desde esa sede. Si el ejemplar "
             "llegó aquí, pásalo por Devoluciones y se reencamina")
     ubicacion = _recibir(db, traslado, personal_id)
+    item = db.get(models.Item, traslado.item_id)
+    _anotar(db, traslado, item, "traslado_recibido",
+            f"Recibido en {sedes.nombres(db).get(traslado.hacia_id, 'destino')}")
     db.commit()
     return {**_vista(db, traslado), "resultado": describir(db, ubicacion)}
 
@@ -251,8 +255,16 @@ def cancelar(db: Session, traslado_id: int, sede_trabajo: Optional[int] = None) 
     reserva = db.get(models.Reserva, traslado.reserva_id) if traslado.reserva_id else None
     if reserva and reserva.estado == reservas.EN_TRANSITO and reserva.item_id == item.id:
         reservas.volver_a_la_cola(db, reserva)
+    _anotar(db, traslado, item, "traslado_cancelado",
+            f"Traslado hacia {sedes.nombres(db).get(traslado.hacia_id, 'otra sede')} cancelado")
     db.commit()
     return _vista(db, traslado)
+
+
+def _anotar(db: Session, traslado: models.Traslado, item: models.Item, accion: str,
+            que: str) -> None:
+    registro.anotar(db, "circulacion", accion, f"{que}: {item.codigo_barras}",
+                    biblio=item.biblio_id, item=item, objeto=("traslado", traslado.id))
 
 
 # --- Vistas ---------------------------------------------------------------------------

@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.core.errores import NoEncontrado, ReglaIncumplida
 from app.core.tiempo import ahora, fecha_local, fin_del_dia, formatear_fecha, hoy
-from app.services import calendario, configuracion, cuentas, reglas, sedes
+from app.services import calendario, configuracion, cuentas, registro, reglas, sedes
 
 PENDIENTE, EN_TRANSITO, EN_ESPERA = "Pendiente", "EnTransito", "EnEspera"
 CUMPLIDA, CANCELADA, EXPIRADA = "Cumplida", "Cancelada", "Expirada"
@@ -313,6 +313,12 @@ def reservar(db: Session, biblio_id: int, nro_carnet: str, *,
         prioridad=len(_pendientes(db, biblio.id)) + 1, biblioteca_retiro_id=retiro,
         fecha_limite=fecha_limite, notas=(notas or "").strip() or None)
     db.add(reserva)
+    db.flush()
+    registro.anotar(
+        db, "reservas", "reserva",
+        f"Reserva de «{biblio.titulo}» para {registro.nombre(usuario)}; turno {reserva.prioridad}"
+        + (f", retira en {sedes.nombres(db).get(retiro)}" if retiro else ""),
+        lector=usuario, biblio=biblio, objeto=("reserva", reserva.id))
     db.commit()
     db.refresh(reserva)
 
@@ -349,7 +355,22 @@ def cancelar(db: Session, reserva_id: int) -> None:
         # Si ya va en camino, sigue viaje: al llegar se decide qué hacer con él.
         traslados.anular_si_no_salio(db, reserva.id, item)
     renumerar(db, reserva.biblio_id)
+    _anotar_reserva(db, reserva, "reserva_cancelada", "Canceló la reserva")
     db.commit()
+
+
+def _anotar_reserva(db: Session, reserva: models.Reserva, accion: str, que: str,
+                    datos: Optional[dict] = None) -> None:
+    biblio = db.get(models.RegistroBibliografico, reserva.biblio_id)
+    lector = db.get(models.Usuario, reserva.usuario_id)
+    registro.anotar(db, "reservas", accion,
+                    f"{que} de «{biblio.titulo if biblio else '?'}» de {registro.nombre(lector)}",
+                    lector=lector, biblio=reserva.biblio_id, item=reserva.item_id,
+                    objeto=("reserva", reserva.id), datos=datos)
+
+
+_CAMPOS_RESERVA = ("prioridad", "biblioteca_retiro_id", "suspendida", "suspendida_hasta",
+                   "fecha_limite", "notas")
 
 
 def modificar(db: Session, reserva_id: int, datos: dict) -> dict:
@@ -357,6 +378,7 @@ def modificar(db: Session, reserva_id: int, datos: dict) -> dict:
     reserva = _obtener(db, reserva_id)
     if reserva.estado not in ACTIVAS:
         raise ReglaIncumplida(f"La reserva ya está cerrada ({reserva.estado})")
+    antes = {c: getattr(reserva, c) for c in _CAMPOS_RESERVA}
 
     def solo_pendiente(que: str) -> None:
         if reserva.estado != PENDIENTE:
@@ -397,6 +419,9 @@ def modificar(db: Session, reserva_id: int, datos: dict) -> dict:
         for turno, r in enumerate(cola, start=1):
             r.prioridad = turno
 
+    cambios = registro.diferencias(antes, {c: getattr(reserva, c) for c in _CAMPOS_RESERVA})
+    if cambios:
+        _anotar_reserva(db, reserva, "reserva_cambio", "Cambió la reserva", {"cambios": cambios})
     db.commit()
     return _vista(db, reserva)
 

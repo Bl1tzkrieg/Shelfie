@@ -288,4 +288,4 @@ def sin_cambio_de_clave_forzado(db):
 
     Las pruebas de ese comportamiento (test_seguridad.py) lo vuelven a encender.
     """
-    configuracion.guardar(db, {"seguridad": {"forzar_cambio_clave": False}})
+    configuracion.guardar(db, {"seguridad": {"forzar_cambio_clave": False}}, anotar=False)

@@ -16,6 +16,7 @@ export type Permiso =
   | "configuracion"
   | "adquisiciones"
   | "seriadas"
+  | "registro"
   | "superbibliotecario"
 
 /** Nombre legible de cada permiso, para la interfaz. */
@@ -27,6 +28,7 @@ export const NOMBRE_PERMISO: Record<Permiso, string> = {
   configuracion: "Configuración",
   adquisiciones: "Adquisiciones",
   seriadas: "Publicaciones seriadas",
+  registro: "Registro de acciones",
   superbibliotecario: "Superbibliotecario (acceso total)",
 }
 
@@ -812,4 +814,39 @@ export interface TareaProgramada {
   nombre: string
   descripcion: string
   ultima: CorridaTarea | null
+}
+
+/** Una anotación del registro de acciones (GET /logs). */
+export interface AccionRegistrada {
+  id: number
+  fecha: string
+  fecha_iso: string
+  modulo: string
+  accion: string
+  accion_nombre: string
+  descripcion: string
+  actor: string
+  actor_carnet: string | null
+  desde_opac: boolean
+  lector: string | null
+  lector_carnet: string | null
+  biblio_id: number | null
+  titulo: string | null
+  codigo_barras: string | null
+  datos: Record<string, unknown> | null
+  ip: string | null
+}
+
+export interface PaginaRegistro {
+  total: number
+  pagina: number
+  paginas: number
+  filas: AccionRegistrada[]
+}
+
+export interface AjustesRegistro {
+  modulos: Record<string, boolean>
+  dias_retencion: number
+  descripciones: Record<string, string>
+  acciones: Record<string, string>
 }

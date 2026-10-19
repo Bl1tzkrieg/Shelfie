@@ -524,3 +524,35 @@ class IntentoAcceso(Base):
     identificador = Column(String(100), nullable=False, index=True)
     ip = Column(String(64), nullable=True, index=True)
     fecha = Column(DateTime(timezone=True), nullable=False, default=ahora)
+
+
+class RegistroAccion(Base):
+    """Registro de acciones (action_logs de Koha): quién hizo qué, cuándo y sobre qué.
+
+    `usuario_id` es quien actuó (personal, o el lector desde el OPAC; NULL = el sistema,
+    p. ej. una tarea programada). `lector_id`, `biblio_id` e `item_id` son a quién o a qué
+    afectó, para ver el historial de una ficha. `datos` guarda el detalle (antes/después).
+    """
+    __tablename__ = "registro_acciones"
+    __table_args__ = (
+        Index("ix_registro_acciones_modulo_fecha", "modulo", "fecha"),
+    )
+    id = Column(Integer, primary_key=True)
+    fecha = Column(DateTime(timezone=True), nullable=False, default=ahora, index=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True,
+                        index=True)
+    desde_opac = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    modulo = Column(String(20), nullable=False)
+    accion = Column(String(30), nullable=False)
+    descripcion = Column(Text, nullable=False)
+    lector_id = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True,
+                       index=True)
+    biblio_id = Column(Integer, ForeignKey("registros_bibliograficos.id", ondelete="SET NULL"),
+                       nullable=True, index=True)
+    item_id = Column(Integer, ForeignKey("items.id", ondelete="SET NULL"), nullable=True,
+                     index=True)
+    objeto_tipo = Column(String(30), nullable=True)
+    objeto_id = Column(Integer, nullable=True)
+    datos = Column(JSONB, nullable=True)
+    ip = Column(String(64), nullable=True)
+    sede_id = Column(Integer, ForeignKey("bibliotecas.id", ondelete="SET NULL"), nullable=True)

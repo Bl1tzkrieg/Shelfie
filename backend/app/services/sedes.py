@@ -112,6 +112,8 @@ def crear(db: Session, datos: dict) -> dict:
     sede = B(punto_retiro=True)
     _aplicar(db, sede, {"codigo": datos.get("codigo"), "nombre": datos.get("nombre"), **datos})
     db.add(sede)
+    db.flush()
+    _anotar(db, f"Creó la sede {sede.nombre} ({sede.codigo})", sede)
     db.commit()
     db.refresh(sede)
     return vista(sede)
@@ -125,8 +127,13 @@ def obtener(db: Session, sede_id: int) -> models.Biblioteca:
 
 
 def actualizar(db: Session, sede_id: int, datos: dict) -> dict:
+    from app.services import registro
     sede = obtener(db, sede_id)
+    antes = vista(sede)
     _aplicar(db, sede, datos)
+    cambios = registro.diferencias(antes, vista(sede))
+    if cambios:
+        _anotar(db, f"Cambió la sede {sede.nombre}: {', '.join(cambios)}", sede, {"cambios": cambios})
     db.commit()
     return vista(sede)
 
@@ -154,6 +161,7 @@ def eliminar(db: Session, sede_id: int) -> None:
         raise ReglaIncumplida(f"No se puede borrar {sede.nombre}: tiene {', '.join(en_uso)}")
     if sede.punto_retiro and _unico_punto_de_retiro(db, sede_id) and db.query(B).count() > 1:
         raise ReglaIncumplida("Debe quedar al menos una sede donde retirar reservas")
+    _anotar(db, f"Eliminó la sede {sede.nombre} ({sede.codigo})", None)
     db.delete(sede)
     db.commit()
 
@@ -165,3 +173,9 @@ def validar_punto_de_retiro(db: Session, sede_id: Optional[int]) -> Optional[int
     if not sede.punto_retiro:
         raise ReglaIncumplida(f"En {sede.nombre} no se retiran reservas")
     return sede.id
+
+
+def _anotar(db: Session, que: str, sede: Optional[models.Biblioteca], datos: Optional[dict] = None) -> None:
+    from app.services import registro
+    registro.anotar(db, "configuracion", "sede", que, objeto=("sede", sede.id if sede else None),
+                    datos=datos)

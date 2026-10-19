@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 from app import models
 from app.core.errores import NoEncontrado, ReglaIncumplida
 from app.core.tiempo import ahora, fecha_local, fin_del_dia, formatear_fecha, hoy, mas_dias
-from app.services import calendario, configuracion, cuentas, reglas, reservas, sedes, traslados
+from app.services import (calendario, configuracion, cuentas, registro, reglas, reservas, sedes,
+                          traslados)
 
 # El frontend clasifica a los lectores en tres grupos; los códigos de categoría
 # de la base de datos se normalizan contra ese vocabulario.
@@ -37,6 +38,15 @@ def estado_de_prestamo(prestamo: models.Prestamo, momento: Optional[datetime] = 
     if prestamo.fecha_devolucion:
         return "returned"
     return "overdue" if (momento or ahora()) > prestamo.fecha_vencimiento else "active"
+
+
+def _titulo(db: Session, item: models.Item) -> str:
+    biblio = db.get(models.RegistroBibliografico, item.biblio_id) if item.biblio_id else None
+    return f"«{biblio.titulo}»" if biblio else "(sin registro)"
+
+
+def _bs(monto) -> str:
+    return f"Bs. {Decimal(monto):.2f}"
 
 
 def _sede_por_defecto(db: Session) -> Optional[int]:
@@ -135,6 +145,12 @@ def prestar(db: Session, codigo_barras: str, nro_carnet: str,
     item.estado = "Prestado"
 
     db.add(prestamo)
+    db.flush()
+    registro.anotar(
+        db, "circulacion", "prestamo",
+        f"Préstamo de {item.codigo_barras} {_titulo(db, item)} a {registro.nombre(usuario)}; "
+        f"vence el {formatear_fecha(prestamo.fecha_vencimiento)}",
+        lector=usuario, biblio=item.biblio_id, item=item, objeto=("prestamo", prestamo.id))
     db.commit()
     db.refresh(prestamo)
     return prestamo
@@ -194,6 +210,12 @@ def devolver(db: Session, codigo_barras: str, personal_id: Optional[int] = None,
 
     prestamo.fecha_devolucion = momento
     prestamo.personal_devolucion_id = personal_id
+    registro.anotar(
+        db, "circulacion", "devolucion",
+        f"Devolución de {item.codigo_barras} {_titulo(db, item)} por {registro.nombre(usuario)}"
+        + (f"; multa por atraso {_bs(multa)}" if multa > 0 else ""),
+        lector=usuario, biblio=item.biblio_id, item=item, objeto=("prestamo", prestamo.id),
+        datos={"multa": multa} if multa > 0 else None)
     return _reincorporar(db, item, "Devolución registrada correctamente en el inventario",
                          sede_id, personal_id, multa=multa)
 
@@ -263,6 +285,13 @@ def _recuperar_perdido(db: Session, item: models.Item, personal_id: Optional[int
         else:
             reintegro = Decimal("0.00")
 
+    registro.anotar(
+        db, "circulacion", "recuperado",
+        f"Apareció el ejemplar perdido {item.codigo_barras} {_titulo(db, item)}"
+        + (f"; se reintegraron {_bs(reintegro)} a {registro.nombre(lector)}" if reintegro > 0 else ""),
+        lector=lector, biblio=item.biblio_id, item=item,
+        objeto=("prestamo", prestamo.id) if prestamo else None,
+        datos={"reintegro": reintegro} if reintegro > 0 else None)
     return _reincorporar(db, item, "El ejemplar declarado perdido volvió al inventario",
                          sede_id or _sede_por_defecto(db), personal_id,
                          recuperado=True, reintegro=reintegro, lector_reintegro=lector)
@@ -306,6 +335,13 @@ def renovar(db: Session, prestamo_id: int, personal_id: Optional[int] = None) ->
     base = max(fecha_local(prestamo.fecha_vencimiento), hoy())
     prestamo.fecha_vencimiento = _vencimiento(cal, base, regla.dias_prestamo)
     prestamo.renovaciones_realizadas = realizadas + 1
+    registro.anotar(
+        db, "circulacion", "renovacion",
+        f"Renovación de {item.codigo_barras} {_titulo(db, item)} de {registro.nombre(usuario)}; "
+        f"vence el {formatear_fecha(prestamo.fecha_vencimiento)}"
+        + (f"; mora cobrada {_bs(multa)}" if multa > 0 else ""),
+        lector=usuario, biblio=item.biblio_id, item=item, objeto=("prestamo", prestamo.id),
+        datos={"renovacion": realizadas + 1, **({"multa": multa} if multa > 0 else {})})
     db.commit()
     db.refresh(prestamo)
 
@@ -350,6 +386,12 @@ def declarar_perdido(db: Session, prestamo_id: int, personal_id: Optional[int] =
     prestamo.personal_devolucion_id = personal_id
     prestamo.perdido = True
     item.estado = "Perdido"
+    registro.anotar(
+        db, "circulacion", "perdido",
+        f"{item.codigo_barras} {_titulo(db, item)} declarado perdido; reposición {_bs(precio)} "
+        f"a {registro.nombre(usuario)}" + (f" y mora {_bs(multa)}" if multa > 0 else ""),
+        lector=usuario, biblio=item.biblio_id, item=item, objeto=("prestamo", prestamo.id),
+        datos={"reposicion": precio, "multa": multa})
     db.commit()
     return {"mensaje": "Ejemplar declarado perdido", "cargo_reposicion": float(precio),
             "multa_atraso": float(multa)}
