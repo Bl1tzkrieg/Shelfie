@@ -1,6 +1,6 @@
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 
 # ==========================================
@@ -181,3 +181,56 @@ class RespaldoRequest(BaseModel):
 class ActualizarConfiguracionRequest(BaseModel):
     biblioteca: Optional[BibliotecaRequest] = None
     respaldo: Optional[RespaldoRequest] = None
+
+
+# ==========================================
+# FICHA SIMPLE DEL LIBRO (formulario ↔ MARC 21)
+# ==========================================
+
+class FichaLibro(BaseModel):
+    """Los campos del formulario de catalogación simple. `services/ficha.py` la traduce a MARC."""
+
+    cota: str
+    titulo: str
+    subtitulo: Optional[str] = None
+    mencion: Optional[str] = None
+    autor: Optional[str] = None
+    otros_autores: List[str] = []
+    edicion: Optional[str] = None
+    lugar: Optional[str] = None
+    editorial: Optional[str] = None
+    ano: Optional[int] = Field(default=None, ge=0, le=9999)
+    paginas: Optional[str] = None
+    ilustraciones: Optional[str] = None
+    dimensiones: Optional[str] = None
+    isbn: List[str] = []
+    materias: List[str] = []
+    descripcion: Optional[str] = None
+    notas: Optional[str] = None
+
+    @field_validator("cota", "titulo", mode="before")
+    @classmethod
+    def _obligatorio(cls, valor: Any) -> Any:
+        valor = valor.strip() if isinstance(valor, str) else valor
+        if not valor:
+            raise ValueError("Es obligatorio")
+        return valor
+
+    @field_validator("subtitulo", "mencion", "autor", "edicion", "lugar", "editorial",
+                     "paginas", "ilustraciones", "dimensiones", "descripcion", "notas",
+                     mode="before")
+    @classmethod
+    def _opcional(cls, valor: Any) -> Any:
+        if isinstance(valor, str):
+            return valor.strip() or None
+        return valor
+
+    @field_validator("otros_autores", "isbn", "materias", mode="before")
+    @classmethod
+    def _lista(cls, valores: Any) -> Any:
+        if valores is None:
+            return []
+        if isinstance(valores, list):
+            limpios = [v.strip() if isinstance(v, str) else v for v in valores]
+            return [v for v in limpios if v != ""]
+        return valores
