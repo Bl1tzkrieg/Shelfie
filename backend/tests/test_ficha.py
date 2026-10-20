@@ -184,13 +184,13 @@ def test_cambiar_solo_el_titulo_conserva_n_p_y_el_indicador_con_110():
     assert marc.campos(resultado, "110") == marc.campos(original, "110")
 
 
-def test_cambiar_el_autor_edita_el_a_y_conserva_el_d():
+def test_cambiar_el_autor_edita_el_a_y_quita_el_d():
     original = _koha()
     previa = ficha.desde_marc(original)
     resultado = ficha.a_marc(previa.model_copy(update={"cota": "1 A", "autor": "Otro, Autor"}),
                              original)
     assert marc.campos(resultado, "100")[0] == {
-        "ind1": "1", "ind2": " ", "subfields": [{"a": "Otro, Autor"}, {"d": "1884-1969."}]}
+        "ind1": "1", "ind2": " ", "subfields": [{"a": "Otro, Autor"}]}
 
 
 def test_la_publicacion_solo_toca_el_264_de_publicacion():
@@ -229,3 +229,51 @@ def test_desde_marc_normaliza_la_cota():
     assert ficha.desde_marc(base).cota == "616.39 H37"
     resultado = ficha.a_marc(ficha.desde_marc(base), base)
     assert resultado["fields"] == base["fields"]  # sin cambios: el 092 original no se toca
+
+
+def _con_092(*subs) -> dict:
+    return {"leader": "x", "fields": [
+        {"092": {"ind1": " ", "ind2": " ", "subfields": [{k: v} for k, v in subs]}},
+        {"245": {"ind1": "0", "ind2": "0", "subfields": [{"a": "T"}]}}]}
+
+
+def test_cota_completa_en_092_a_se_reescribe_como_unidad():
+    base = _con_092(("a", "863 G3"), ("9", "local"))
+    previa = ficha.desde_marc(base)
+    assert previa.cota == "863 G3"
+    r = ficha.a_marc(previa.model_copy(update={"cota": "863 G4"}), base)
+    assert marc.campos(r, "092")[0]["subfields"] == [{"a": "863"}, {"b": "G4"}, {"9": "local"}]
+    assert ficha.desde_marc(r).cota == "863 G4"
+    r = ficha.a_marc(previa.model_copy(update={"cota": "900 G3"}), base)
+    assert ficha.desde_marc(r).cota == "900 G3"
+    r = ficha.a_marc(previa.model_copy(update={"cota": "900"}), _con_092(("a", "863"), ("b", "G3")))
+    assert marc.campos(r, "092")[0]["subfields"] == [{"a": "900"}]  # sin $b viejo
+
+
+def test_el_autor_se_lee_y_edita_en_el_primer_1xx():
+    base = {"leader": "x", "fields": [
+        {"110": {"ind1": "2", "ind2": " ", "subfields": [{"a": "Editorial X."}, {"b": "Sede"}]}},
+        {"245": {"ind1": "1", "ind2": "0", "subfields": [{"a": "T"}]}}]}
+    previa = ficha.desde_marc(base)
+    assert previa.autor == "Editorial X."
+    r = ficha.a_marc(previa.model_copy(update={"cota": "1", "autor": "Editorial Y"}), base)
+    assert marc.campos(r, "100") == []
+    assert marc.campos(r, "110")[0]["subfields"] == [{"a": "Editorial Y"}, {"b": "Sede"}]
+    r = ficha.a_marc(previa.model_copy(update={"cota": "1", "autor": None}), base)
+    assert marc.campos(r, "110") == marc.campos(base, "110")  # no se borra en silencio
+    r = ficha.a_marc(FichaLibro(cota="1", titulo="T", autor="Nuevo, Autor"),
+                     {"leader": "x", "fields": [base["fields"][1]]})
+    assert marc.campos(r, "100")[0] == {"ind1": "1", "ind2": " ",
+                                        "subfields": [{"a": "Nuevo, Autor"}]}
+
+
+def test_cambiar_el_autor_100_quita_d_y_q_y_conserva_e():
+    base = {"leader": "x", "fields": [
+        {"100": {"ind1": "1", "ind2": " ", "subfields": [
+            {"a": "Viejo, A."}, {"q": "(Antonio)"}, {"d": "1900-1980"}, {"e": "autor"}]}},
+        {"245": {"ind1": "1", "ind2": "0", "subfields": [{"a": "T"}]}}]}
+    previa = ficha.desde_marc(base)
+    r = ficha.a_marc(previa.model_copy(update={"cota": "1", "autor": "Nuevo, B."}), base)
+    assert marc.campos(r, "100")[0]["subfields"] == [{"a": "Nuevo, B."}, {"e": "autor"}]
+    sin_cambio = ficha.a_marc(previa.model_copy(update={"cota": "1"}), base)
+    assert marc.campos(sin_cambio, "100") == marc.campos(base, "100")  # $d y $q intactos

@@ -59,8 +59,21 @@ def _publicacion(registro: dict) -> Optional[object]:
     return anteriores[0] if anteriores else None
 
 
+def _principal(registro: dict) -> Tuple[Optional[str], Optional[object]]:
+    """Primer asiento principal que lleva el autor: 100, 110 o 111 (MARC permite un solo 1XX)."""
+    for campo in registro.get("fields", []):
+        tag = next(iter(campo))
+        if tag in ("100", "110", "111"):
+            return tag, campo[tag]
+    return None, None
+
+
 def _campo_de(registro: dict, grupo: str) -> Optional[object]:
-    return _publicacion(registro) if grupo == "pub" else _primer_campo(registro, grupo)
+    if grupo == "pub":
+        return _publicacion(registro)
+    if grupo == "100":
+        return _principal(registro)[1]
+    return _primer_campo(registro, grupo)
 
 
 def _sub(campo: Optional[object], codigo: str) -> Optional[str]:
@@ -161,6 +174,13 @@ def _editar_unico(campos: List[dict], registro: dict, grupo: str,
                   cambios: Valores, nuevos: Valores) -> None:
     campo = _campo_de(registro, grupo)
     orden = _ORDEN_SUBCAMPOS.get(grupo, "abc")
+    if grupo == "100" and campo is not None:
+        if _principal(registro)[0] != "100" and nuevos["a"] is None:
+            return  # no se borra en silencio un 110/111 (entidad corporativa)
+        if _principal(registro)[0] == "100":
+            # $d y $q pertenecen a la persona anterior; $e y los demás se conservan.
+            campo["subfields"][:] = [s for s in campo["subfields"]
+                                     if not ({"d", "q"} & set(s))]
     if campo is not None:
         for codigo, valor in cambios.items():
             _poner_subcampo(campo["subfields"], codigo, valor, orden)
@@ -223,6 +243,8 @@ def a_marc(ficha: FichaLibro, marc_actual: Optional[dict] = None) -> dict:
     previa = desde_marc(registro)
     ahora, antes = _valores_unicos(ficha), _valores_unicos(previa)
     cambios = {g: {c: v for c, v in ahora[g].items() if v != antes[g][c]} for g in _UNICOS}
+    if cambios["092"]:
+        cambios["092"] = dict(ahora["092"])  # la cota es una unidad: $a y $b se reescriben juntos
 
     for tag in ("092", "020", "100", "245", "250", "pub", "300", "500", "520", "650", "700"):
         if tag == "020" and ficha.isbn != previa.isbn:
