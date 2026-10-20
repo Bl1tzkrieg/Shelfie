@@ -405,7 +405,15 @@ medios y 69 bajos. Corregidos todos menos A2 (acción manual, abajo). Migración
       "Historial de cambios" en la ficha del lector y en la del registro.
 - [x] Qué módulos se registran y cuántos días se guarda (por defecto 730; la limpieza diaria
       borra lo más viejo). Apagar un módulo también queda registrado.
-- [ ] Inventario, etiquetas y códigos de barras, modificación por lotes.
+- [x] **Inventario** (migración `0016`, Inventory de Koha): se abre por sede, tramo de
+      signaturas y tipo de ítem; esperados son los ejemplares Disponibles del alcance. Los
+      códigos se leen con el escáner, pegados o desde el archivo de un lector portátil, en una
+      o varias sesiones. Cada lectura dice si está en su lugar, fuera de lugar (otra sede,
+      otro tramo, otro tipo), prestado, perdido, dado de baja, apartado, en tránsito,
+      desconocido o repetido. Faltantes en orden de estante, con CSV. Opción de devolver solos
+      los prestados que aparecen. Al cerrar se guarda el resumen. Cada ejemplar guarda cuándo
+      se lo vio por última vez (se muestra en la ficha).
+- [ ] Etiquetas y códigos de barras, modificación por lotes.
 - [ ] Reportes armables por el usuario (con cuidado si se permite SQL).
 - [ ] Portadas.
 - [ ] Más adelante: préstamo interbibliotecario, reservas de curso, autopréstamo, i18n.
@@ -416,8 +424,8 @@ medios y 69 bajos. Corregidos todos menos A2 (acción manual, abajo). Migración
 
 | Comprobación | Resultado |
 |---|---|
-| `pytest` | ✅ 400 pasan, 0 `xfail` |
-| Migraciones `0001`→`0015` subir/bajar con datos, `alembic check` | ✅ |
+| `pytest` | ✅ 406 pasan, 0 `xfail` |
+| Migraciones `0001`→`0016` subir/bajar con datos, `alembic check` | ✅ |
 | Navegador real (Chromium): login y permisos (Fase 2) | ✅ 15/15 comprobaciones |
 | Navegador real: multa, bloqueo, pago, reserva, apartado, pérdida (Fase 3) | ✅ 14/14 comprobaciones |
 | Navegador real: reglas, calendario, ajustes, ejemplar recuperado, devolución por código | ✅ 18/18 comprobaciones |
@@ -426,12 +434,13 @@ medios y 69 bajos. Corregidos todos menos A2 (acción manual, abajo). Migración
 | Navegador real: editor MARC, plantilla de tesis, errores, importación y exportación | ✅ 11/11 comprobaciones |
 | Navegador real: OPAC sin sesión, ficha, entrar, reservar, listas, renovar, sugerir, sesiones separadas, teléfono (Fase 6) | ✅ 14/14 comprobaciones |
 | Navegador real: plantilla con vista previa, reserva lista → cola → correo, tarea de vencidos, correo de prueba, recuperar contraseña con el enlace (Fase 7) | ✅ 14/14 comprobaciones |
+| Navegador real: inventario por tramo de signaturas, escáner, lote pegado, faltantes en orden de estante, cerrar (Fase 8) | ✅ 12/12 comprobaciones |
 | Navegador real: registro de acciones (entrada fallida, préstamo, devolución, ajustes con antes/después, filtros, historial en las fichas, apagar un módulo) (Fase 8) | ✅ 12/12 comprobaciones |
 | Navegador real: cambio de contraseña obligatorio (intranet y OPAC), sede en el alta, editar y dar de baja un ejemplar, codificación MARC, menú del celular, pausar hasta una fecha, orden y paginación del OPAC, Salir anula el token (auditoría) | ✅ 18/18 comprobaciones |
 | `alembic upgrade` / `downgrade` / `check` en base vacía | ✅ |
 | API antes vs. después de la capa de servicios | ✅ respuestas idénticas (33 peticiones) |
 | `npm run typecheck` | ✅ sin errores |
-| `npm run lint` | ✅ 0 errores, 32 avisos (todos `set-state-in-effect` en cargas iniciales) |
+| `npm run lint` | ✅ 0 errores, 34 avisos (todos `set-state-in-effect` en cargas iniciales) |
 | `npm run build` | ✅ con comprobación de tipos y fuentes locales (sin internet) |
 
 ## Historial (antes del roadmap)

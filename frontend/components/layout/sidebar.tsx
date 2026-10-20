@@ -19,6 +19,7 @@ import {
   ShoppingCart,
   Truck,
   History,
+  ClipboardCheck,
 } from "lucide-react"
 import { CambiarClaveDialog } from "@/components/auth/cambiar-clave-dialog"
 import { useSesion } from "@/components/auth/sesion-provider"
@@ -42,6 +43,7 @@ const navigation: ItemNavegacion[] = [
   { name: "Reservas", href: "/circulacion/reservas", icon: BookmarkCheck },
   { name: "Traslados", href: "/circulacion/traslados", icon: Truck },
   { name: "Usuarios", href: "/usuarios", icon: Users },
+  { name: "Inventario", href: "/inventario", icon: ClipboardCheck, permiso: "catalogo" },
   { name: "Adquisiciones", href: "/adquisiciones", icon: ShoppingCart, permiso: "adquisiciones" },
   { name: "Seriadas", href: "/seriadas", icon: Newspaper, permiso: "seriadas" },
   { name: "Reportes", href: "/reportes", icon: BarChart3, permiso: "reportes" },

@@ -96,6 +96,8 @@ class Item(Base):
     recepcion_id = Column(Integer, ForeignKey("recepciones.id", ondelete="SET NULL"), nullable=True)
     # Rótulo del fascículo cuando el ejemplar es un número de una seriada (952 $h).
     enumeracion = Column(String(100), nullable=True)
+    # Última vez que se lo leyó en un inventario (datelastseen de Koha).
+    fecha_ultimo_inventario = Column(DateTime(timezone=True), nullable=True)
 
 class Prestamo(Base):
     __tablename__ = "prestamos"
@@ -556,3 +558,46 @@ class RegistroAccion(Base):
     datos = Column(JSONB, nullable=True)
     ip = Column(String(64), nullable=True)
     sede_id = Column(Integer, ForeignKey("bibliotecas.id", ondelete="SET NULL"), nullable=True)
+
+
+class Inventario(Base):
+    """Una pasada de inventario (Inventory de Koha) sobre una sede y un tramo de signaturas.
+
+    Esperados: los ejemplares Disponibles del alcance. Se leen sus códigos (escáner, pegado o
+    archivo, en una o varias sesiones) y al comparar quedan los faltantes, los que están
+    fuera de lugar y los que tienen un estado que no corresponde con estar en el estante.
+    """
+    __tablename__ = "inventarios"
+    id = Column(Integer, primary_key=True)
+    nombre = Column(String(120), nullable=False)
+    biblioteca_id = Column(Integer, ForeignKey("bibliotecas.id", ondelete="SET NULL"), nullable=True)
+    tipo_item_id = Column(Integer, ForeignKey("tipos_item.id", ondelete="SET NULL"), nullable=True)
+    signatura_desde = Column(String(100), nullable=True)
+    signatura_hasta = Column(String(100), nullable=True)
+    # Un ejemplar prestado que aparece en el estante se devuelve solo (como la opción de Koha).
+    devolver_prestados = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    estado = Column(String(20), nullable=False, default="Abierto", server_default="Abierto")
+    creado_por_id = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True)
+    fecha_inicio = Column(DateTime(timezone=True), nullable=False, default=ahora)
+    fecha_cierre = Column(DateTime(timezone=True), nullable=True)
+    # Al cerrar se guarda el resumen: después los ejemplares cambian y el inventario no.
+    resumen = Column(JSONB, nullable=True)
+
+
+class LecturaInventario(Base):
+    """Un código leído en un inventario y qué se concluyó de él."""
+    __tablename__ = "inventario_lecturas"
+    __table_args__ = (
+        Index("ix_inventario_lecturas_inventario_item", "inventario_id", "item_id"),
+    )
+    id = Column(Integer, primary_key=True)
+    inventario_id = Column(Integer, ForeignKey("inventarios.id", ondelete="CASCADE"), nullable=False,
+                           index=True)
+    codigo_barras = Column(String(50), nullable=False)
+    item_id = Column(Integer, ForeignKey("items.id", ondelete="SET NULL"), nullable=True)
+    # ok, fuera_de_lugar, prestado, devuelto, perdido, retirado, reservado, en_transito,
+    # desconocido, repetido
+    resultado = Column(String(20), nullable=False)
+    detalle = Column(Text, nullable=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True)
+    fecha = Column(DateTime(timezone=True), nullable=False, default=ahora)

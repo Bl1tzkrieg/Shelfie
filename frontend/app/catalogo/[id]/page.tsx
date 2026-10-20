@@ -355,6 +355,9 @@ function FichaCatalogo() {
                           {e.transitTo && (
                             <p className="mt-1 text-xs text-muted-foreground">Hacia {e.transitTo}</p>
                           )}
+                          {e.lastSeen && (
+                            <p className="mt-1 text-xs text-muted-foreground">Visto en inventario el {e.lastSeen}</p>
+                          )}
                         </td>
                         <td className="px-4 py-4 text-sm">
                           {e.borrowedBy ? (

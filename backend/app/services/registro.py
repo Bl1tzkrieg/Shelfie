@@ -49,6 +49,7 @@ NOMBRE_ACCION: Dict[str, str] = {
     "ajustes": "Ajustes", "reglas": "Reglas", "calendario": "Calendario", "sede": "Sede",
     "plantilla": "Plantilla de aviso",
     "entrada": "Entrada", "entrada_fallida": "Entrada fallida", "salida": "Salida",
+    "inventario": "Inventario",
     "pedido": "Pedido", "recepcion": "Recepción", "factura": "Factura",
     "sugerencia": "Sugerencia", "suscripcion": "Suscripción", "fasciculo": "Fascículo",
 }

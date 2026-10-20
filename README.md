@@ -239,6 +239,18 @@ del personal los registró.
 Cualquiera del personal puede operar "desde" cualquier sede (la elige en la cabecera), como
 Koha sin *IndependentBranches*: la sede de trabajo dice dónde está físicamente, no restringe.
 
+## 📋 Inventario
+
+En **Inventario** (permiso `catalogo` para abrir y leer) se abre una pasada por sede, tramo de
+signaturas (p. ej. 600 a 699; «hasta 699» incluye 699.5) y tipo de ítem. Se esperan los
+ejemplares Disponibles de ese alcance; los prestados, perdidos o apartados no se esperan en
+el estante. Se leen los códigos con el escáner (el campo no pierde el foco), pegados o desde
+el archivo de un lector portátil, en tantas sesiones como haga falta. Cada lectura queda con
+su resultado y marca la fecha de último inventario del ejemplar. Los **faltantes** salen en
+orden de estante y se exportan a CSV; cerrar no los marca como perdidos, eso se decide
+ejemplar por ejemplar. Con "devolver los prestados que aparezcan", un prestado leído en el
+estante se devuelve solo (con la multa, si estaba vencido).
+
 ## 🕵️ Registro de acciones
 
 Como los `action_logs` de Koha: cada operación anota quién la hizo, cuándo, desde qué IP y

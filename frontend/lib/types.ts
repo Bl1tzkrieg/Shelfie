@@ -150,6 +150,8 @@ export interface Ejemplar {
   itemType?: string | null
   homeBranchId?: number | null
   price?: number | null
+  /** Última vez que se lo leyó en un inventario. */
+  lastSeen?: string | null
 }
 
 export interface DashboardStats {
@@ -849,4 +851,55 @@ export interface AjustesRegistro {
   dias_retencion: number
   descripciones: Record<string, string>
   acciones: Record<string, string>
+}
+
+/** Inventario (GET /inventories y /inventories/{id}). */
+export type ResultadoLectura =
+  | "ok" | "fuera_de_lugar" | "prestado" | "devuelto" | "perdido" | "retirado"
+  | "reservado" | "en_transito" | "desconocido" | "repetido"
+
+export interface InventarioResumen {
+  id: number
+  nombre: string
+  estado: "Abierto" | "Cerrado"
+  biblioteca_id: number | null
+  sede: string | null
+  tipo_item: string | null
+  signatura_desde: string | null
+  signatura_hasta: string | null
+  devolver_prestados: boolean
+  creado_por: string | null
+  fecha_inicio: string
+  fecha_cierre: string | null
+  lecturas: number
+}
+
+export interface LecturaInventario {
+  codigo_barras: string
+  resultado: ResultadoLectura
+  resultado_nombre: string
+  detalle: string | null
+  titulo: string | null
+  biblio_id: number | null
+  signatura: string | null
+  fecha?: string
+}
+
+export interface FaltanteInventario {
+  codigo_barras: string
+  titulo: string | null
+  biblio_id: number | null
+  signatura: string | null
+  ultimo_inventario: string | null
+}
+
+export interface InventarioDetalle extends InventarioResumen {
+  esperados: number
+  esperados_leidos: number
+  faltantes_total: number
+  avance: number
+  conteos: Record<ResultadoLectura, number>
+  faltantes: FaltanteInventario[]
+  nombres_resultado: Record<ResultadoLectura, string>
+  ultimas_lecturas: LecturaInventario[]
 }

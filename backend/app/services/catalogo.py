@@ -409,6 +409,7 @@ def listar_ejemplares(db: Session, biblio_id: int) -> List[dict]:
             "itemType": tipos.get(item.tipo_item_id),
             "homeBranchId": item.biblioteca_propia_id,
             "price": float(item.precio_reposicion) if item.precio_reposicion is not None else None,
+            "lastSeen": formatear_fecha(item.fecha_ultimo_inventario),
         })
     return resultado
 

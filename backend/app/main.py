@@ -10,6 +10,7 @@ from app.routers import (
     auth,
     notices,
     catalog,
+    inventario as inventario_router,
     circulation,
     opac,
     opac_account,
@@ -77,6 +78,7 @@ app.include_router(personal.router)
 app.include_router(politicas.router)
 app.include_router(notices.router)
 app.include_router(registro_router.router)
+app.include_router(inventario_router.router)
 
 
 @app.on_event("startup")
