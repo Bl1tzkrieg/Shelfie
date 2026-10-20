@@ -1,13 +1,17 @@
+from typing import List, Optional
+
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app import schemas
+from app.core.csv import respuesta_csv
 from app.core.errores import NoEncontrado, ReglaIncumplida
 from app.core.permisos import Permiso
 from app.database import get_db
 from app.security import requiere, requiere_personal
 from app.core import marc_plantillas
-from app.services import busqueda, catalogo, intercambio_marc
+from app.core.tiempo import sello_archivo
+from app.services import catalogo, intercambio_marc
 
 # Solo el registro MARC: editor, plantillas, importación y exportación. El alta y la edición
 # simple de libros y sus ejemplares están en /api/v1/books (routers/libros.py).
@@ -17,17 +21,34 @@ router = APIRouter(prefix="/api/v1/catalog", tags=["Catálogo"],
 CATALOGA = [Depends(requiere(Permiso.CATALOGO))]
 
 
-@router.get("/export")
+@router.get("/export", dependencies=CATALOGA)
 def exportar(
     formato: str = Query("marc", pattern="^(marc|marcxml)$"),
-    ejemplares: bool = Query(True, description="Incluir los ejemplares en 952, como Koha"),
-    q: str = "",
+    ids: Optional[str] = Query(None, description="Solo estos registros: 12,15,40"),
     db: Session = Depends(get_db),
 ):
-    """Descarga en MARC (ISO 2709) o MARCXML los registros que cumplen la búsqueda."""
-    contenido, tipo_mime, nombre = intercambio_marc.exportar(db, busqueda.Filtros(q=q), formato, ejemplares)
+    """Descarga en MARC (ISO 2709) o MARCXML el catálogo, con un 952 por ejemplar (Koha)."""
+    contenido, tipo_mime, nombre = intercambio_marc.exportar(db, formato=formato,
+                                                             ids=_lista_de_ids(ids))
     return Response(content=contenido, media_type=tipo_mime,
                     headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
+
+
+@router.get("/export.csv", dependencies=CATALOGA)
+def exportar_csv(db: Session = Depends(get_db)):
+    """El catálogo en CSV, en el orden del estante: cota, título, autor, editorial, año,
+    ISBN, materias y n.º de ejemplares."""
+    return respuesta_csv(intercambio_marc.exportar_csv(db), f"catalogo-{sello_archivo()}.csv",
+                         columnas=intercambio_marc.COLUMNAS_CSV)
+
+
+def _lista_de_ids(texto: Optional[str]) -> Optional[List[int]]:
+    if texto is None or not texto.strip():
+        return None
+    partes = [p.strip() for p in texto.split(",") if p.strip()]
+    if not all(p.isdigit() for p in partes):
+        raise ReglaIncumplida("ids debe ser una lista de números separados por comas")
+    return [int(p) for p in partes]
 
 
 MAX_IMPORTACION = 20 * 1024 * 1024

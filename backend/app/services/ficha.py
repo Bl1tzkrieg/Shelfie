@@ -267,6 +267,13 @@ def a_marc(ficha: FichaLibro, marc_actual: Optional[dict] = None) -> dict:
     return registro
 
 
+def con_cota(registro: dict, cota: str) -> dict:
+    """El registro con su 092 puesto desde la cota, como lo escribiría el formulario
+    ($a clase y $b librística, partidos en el primer espacio); lo demás no se toca."""
+    actual = desde_marc(registro)
+    return a_marc(actual.model_copy(update={"cota": cota}), registro)
+
+
 def _indicador_articulo(titulo: str) -> str:
     minuscula = titulo.lower()
     for articulo in _ARTICULOS:

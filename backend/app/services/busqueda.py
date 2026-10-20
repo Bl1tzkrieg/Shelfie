@@ -12,9 +12,8 @@ Una consulta sin términos útiles ("de la", "¿?", "-") no llega a la base: da 
 """
 
 import re
-from typing import Dict, List
 
-from sqlalchemy import and_, exists, false, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app import models
@@ -31,13 +30,6 @@ _COLUMNAS_DE_TEXTO = {"titulo": RB.titulo, "autor": RB.autor, "materia": RB.mate
 
 _PALABRA = re.compile(r"\w+", re.UNICODE)
 _ISBN = re.compile(r"^[0-9][0-9\- ]{8,16}[0-9Xx]$")
-
-
-class Filtros:
-    """Lo mínimo que necesita la exportación: el texto de la búsqueda (campo `todo`)."""
-
-    def __init__(self, q: str = ""):
-        self.q = q
 
 
 def _digitos_isbn(texto: str) -> str:
@@ -149,24 +141,3 @@ def buscar(db: Session, q: str, *, campo: str = "todo", pagina: int = 1,
             "ejemplares": ejemplares,
         })
     return {"total": total, "pagina": pagina, "resultados": resultados}
-
-
-# --- Para exportar ---------------------------------------------------------------------
-
-def todos_los_que_cumplen(db: Session, filtros: Filtros):
-    """Consulta (sin paginar) de los registros que cumplen `q`, por título; sin `q`, todos."""
-    consulta = db.query(RB)
-    texto = " ".join((filtros.q or "").split())
-    if texto:
-        encontrada = _condicion(db, texto, "todo")
-        consulta = consulta.filter(encontrada[0] if encontrada else false())
-    return consulta.order_by(func.lower(RB.titulo), RB.id)
-
-
-def items_por_titulo(db: Session, biblio_ids: List[int]) -> Dict[int, list]:
-    """Ejemplares de varios títulos en una sola consulta."""
-    resultado: Dict[int, list] = {i: [] for i in biblio_ids}
-    if biblio_ids:
-        for item in db.query(Item).filter(Item.biblio_id.in_(biblio_ids)).order_by(Item.id):
-            resultado[item.biblio_id].append(item)
-    return resultado

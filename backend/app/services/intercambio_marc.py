@@ -3,7 +3,15 @@
 Los ejemplares viajan en el campo 952, con los mismos subcampos que usa Koha,
 para poder migrar desde o hacia Koha sin transformar nada:
 
-    952 $o signatura   $p código de barras   $t número de copia   $z nota
+    952 $a y $b biblioteca   $o signatura   $p código de barras   $t número de copia
+        $y tipo de ítem      $z nota
+
+Al exportar, $a y $b llevan `biblioteca.codigo` y $y `biblioteca.tipo_item_koha`; al
+importar se ignoran (también $1). Los ejemplares son la fuente de verdad: el 952 no se
+guarda en el MARC del registro, se regenera al exportar.
+
+La cota del registro importado es la del 092; si no hay, la del primer 952 $o, la del
+082 $a o la del 050 $a, en ese orden, y se escribe como 092. Sin ninguna, queda vacía.
 
 Al importar, el duplicado se detecta por ISBN (solo dígitos). La política elige qué
 hacer con él: omitirlo, reemplazar su MARC (conserva sus ejemplares y suma los
@@ -13,7 +21,7 @@ nuevos) o agregar un registro aparte.
 import io
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Literal, Optional, Set
 
 import pymarc
 from sqlalchemy import func
@@ -21,9 +29,11 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.core import marc_plantillas
+from app.core.csv import celda_segura
 from app.core.errores import ErroresDeValidacion, ReglaIncumplida
+from app.core.signaturas import clave_signatura_sql, normalizar_cota
 from app.core.tiempo import sello_archivo
-from app.services import busqueda, configuracion, marc
+from app.services import configuracion, ficha, marc
 from app.services.catalogo import aplicar_marc
 
 FORMATOS = {"marc": ("application/marc", "mrc"), "marcxml": ("application/marcxml+xml", "xml")}
@@ -43,26 +53,25 @@ def _solo_digitos(isbn: Optional[str]) -> Optional[str]:
 
 # --- Exportación -------------------------------------------------------------------
 
-def _campo_952(item: models.Item) -> dict:
+def _campo_952(item: models.Item, biblioteca: str, tipo_item: str) -> dict:
+    """Un 952 como lo espera Koha: $a $b $o $p $t $y $z; $a, $b e $y siempre van."""
     subs = []
-    for codigo, valor in (("o", item.signatura_topografica),
-                          ("p", item.codigo_barras),
-                          ("t", item.numero_copia),
-                          ("z", item.nota)):
-        if valor:
-            subs.append({codigo: str(valor)})
+    for codigo, valor in (("a", biblioteca), ("b", biblioteca),
+                          ("o", item.signatura_topografica), ("p", item.codigo_barras),
+                          ("t", item.numero_copia), ("y", tipo_item), ("z", item.nota)):
+        if valor or codigo in "aby":
+            subs.append({codigo: str(valor or "")})
     return {TAG_EJEMPLAR: {"ind1": " ", "ind2": " ", "subfields": subs}}
 
 
-def _para_exportar(biblio: models.RegistroBibliografico, organizacion: str,
-                   ejemplares: Optional[List[models.Item]]) -> pymarc.Record:
+def _para_exportar(biblio: models.RegistroBibliografico, biblioteca: str, tipo_item: str,
+                   ejemplares: List[models.Item]) -> pymarc.Record:
     origen = biblio.marc_json or marc.desde_columnas(biblio.titulo, biblio.autor, biblio.isbn,
                                                      biblio.ano_publicacion, biblio.materia)
     campos = [c for c in origen.get("fields", [])
               if next(iter(c)) not in {"001", "003"} | TAGS_DE_OTRO_SISTEMA]
-    campos = [{"001": str(biblio.id)}, {"003": organizacion}] + campos
-    if ejemplares:
-        campos += [_campo_952(i) for i in ejemplares]
+    campos = [{"001": str(biblio.id)}, {"003": biblioteca}] + campos
+    campos += [_campo_952(i, biblioteca, tipo_item) for i in ejemplares]
     lider = (origen.get("leader") or marc_plantillas.obtener(biblio.plantilla).lider).ljust(24)
     lider = lider[:9] + "a" + lider[10:24]  # posición 9 = "a": texto en UTF-8
     return marc.a_pymarc({"leader": lider, "fields": campos})
@@ -93,27 +102,71 @@ def _iso2709(registro: pymarc.Record, biblio: models.RegistroBibliografico) -> b
     return datos
 
 
-def exportar(db: Session, filtros: busqueda.Filtros, formato: str,
-             con_ejemplares: bool) -> tuple:
-    """(contenido, tipo MIME, nombre de archivo) con los registros que cumplen la búsqueda."""
+def _items_por_titulo(db: Session, biblio_ids: List[int]) -> Dict[int, list]:
+    """Ejemplares de varios títulos en una sola consulta."""
+    resultado: Dict[int, list] = {i: [] for i in biblio_ids}
+    if biblio_ids:
+        for item in db.query(models.Item).filter(
+                models.Item.biblio_id.in_(biblio_ids)).order_by(models.Item.id):
+            resultado[item.biblio_id].append(item)
+    return resultado
+
+
+def exportar(db: Session, *, formato: Literal["marc", "marcxml"],
+             ids: Optional[List[int]] = None) -> tuple:
+    """(contenido, tipo MIME, nombre de archivo) con todo el catálogo o con los `ids` pedidos.
+
+    Cada ejemplar sale como un 952; un registro sin ejemplares sale sin 952."""
     if formato not in FORMATOS:
         raise ReglaIncumplida("Formato no soportado: usa marc o marcxml")
-    registros = busqueda.todos_los_que_cumplen(db, filtros).all()
-    organizacion = (configuracion.leer(db, "biblioteca").get("codigo") or "BIB")[:16]
-    items = busqueda.items_por_titulo(db, [b.id for b in registros]) if con_ejemplares else {}
+    consulta = db.query(models.RegistroBibliografico)
+    if ids is not None:
+        consulta = consulta.filter(models.RegistroBibliografico.id.in_(ids))
+    registros = consulta.order_by(models.RegistroBibliografico.id).all()
+    datos = configuracion.leer(db, "biblioteca")
+    biblioteca = (datos.get("codigo") or "BIB").strip()[:16]
+    # El ajuste se guarda como lo escribieron; Koha espera el código en mayúsculas.
+    tipo_item = (datos.get("tipo_item_koha") or "LIB").strip().upper()
+    items = _items_por_titulo(db, [b.id for b in registros])
 
     salida = io.BytesIO()
     if formato == "marcxml":
         escritor = pymarc.XMLWriter(salida)
         for b in registros:
-            escritor.write(_para_exportar(b, organizacion, items.get(b.id)))
+            escritor.write(_para_exportar(b, biblioteca, tipo_item, items[b.id]))
         escritor.close(close_fh=False)
     else:
         for b in registros:
-            salida.write(_iso2709(_para_exportar(b, organizacion, items.get(b.id)), b))
+            salida.write(_iso2709(_para_exportar(b, biblioteca, tipo_item, items[b.id]), b))
 
     tipo_mime, extension = FORMATOS[formato]
     return salida.getvalue(), tipo_mime, f"catalogo-{sello_archivo()}.{extension}"
+
+
+COLUMNAS_CSV = ("cota", "titulo", "autor", "editorial", "ano", "isbn", "materias", "ejemplares")
+
+
+def exportar_csv(db: Session) -> List[dict]:
+    """El catálogo en el orden del estante (sin cota al final), una fila por registro.
+
+    Cada celda pasa por `celda_segura`: un título como «=HYPERLINK(...)» no se ejecuta como
+    fórmula al abrirlo en una hoja de cálculo."""
+    RB = models.RegistroBibliografico
+    ejemplares = (db.query(models.Item.biblio_id, func.count(models.Item.id).label("cantidad"))
+                  .group_by(models.Item.biblio_id).subquery())
+    filas = (db.query(RB, func.coalesce(ejemplares.c.cantidad, 0))
+             .outerjoin(ejemplares, ejemplares.c.biblio_id == RB.id)
+             .order_by(RB.cota.is_(None), clave_signatura_sql(RB.cota), RB.titulo, RB.id)
+             .all())
+    resultado = []
+    for biblio, cantidad in filas:
+        materias = ficha.desde_marc(biblio.marc_json or {}).materias
+        fila = {"cota": biblio.cota or "", "titulo": biblio.titulo, "autor": biblio.autor or "",
+                "editorial": biblio.editorial or "", "ano": biblio.ano_publicacion,
+                "isbn": biblio.isbn or "", "materias": " | ".join(materias),
+                "ejemplares": cantidad}
+        resultado.append({k: celda_segura(v) for k, v in fila.items()})
+    return resultado
 
 
 # --- Importación -------------------------------------------------------------------
@@ -193,6 +246,28 @@ def _separar_ejemplares(registro: dict) -> tuple:
     return {"leader": registro.get("leader", ""), "fields": resto}, ejemplares
 
 
+MAX_COTA = 100  # largo de registros_bibliograficos.cota
+
+
+def _primer_valor(campos: List[object], codigo: str) -> Optional[str]:
+    """La primera cota que sirve; una que no cabe en la columna se salta."""
+    for campo in campos:
+        valor = normalizar_cota((marc.subcampos(campo, codigo) or [None])[0])
+        if valor and len(valor) <= MAX_COTA:
+            return valor
+    return None
+
+
+def _con_cota(registro: dict, campos_952: List[dict]) -> dict:
+    """Si falta el 092, la cota sale del primer 952 $o, del 082 $a o del 050 $a (en ese
+    orden) y se escribe como 092, igual que desde el formulario. Sin ninguna, nada cambia."""
+    if marc.campos(registro, "092"):
+        return registro
+    cota = (_primer_valor(campos_952, "o") or _primer_valor(marc.campos(registro, "082"), "a")
+            or _primer_valor(marc.campos(registro, "050"), "a"))
+    return ficha.con_cota(registro, cota) if cota else registro
+
+
 def _completar_008(registro: dict) -> dict:
     """Muchos registros de otros sistemas no traen 008; se genera uno básico."""
     if any("008" in c for c in registro["fields"]):
@@ -216,22 +291,21 @@ def _ejemplares(db: Session, ctx: _Contexto, campos_952: List[dict], resultado: 
             valor = (marc.subcampos(campo, codigo) or [None])[0]
             return valor.strip() or None if isinstance(valor, str) else valor
 
-        barcode = sub("p")
-        if not barcode:
-            resultado.mensajes.append("952 sin código de barras ($p): ejemplar omitido")
-            continue
-        if barcode in ctx.barcodes_en_archivo or db.query(models.Item.id).filter(
-                models.Item.codigo_barras == barcode).first():
+        barcode = sub("p")  # opcional: Koha admite ejemplares sin código
+        if barcode and (barcode in ctx.barcodes_en_archivo or db.query(models.Item.id).filter(
+                models.Item.codigo_barras == barcode).first()):
             resultado.mensajes.append(f"El código de barras {barcode} ya existe: omitido")
             continue
         largo = next(((nombre, maximo) for nombre, valor, maximo in (
             ("código de barras ($p)", barcode, 50), ("signatura ($o)", sub("o"), 100),
             ("número de copia ($t)", sub("t"), 20)) if valor and len(valor) > maximo), None)
         if largo:
+            quien = (barcode or "Ejemplar sin código")[:50]
             resultado.mensajes.append(
-                f"{barcode[:50]}: el {largo[0]} supera los {largo[1]} caracteres; ejemplar omitido")
+                f"{quien}: el {largo[0]} supera los {largo[1]} caracteres; ejemplar omitido")
             continue
-        ctx.barcodes_en_archivo.add(barcode)
+        if barcode:
+            ctx.barcodes_en_archivo.add(barcode)
         resultado.ejemplares += 1
         if not aplicar:
             continue
@@ -269,7 +343,8 @@ def _importar_uno(db: Session, ctx: _Contexto, crudo, n: int, aplicar: bool, dup
     codigo = _plantilla_para(sin_ejemplares, plantilla_pedida)
     plantilla = marc_plantillas.obtener(codigo)
     try:
-        canonico = _completar_008(marc.normalizar(sin_ejemplares, plantilla))
+        canonico = _con_cota(_completar_008(marc.normalizar(sin_ejemplares, plantilla)),
+                             campos_952)
     except ErroresDeValidacion as error:
         resultado.accion = "error"
         resultado.mensajes += [e["msg"] for e in error.errores]
