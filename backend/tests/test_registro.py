@@ -59,9 +59,9 @@ def test_editar_el_marc_guarda_el_anterior(client, datos, db):
 def test_editar_un_ejemplar(client, datos, db):
     libro = datos.titulo()
     item = datos.ejemplar(libro, "B-1")
-    client.patch(f"/api/v1/catalog/items/{libro.id}/ejemplares/{item.id}", json={"nota": "Roto"})
+    client.patch(f"/api/v1/books/{libro.id}/copies/{item.id}", json={"nota": "Roto"})
     [edicion] = _acciones(db, modulo="catalogo")
-    assert edicion.accion == "edicion" and edicion.datos["cambios"]["nota"] == [None, "Roto"]
+    assert edicion.accion == "ejemplar" and edicion.datos["cambios"]["nota"] == [None, "Roto"]
 
 
 def test_ajustes_con_antes_y_despues(client, db):
@@ -76,7 +76,7 @@ def test_apagar_un_modulo_deja_de_registrarlo_pero_el_cambio_queda(client, datos
     assert r.status_code == 200 and r.json()["modulos"]["catalogo"] is False
     libro = datos.titulo()
     item = datos.ejemplar(libro, "R-1")
-    client.patch(f"/api/v1/catalog/items/{libro.id}/ejemplares/{item.id}", json={"nota": "Roto"})
+    client.patch(f"/api/v1/books/{libro.id}/copies/{item.id}", json={"nota": "Roto"})
 
     assert _acciones(db, modulo="catalogo") == []
     # Apagar el registro de configuración no impide que se vea quién lo apagó.
@@ -88,7 +88,7 @@ def test_apagar_un_modulo_deja_de_registrarlo_pero_el_cambio_queda(client, datos
 def test_exportar_y_buscar_por_texto(client, datos):
     libro = datos.titulo()
     item = datos.ejemplar(libro, "B-1")
-    client.delete(f"/api/v1/catalog/items/{libro.id}/ejemplares/{item.id}")
+    client.delete(f"/api/v1/books/{libro.id}/copies/{item.id}")
     assert client.get(LOGS, params={"q": "eliminó el ejemplar"}).json()["total"] == 1
     r = client.get(f"{LOGS}/export", params={"modulo": "catalogo"})
     assert r.status_code == 200 and "Eliminó el ejemplar B-1" in r.text

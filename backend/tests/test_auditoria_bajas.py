@@ -9,8 +9,8 @@ CAT = "/api/v1/catalog"
 
 def test_b7_anio_fuera_de_rango(client):
     for ano in (10000, -5):
-        r = client.post(f"{CAT}/items", json={"titulo": "X", "codigo_barras": f"A{ano}",
-                                               "ano_publicacion": ano})
+        r = client.post("/api/v1/books", json={"ficha": {"cota": "1 X", "titulo": "X",
+                                                         "ano": ano}})
         assert r.status_code == 422, r.text
 
 
@@ -97,10 +97,11 @@ def test_b34_salir_anula_el_token_aunque_se_haya_copiado(anonimo, datos):
 
 
 def test_b35_referer_ajeno_sin_origin_se_rechaza(client):
-    r = client.post(f"{CAT}/items", json={"titulo": "X", "codigo_barras": "REF-1"},
+    libro = {"ficha": {"cota": "1 X", "titulo": "X"}}
+    r = client.post("/api/v1/books", json=libro,
                     headers={"Referer": "https://malicioso.example/pagina"})
     assert r.status_code == 403
-    r = client.post(f"{CAT}/items", json={"titulo": "X", "codigo_barras": "REF-1"},
+    r = client.post("/api/v1/books", json=libro,
                     headers={"Referer": "http://localhost:3000/catalogo"})
     assert r.status_code == 201
 

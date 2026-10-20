@@ -4,8 +4,8 @@ import pytest
 
 # Todas las rutas de intranet: sin sesión deben responder 401.
 RUTAS_INTRANET = [
-    ("GET", "/api/v1/catalog/items"),
-    ("POST", "/api/v1/catalog/items"),
+    ("GET", "/api/v1/books"),
+    ("POST", "/api/v1/books"),
     ("GET", "/api/v1/catalog/search"),
     ("POST", "/api/v1/catalog/records"),
     ("PUT", "/api/v1/settings"),
@@ -35,16 +35,17 @@ def test_raiz_es_publica(anonimo):
 
 def test_personal_sin_permisos_consulta_pero_no_modifica(como, datos):
     consulta = como([])
-    assert consulta.get("/api/v1/catalog/items").status_code == 200
+    assert consulta.get("/api/v1/catalog/search").status_code == 200
     assert consulta.get("/api/v1/staff").status_code == 403
 
-    r = consulta.post("/api/v1/catalog/items", json={"titulo": "T", "codigo_barras": "B"})
+    r = consulta.post("/api/v1/books", json={"ficha": {"cota": "1 X", "titulo": "T"}})
     assert r.status_code == 403
     assert "catalogo" in r.json()["detail"]
 
 
 @pytest.mark.parametrize("permiso,metodo,ruta,cuerpo", [
-    ("catalogo", "POST", "/api/v1/catalog/items", {"titulo": "T", "codigo_barras": "B"}),
+    ("catalogo", "GET", "/api/v1/books", None),
+    ("catalogo", "POST", "/api/v1/books", {"ficha": {"cota": "1 X", "titulo": "T"}}),
     ("catalogo", "POST", "/api/v1/catalog/records", {"plantilla": "BKS", "marc": {}}),
     ("superbibliotecario", "PUT", "/api/v1/settings", {}),
     ("superbibliotecario", "GET", "/api/v1/logs", None),
@@ -68,7 +69,7 @@ def test_rutas_de_admin_rechazan_catalogador(como):
 
 
 def test_superbibliotecario_accede_a_todo(client):
-    for ruta in ("/api/v1/catalog/items", "/api/v1/settings", "/api/v1/staff", "/api/v1/logs"):
+    for ruta in ("/api/v1/books", "/api/v1/settings", "/api/v1/staff", "/api/v1/logs"):
         assert client.get(ruta).status_code == 200
 
 

@@ -31,6 +31,7 @@ MODULOS: Dict[str, str] = {
 
 NOMBRE_ACCION: Dict[str, str] = {
     "alta": "Alta", "edicion": "Edición", "baja": "Baja", "eliminacion": "Eliminación",
+    "ejemplar": "Ejemplar",
     "clave_restablecida": "Contraseña restablecida", "clave_cambiada": "Contraseña cambiada",
     "permisos": "Permisos", "importacion": "Importación", "ajustes": "Ajustes",
     "entrada": "Entrada", "entrada_fallida": "Entrada fallida", "salida": "Salida",

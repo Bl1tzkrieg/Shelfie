@@ -8,6 +8,7 @@ from app.core.errores import ErrorDeNegocio
 from app.routers import (
     auth,
     catalog,
+    libros,
     personal,
     registro as registro_router,
     settings as settings_router,
@@ -50,12 +51,13 @@ def manejar_conflicto(_request: Request, error: IntegrityError):
 @app.exception_handler(ErrorDeNegocio)
 def manejar_error_de_negocio(_request: Request, error: ErrorDeNegocio):
     """Traduce los errores de los servicios a la forma {"detail": ...} de FastAPI."""
-    detalle = getattr(error, "errores", None) or error.mensaje
+    detalle = getattr(error, "errores", None) or error.detalle or error.mensaje
     return JSONResponse(status_code=error.status_code, content={"detail": detalle})
 
 
 app.include_router(auth.router)
 app.include_router(catalog.router)
+app.include_router(libros.router)
 app.include_router(personal.router)
 app.include_router(registro_router.router)
 app.include_router(settings_router.router)

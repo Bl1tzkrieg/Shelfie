@@ -7,17 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 # CATÁLOGO
 # ==========================================
 
-class NuevoMaterialRequest(BaseModel):
-    titulo: str = Field(min_length=1)
-    autor: Optional[str] = None
-    isbn: Optional[str] = None
-    ano_publicacion: Optional[int] = Field(default=None, ge=0, le=9999)
-    materia: Optional[str] = None
-    # Opcional: si viene, no puede repetirse.
-    codigo_barras: Optional[str] = Field(default=None, max_length=50)
-    signatura_topografica: Optional[str] = Field(default=None, max_length=100)
-
-
 class MaterialResponse(BaseModel):
     id: str
     title: str
@@ -49,21 +38,6 @@ class RegistroMarcResponse(BaseModel):
     materia: Optional[str] = None
     ano_publicacion: Optional[int] = None
     isbn: Optional[str] = None
-
-
-class NuevoEjemplarRequest(BaseModel):
-    codigo_barras: Optional[str] = Field(default=None, max_length=50)
-    signatura_topografica: Optional[str] = Field(default=None, max_length=100)
-    numero_copia: Optional[str] = Field(default=None, max_length=20)
-    nota: Optional[str] = None
-
-
-class EditarEjemplarRequest(BaseModel):
-    """Corrección de un ejemplar; solo cambia lo enviado (vacío = se borra el dato)."""
-    codigo_barras: Optional[str] = Field(default=None, max_length=50)
-    signatura_topografica: Optional[str] = Field(default=None, max_length=100)
-    numero_copia: Optional[str] = Field(default=None, max_length=20)
-    nota: Optional[str] = None
 
 
 class ValorFaceta(BaseModel):
@@ -234,3 +208,24 @@ class FichaLibro(BaseModel):
             limpios = [v.strip() if isinstance(v, str) else v for v in valores]
             return [v for v in limpios if v != ""]
         return valores
+
+
+# ==========================================
+# LIBROS (/api/v1/books)
+# ==========================================
+
+class NuevoLibroRequest(BaseModel):
+    ficha: FichaLibro
+    ejemplares: int = Field(default=1, ge=0, le=100)
+    # La misma nota para todos los ejemplares creados (p. ej. «Donación»).
+    nota_ejemplares: Optional[str] = None
+    # Guardar aunque haya posibles duplicados (otra edición, otro libro con el mismo título).
+    forzar: bool = False
+
+
+class EjemplarRequest(BaseModel):
+    """Alta o corrección de un ejemplar. Al editar solo cambia lo enviado (vacío = se borra)."""
+    cota: Optional[str] = Field(default=None, max_length=100)
+    codigo_barras: Optional[str] = Field(default=None, max_length=50)
+    numero_copia: Optional[str] = Field(default=None, max_length=20)
+    nota: Optional[str] = None

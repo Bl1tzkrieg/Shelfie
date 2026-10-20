@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
@@ -11,16 +11,12 @@ from app.security import requiere, requiere_personal
 from app.core import marc_plantillas
 from app.services import busqueda, catalogo, intercambio_marc
 
+# Solo el registro MARC: editor, plantillas, importación y exportación. El alta y la edición
+# simple de libros y sus ejemplares están en /api/v1/books (routers/libros.py).
 router = APIRouter(prefix="/api/v1/catalog", tags=["Catálogo"],
                    dependencies=[Depends(requiere_personal)])
 
 CATALOGA = [Depends(requiere(Permiso.CATALOGO))]
-
-
-@router.get("/items", response_model=List[schemas.MaterialResponse])
-def get_all_items(db: Session = Depends(get_db)):
-    """Catálogo por título: cada fila agrupa sus ejemplares."""
-    return catalogo.listar_titulos(db)
 
 
 @router.get("/search", response_model=schemas.BusquedaCatalogoResponse)
@@ -94,48 +90,6 @@ async def importar(
     return intercambio_marc.importar(db, contenido, aplicar=modo == "aplicar",
                                      duplicados=duplicados, plantilla=plantilla,
                                      codificacion=codificacion)
-
-
-@router.post("/items", response_model=schemas.MaterialResponse, status_code=201,
-             dependencies=[Depends(requiere(Permiso.CATALOGO))])
-def crear_material(payload: schemas.NuevoMaterialRequest, db: Session = Depends(get_db)):
-    return catalogo.dar_de_alta(db, payload)
-
-
-@router.get("/items/{biblio_id}", response_model=schemas.MaterialResponse)
-def get_item(biblio_id: int, db: Session = Depends(get_db)):
-    return catalogo.obtener_titulo(db, biblio_id)
-
-
-@router.delete("/items/{biblio_id}", status_code=204, dependencies=CATALOGA)
-def eliminar_registro(biblio_id: int, db: Session = Depends(get_db)):
-    """Borra un registro sin ejemplares."""
-    catalogo.eliminar_registro(db, biblio_id)
-
-
-@router.get("/items/{biblio_id}/ejemplares")
-def get_ejemplares(biblio_id: int, db: Session = Depends(get_db)):
-    return catalogo.listar_ejemplares(db, biblio_id)
-
-
-@router.post("/items/{biblio_id}/ejemplares", response_model=schemas.MaterialResponse,
-             status_code=201, dependencies=CATALOGA)
-def agregar_ejemplar(biblio_id: int, payload: schemas.NuevoEjemplarRequest,
-                     db: Session = Depends(get_db)):
-    return catalogo.agregar_ejemplar(db, biblio_id, payload)
-
-
-@router.patch("/items/{biblio_id}/ejemplares/{item_id}", dependencies=CATALOGA)
-def editar_ejemplar(biblio_id: int, item_id: int, payload: schemas.EditarEjemplarRequest,
-                    db: Session = Depends(get_db)):
-    """Corrige un ejemplar. Devuelve los ejemplares del título."""
-    return catalogo.editar_ejemplar(db, biblio_id, item_id, payload.model_dump(exclude_unset=True))
-
-
-@router.delete("/items/{biblio_id}/ejemplares/{item_id}", status_code=204, dependencies=CATALOGA)
-def eliminar_ejemplar(biblio_id: int, item_id: int, db: Session = Depends(get_db)):
-    """Borra un ejemplar cargado por error."""
-    catalogo.eliminar_ejemplar(db, biblio_id, item_id)
 
 
 # --- MARC ------------------------------------------------------------------------

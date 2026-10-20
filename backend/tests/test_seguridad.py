@@ -35,11 +35,11 @@ def test_entrar_con_el_usuario_como_clave_obliga_a_cambiarla(forzado, nuevo, dat
     admin = nuevo()
     r = admin.post("/api/v1/auth/login", json={"username": "ADM", "password": "ADM"})
     assert r.json()["usuario"]["debe_cambiar_clave"] is True
-    bloqueado = admin.get("/api/v1/catalog/items")
+    bloqueado = admin.get("/api/v1/books")
     assert bloqueado.status_code == 403 and "contraseña nueva" in bloqueado.json()["detail"]
     assert admin.get("/api/v1/auth/me").status_code == 200
     admin.post("/api/v1/auth/password", json={"actual": "ADM", "nueva": "admin-propia-1"})
-    assert admin.get("/api/v1/catalog/items").status_code == 200
+    assert admin.get("/api/v1/books").status_code == 200
     assert admin.get("/api/v1/auth/me").json()["debe_cambiar_clave"] is False
 
 
@@ -48,7 +48,7 @@ def test_sin_forzar_no_se_bloquea(nuevo, datos):
     c = nuevo()
     r = c.post("/api/v1/auth/login", json={"username": "1001", "password": "1001"})
     assert r.json()["usuario"]["debe_cambiar_clave"] is False
-    assert c.get("/api/v1/catalog/items").status_code == 200
+    assert c.get("/api/v1/books").status_code == 200
 
 
 def test_intentos_fallidos_frenan_y_se_reinician(nuevo, datos, db):

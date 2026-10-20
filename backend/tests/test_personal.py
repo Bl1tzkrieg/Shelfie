@@ -30,10 +30,10 @@ def test_admin_crea_catalogador_y_debe_cambiar_clave(client, db):
 
     # Entra con la clave temporal, pero antes de seguir tiene que elegir una propia.
     nueva = iniciar_sesion(TestClient(app), "MARIA", "temporal-123")
-    assert nueva.get("/api/v1/catalog/items").status_code == 403
+    assert nueva.get("/api/v1/books").status_code == 403
     assert nueva.post("/api/v1/auth/password", json={"actual": "temporal-123",
                                                       "nueva": "propia-456"}).status_code == 204
-    assert nueva.get("/api/v1/catalog/items").status_code == 200
+    assert nueva.get("/api/v1/books").status_code == 200
     nueva.close()
 
     repetido = client.post(STAFF, json={"username": "Maria", "nombre": "Otra", "apellido": "X",
@@ -107,7 +107,7 @@ def test_dos_codigos_vacios_no_chocan(datos, db):
 def test_codigo_repetido_da_409(client, datos, db):
     libro = datos.titulo()
     datos.ejemplar(libro, "B-1")
-    r = client.post(f"/api/v1/catalog/items/{libro.id}/ejemplares", json={"codigo_barras": "B-1"})
+    r = client.post(f"/api/v1/books/{libro.id}/copies", json={"codigo_barras": "B-1"})
     assert r.status_code == 409 and "B-1" in r.json()["detail"]
 
     # Aunque se cuele por la base, el índice único lo frena.

@@ -22,7 +22,7 @@ def _consultas(client, contador, ruta):
     return contador["n"]
 
 
-@pytest.mark.parametrize("ruta", ["/api/v1/catalog/items", "/api/v1/catalog/search?q=T",
+@pytest.mark.parametrize("ruta", ["/api/v1/books", "/api/v1/catalog/search?q=T",
                                   "/api/v1/staff"])
 def test_el_numero_de_consultas_no_crece_con_los_datos(client, datos, contar_consultas, ruta):
     datos.ejemplar(datos.titulo("T0", "0"), "E-0")
@@ -41,7 +41,7 @@ def test_ejemplares_de_un_titulo_no_crecen_con_los_datos(client, datos, contar_c
     """B15: antes, dos consultas por ejemplar (préstamo y lector)."""
     libro = datos.titulo()
     datos.ejemplar(libro, "X-0")
-    ruta = f"/api/v1/catalog/items/{libro.id}/ejemplares"
+    ruta = f"/api/v1/books/{libro.id}"
     con_uno = _consultas(client, contar_consultas, ruta)
     for n in range(1, 10):
         datos.ejemplar(libro, f"X-{n}")

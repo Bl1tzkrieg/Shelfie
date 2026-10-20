@@ -32,6 +32,18 @@ def _libro(titulo, isbn=None, autor=None, ejemplares=(), con_008=False, lider_ti
     return r
 
 
+def _alta(client, titulo, codigo, isbn=None, autor=None, cota="000 X"):
+    """Un libro con un ejemplar, cargado por /books."""
+    r = client.post("/api/v1/books", json={
+        "ficha": {"cota": cota, "titulo": titulo, "autor": autor, "isbn": [isbn] if isbn else []},
+        "ejemplares": 0})
+    assert r.status_code == 201, r.text
+    biblio_id = r.json()["id"]
+    r = client.post(f"/api/v1/books/{biblio_id}/copies", json={"codigo_barras": codigo})
+    assert r.status_code == 201, r.text
+    return biblio_id
+
+
 def _mrc(*registros):
     return b"".join(r.as_marc() for r in registros)
 
@@ -74,8 +86,7 @@ def test_vista_previa_no_escribe_y_aplicar_importa_con_ejemplares(client, datos,
 
 
 def test_duplicados_por_isbn(client, datos, db):
-    client.post(f"{URL}/items", json={"titulo": "Canaima", "isbn": "9789800000013",
-                                      "codigo_barras": "CAN-1"})
+    _alta(client, "Canaima", "CAN-1", isbn="9789800000013")
     archivo = _mrc(_libro("Canaima (otra edición)", "978-980-00-0001-3",
                           ejemplares=[[("p", "CAN-2")]]))
 
@@ -124,10 +135,9 @@ def test_marcxml_y_archivos_invalidos(client, datos):
 
 
 def test_exportar_marc_con_ejemplares_y_volver_a_leerlo(client, datos):
-    client.post(f"{URL}/items", json={"titulo": "Cien años de soledad", "isbn": "9780307474728",
-                                      "autor": "García Márquez, Gabriel",
-                                      "codigo_barras": "CIEN-1", "signatura_topografica": "863 G2"})
-    client.post(f"{URL}/items", json={"titulo": "Ciencia del suelo", "codigo_barras": "SUE-1"})
+    _alta(client, "Cien años de soledad", "CIEN-1", isbn="9780307474728",
+          autor="García Márquez, Gabriel", cota="863 G2")
+    _alta(client, "Ciencia del suelo", "SUE-1")
 
     r = client.get(f"{URL}/export", params={"formato": "marc"})
     assert r.status_code == 200
@@ -193,7 +203,7 @@ def test_marcxml_con_bom(client, datos):
 
 def test_exportar_iso2709_avisa_si_un_campo_no_cabe(client, datos, db):
     """M8: un campo de más de 9999 bytes no cabe en ISO 2709; MARCXML sí."""
-    r = client.post(f"{URL}/items", json={"titulo": "Resumen largo", "codigo_barras": "L-1"})
+    _alta(client, "Resumen largo", "L-1")
     biblio = db.query(models.RegistroBibliografico).one()
     marc = dict(biblio.marc_json)
     marc["fields"] = marc["fields"] + [{"520": {"ind1": " ", "ind2": " ",

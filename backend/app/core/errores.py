@@ -9,9 +9,12 @@ regla sirve igual desde un endpoint, un script o una tarea programada.
 class ErrorDeNegocio(Exception):
     status_code = 400
 
-    def __init__(self, mensaje: str):
+    def __init__(self, mensaje: str, *, detalle: object = None):
         super().__init__(mensaje)
         self.mensaje = mensaje
+        # Un `detail` con forma (p. ej. {"codigo": ..., ...}) para que el frontend actúe;
+        # sin él, el `detail` es el mensaje.
+        self.detalle = detalle
 
 
 class ReglaIncumplida(ErrorDeNegocio):
