@@ -39,13 +39,6 @@ def test_dar_de_baja_y_reincorporar(client, datos, db):
     assert client.patch(_url(libro, item), json={"estado": "Retirado"}).status_code == 200
     db.refresh(item)
     assert item.estado == "Retirado"
-    # Sin otro ejemplar prestable, el título ya no se puede reservar.
-    datos.lector("L-1")
-    r = client.post("/api/v1/catalog/reservations", json={"biblio_id": libro.id, "nro_carnet": "L-1"})
-    assert r.status_code == 400
-    # Tampoco se presta.
-    assert client.post("/api/v1/circulation/checkout",
-                       json={"codigo_barras": "B-001", "nro_carnet": "L-1"}).status_code == 400
 
     assert client.patch(_url(libro, item), json={"estado": "Disponible"}).status_code == 200
     db.refresh(item)
@@ -53,39 +46,20 @@ def test_dar_de_baja_y_reincorporar(client, datos, db):
     assert client.patch(_url(libro, item), json={"estado": "Prestado"}).status_code == 422
 
 
-def test_estados_de_circulacion_no_se_cambian_a_mano(client, datos, db):
-    libro = datos.titulo()
-    prestado = datos.ejemplar(libro, "P-1")
-    perdido = datos.ejemplar(libro, "P-2", estado="Perdido")
-    datos.prestamo(prestado, datos.lector("L-1"))
-    prestado.estado = "Prestado"
-    db.commit()
-
-    r = client.patch(_url(libro, prestado), json={"estado": "Retirado"})
-    assert r.status_code == 400 and "circulación" in r.json()["detail"]
-    r = client.patch(_url(libro, perdido), json={"estado": "Disponible"})
-    assert r.status_code == 400 and "Devoluciones" in r.json()["detail"]
-    # Un perdido sí se puede dar de baja, y corregir sus datos.
-    assert client.patch(_url(libro, perdido), json={"estado": "Retirado"}).status_code == 200
-
-
-def test_eliminar_solo_sin_historial(client, datos, db):
+def test_eliminar_ejemplar_cargado_por_error(client, datos, db):
     libro = datos.titulo()
     error = datos.ejemplar(libro, "TIPEO")
-    usado = datos.ejemplar(libro, "USADO")
-    datos.prestamo(usado, datos.lector("L-1"), devuelto=True)
+    otro_ejemplar = datos.ejemplar(libro, "OTRO")
 
-    r = client.delete(_url(libro, usado))
-    assert r.status_code == 400 and "Retirado" in r.json()["detail"]
     assert client.delete(_url(libro, error)).status_code == 204
     assert db.query(models.Item).filter_by(codigo_barras="TIPEO").first() is None
     otro = datos.titulo("Otro", isbn=None)
-    assert client.delete(f"{URL}/{otro.id}/ejemplares/{usado.id}").status_code == 404
+    assert client.delete(f"{URL}/{otro.id}/ejemplares/{otro_ejemplar.id}").status_code == 404
 
 
 def test_editar_exige_permiso_de_catalogo(como, datos):
     libro = datos.titulo()
     item = datos.ejemplar(libro)
-    circulacion = como(["circulacion"])
-    assert circulacion.patch(_url(libro, item), json={"signatura_topografica": "X"}).status_code == 403
-    assert circulacion.delete(_url(libro, item)).status_code == 403
+    sin_permiso = como([])
+    assert sin_permiso.patch(_url(libro, item), json={"signatura_topografica": "X"}).status_code == 403
+    assert sin_permiso.delete(_url(libro, item)).status_code == 403

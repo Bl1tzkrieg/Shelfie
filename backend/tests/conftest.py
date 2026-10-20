@@ -10,7 +10,6 @@ Cada prueba corre dentro de una transacción que se revierte al final: los
 """
 
 import os
-from datetime import timedelta
 
 
 
@@ -35,11 +34,8 @@ TEST_DATABASE_URL = _url_de_pruebas()
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 # Una clave de firma fuerte (con la de ejemplo el backend advierte al arrancar).
 os.environ["SECRET_KEY"] = "clave-de-pruebas-con-mas-de-treinta-y-dos-bytes"
-# Sin el planificador en segundo plano, y los correos a una carpeta temporal.
+# Sin el planificador en segundo plano.
 os.environ["TAREAS_AUTOMATICAS"] = "false"
-os.environ["CORREO_MODO"] = "archivo"
-import tempfile  # noqa: E402
-os.environ["CARPETA_CORREO"] = tempfile.mkdtemp(prefix="shelfie-correo-")
 
 from sqlalchemy.engine import make_url  # noqa: E402
 
@@ -59,11 +55,10 @@ from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
 from app import models  # noqa: E402
-from app.core.tiempo import ahora  # noqa: E402
 from app.database import get_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.security import hash_password  # noqa: E402
-from app.services import configuracion, reglas  # noqa: E402
+from app.services import configuracion  # noqa: E402
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -143,7 +138,7 @@ def iniciar_sesion(cliente, usuario, password):
 def como(db, datos):
     """Fábrica de clientes con sesión de personal y los permisos indicados.
 
-        cliente = como(["circulacion"])
+        cliente = como(["catalogo"])
     """
     app.dependency_overrides[get_db] = lambda: db
     abiertos = []
@@ -174,27 +169,18 @@ class Datos:
 
     def __init__(self, db: Session):
         self.db = db
-        self.est = self._categoria("EST", "Estudiante", max_prestamos=3, dias=7)
-        self.doc = self._categoria("DOC", "Docente", max_prestamos=10, dias=30)
-        self.adm = self._categoria("ADM", "Personal", max_prestamos=5, dias=14)
+        self.est = self._categoria("EST", "Estudiante")
+        self.doc = self._categoria("DOC", "Docente")
+        self.adm = self._categoria("ADM", "Personal")
         self.lib = models.TipoItem(codigo="LIB", descripcion="Libro", es_prestable=True)
         db.add(self.lib)
         db.flush()
 
-    def _categoria(self, codigo, descripcion, max_prestamos, dias):
+    def _categoria(self, codigo, descripcion):
         c = models.CategoriaUsuario(codigo=codigo, descripcion=descripcion)
         self.db.add(c)
         self.db.flush()
-        reglas.asegurar_regla_de_categoria(self.db, c, dias, max_prestamos)
         return c
-
-    def regla_de(self, categoria):
-        return self.db.query(models.ReglaCirculacion).filter_by(
-            categoria_id=categoria.id, tipo_item_id=None, biblioteca_id=None).one()
-
-    def sin_dias_cerrados(self):
-        """Calendario sin cierres: simplifica las cuentas de días en los tests."""
-        configuracion.guardar(self.db, {"calendario": {"dias_cerrados": []}})
 
     def lector(self, carnet="1001", categoria=None, activo=True, multas=0, **extra):
         u = models.Usuario(
@@ -253,20 +239,6 @@ class Datos:
         self.db.add(i)
         self.db.flush()
         return i
-
-    def prestamo(self, item, usuario, dias_desde=0, dias_hasta=7, devuelto=False, renovaciones=0):
-        hoy = ahora()
-        p = models.Prestamo(
-            item_id=item.id, usuario_id=usuario.id,
-            fecha_prestamo=hoy - timedelta(days=dias_desde),
-            fecha_vencimiento=hoy - timedelta(days=dias_desde) + timedelta(days=dias_hasta),
-            fecha_devolucion=hoy if devuelto else None,
-            renovaciones_realizadas=renovaciones,
-        )
-        item.estado = "Disponible" if devuelto else "Prestado"
-        self.db.add(p)
-        self.db.flush()
-        return p
 
 
 @pytest.fixture()

@@ -16,7 +16,7 @@ from app.services import registro
 
 router = APIRouter(prefix="/api/v1/logs", tags=["Registro de acciones"])
 
-CONSULTA = [Depends(requiere(Permiso.REGISTRO))]
+CONSULTA = [Depends(requiere(Permiso.SUPERBIBLIOTECARIO))]
 
 
 def _filtros(modulo: Optional[str] = None, accion: Optional[str] = None,
@@ -56,7 +56,7 @@ class AjustesRegistroRequest(BaseModel):
     dias_retencion: Optional[int] = Field(default=None, ge=0, le=36500)
 
 
-@router.put("/settings", dependencies=[Depends(requiere(Permiso.CONFIGURACION))])
+@router.put("/settings", dependencies=CONSULTA)
 def guardar_ajustes(payload: AjustesRegistroRequest, db: Session = Depends(get_db)):
     registro.guardar_ajustes(db, payload.model_dump(exclude_none=True))
     return {**registro.ajustes(db), "descripciones": registro.MODULOS,

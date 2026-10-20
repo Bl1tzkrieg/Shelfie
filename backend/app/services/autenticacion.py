@@ -8,7 +8,7 @@ from app import models
 from app.core.errores import (AccesoDenegado, CredencialesInvalidas, DemasiadosIntentos,
                               ReglaIncumplida)
 from app.security import hash_password, verify_password
-from app.services import registro, usuarios
+from app.services import personal, registro
 
 
 # --- Entrar ------------------------------------------------------------------------------
@@ -50,7 +50,7 @@ def _verificar(db: Session, identificador: str, password: str, ip: Optional[str]
 
     clave = (identificador or "").strip().lower()[:100]
     _frenar_si_insiste(db, clave, ip)
-    usuario = usuarios.buscar_por_identificador(db, (identificador or "").strip())
+    usuario = personal.buscar_por_identificador(db, (identificador or "").strip())
     valida = verify_password(password, usuario.password_hash if usuario else _HASH_DE_RELLENO)
     if not usuario or not valida:
         db.add(models.IntentoAcceso(identificador=clave, ip=ip, fecha=ahora()))
@@ -124,7 +124,7 @@ def cambiar_clave(db: Session, usuario: models.Usuario, actual: str, nueva: str)
     validar_clave_nueva(usuario, nueva)
     usuario.password_hash = hash_password(nueva)
     usuario.debe_cambiar_clave = False
-    registro.anotar(db, "lectores", "clave_cambiada",
+    registro.anotar(db, "sesion", "clave_cambiada",
                     f"{registro.nombre(usuario)} cambió su contraseña", lector=usuario)
     db.commit()
 
@@ -141,84 +141,6 @@ def restablecer_clave(db: Session, actor: models.Usuario, usuario: models.Usuari
     validar_clave_nueva(usuario, nueva)
     usuario.password_hash = hash_password(nueva)
     usuario.debe_cambiar_clave = True
-    registro.anotar(db, "lectores", "clave_restablecida",
+    registro.anotar(db, "sesion", "clave_restablecida",
                     f"Restableció la contraseña de {registro.nombre(usuario)}", lector=usuario)
-    db.commit()
-
-
-# --- Recuperar la contraseña por correo ------------------------------------------------------
-
-MINUTOS_ENLACE = 60
-MAX_ENLACES_POR_HORA = 3
-
-
-def _hash_token(token: str) -> str:
-    import hashlib
-    return hashlib.sha256(token.encode()).hexdigest()
-
-
-def solicitar_recuperacion(db: Session, identificador: str) -> None:
-    """Manda un enlace de un solo uso al correo del lector.
-
-    No dice si el carnet existe: quien pide para otro no se entera de nada. Tampoco
-    manda más de MAX_ENLACES_POR_HORA, para que no se use para llenarle el buzón a alguien.
-    """
-    import secrets
-    from datetime import timedelta
-
-    from app.config import settings
-    from app.core.tiempo import ahora
-    from app.services import avisos
-
-    usuario = usuarios.buscar_por_identificador(db, (identificador or "").strip())
-    if not usuario or not usuario.activo or not usuario.email:
-        return
-    T = models.TokenClave
-    hace_una_hora = ahora() - timedelta(hours=1)
-    if db.query(T).filter(T.usuario_id == usuario.id,
-                          T.fecha_creacion > hace_una_hora).count() >= MAX_ENLACES_POR_HORA:
-        return
-    # Un enlace nuevo anula los anteriores sin usar.
-    db.query(T).filter(T.usuario_id == usuario.id, T.usado == None).update(  # noqa: E711
-        {"usado": ahora()}, synchronize_session=False)
-    token = secrets.token_urlsafe(32)
-    db.add(T(usuario_id=usuario.id, token_hash=_hash_token(token), fecha_creacion=ahora(),
-             expira=ahora() + timedelta(minutes=MINUTOS_ENLACE)))
-    aviso = avisos.para_lector(db, "RECUPERAR_CLAVE", usuario, {
-        "enlace": f"{settings.URL_PUBLICA.rstrip('/')}/opac/recuperar?token={token}",
-        "minutos": MINUTOS_ENLACE})
-    db.commit()
-    avisos.enviar_ahora(db, aviso)
-
-
-def _token_valido(db: Session, token: str) -> models.TokenClave:
-    from app.core.tiempo import ahora
-
-    fila = db.query(models.TokenClave).filter_by(token_hash=_hash_token(token or "")).first()
-    if not fila or fila.usado is not None or fila.expira < ahora():
-        raise ReglaIncumplida("El enlace no es válido o ya venció: pide uno nuevo")
-    return fila
-
-
-def verificar_enlace(db: Session, token: str) -> dict:
-    fila = _token_valido(db, token)
-    usuario = db.get(models.Usuario, fila.usuario_id)
-    return {"nombre": usuario.nombre}
-
-
-def restablecer_con_enlace(db: Session, token: str, nueva: str) -> None:
-    """Fija la contraseña nueva. El enlace se gasta y las sesiones abiertas se cierran."""
-    from app.core.tiempo import ahora
-
-    fila = _token_valido(db, token)
-    usuario = db.get(models.Usuario, fila.usuario_id)
-    if not usuario or not usuario.activo:
-        raise ReglaIncumplida("El enlace no es válido o ya venció: pide uno nuevo")
-    validar_clave_nueva(usuario, nueva)
-    usuario.password_hash = hash_password(nueva)
-    usuario.debe_cambiar_clave = False
-    fila.usado = ahora()
-    registro.anotar(db, "lectores", "clave_restablecida",
-                    f"{registro.nombre(usuario)} eligió una contraseña nueva con el enlace del correo",
-                    lector=usuario, actor=usuario)
     db.commit()

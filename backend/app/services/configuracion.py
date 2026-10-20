@@ -1,7 +1,5 @@
 """Configuración del sistema: pares clave/valor JSONB en `configuraciones`."""
 
-from typing import Optional
-
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -16,16 +14,6 @@ DEFAULTS = {
         "direccion": "Campus Universitario, Edificio A, Piso 1",
         "telefono": "+58 212 555 0123",
         "email": "biblioteca@unagro.edu",
-    },
-    "politicas_prestamo": {
-        "dias_estudiante": 7,
-        "dias_docente": 30,
-        "dias_personal": 14,
-        "max_estudiante": 3,
-        "max_docente": 10,
-        "max_personal": 5,
-        "renovaciones_permitidas": 2,
-        "multa_por_dia": 1.5,
     },
     "notificaciones": {
         "recordatorio_dias_antes": 3,
@@ -58,17 +46,7 @@ DEFAULTS = {
     },
 }
 
-SECCIONES = ("institucion", "politicas_prestamo", "notificaciones", "circulacion", "calendario")
-
-# La pantalla de Configuración edita las políticas por tipo de lector; desde la
-# Fase 3 viven en las reglas de circulación de cada categoría (sin tipo de ítem ni
-# sede). Este mapeo traduce entre ambas para que haya una sola fuente de verdad.
-_CATEGORIA_POR_POLITICA = {
-    "EST": ("dias_estudiante", "max_estudiante"),
-    "DOC": ("dias_docente", "max_docente"),
-    "ADM": ("dias_personal", "max_personal"),
-}
-
+SECCIONES = ("institucion", "notificaciones", "circulacion", "calendario")
 
 def leer(db: Session, clave: str) -> dict:
     fila = db.query(models.Configuracion).filter(
@@ -80,40 +58,11 @@ def leer(db: Session, clave: str) -> dict:
 
 
 def leer_todo(db: Session) -> dict:
-    datos = {clave: leer(db, clave) for clave in SECCIONES}
-    datos["politicas_prestamo"] = {**datos["politicas_prestamo"], **_politicas_desde_reglas(db)}
-    return datos
-
-
-def _regla_de_categoria(db: Session, codigo: Optional[str]):
-    R = models.ReglaCirculacion
-    filtro_categoria = R.categoria_id.is_(None)
-    if codigo is not None:
-        categoria = db.query(models.CategoriaUsuario).filter_by(codigo=codigo).first()
-        if not categoria:
-            return None
-        filtro_categoria = R.categoria_id == categoria.id
-    return db.query(R).filter(filtro_categoria, R.tipo_item_id.is_(None),
-                              R.biblioteca_id.is_(None)).first()
-
-
-def _politicas_desde_reglas(db: Session) -> dict:
-    """Lo que muestra la pantalla de políticas, leído de las reglas reales."""
-    resultado = {}
-    for codigo, (clave_dias, clave_max) in _CATEGORIA_POR_POLITICA.items():
-        regla = _regla_de_categoria(db, codigo)
-        if regla:
-            resultado[clave_dias] = regla.dias_prestamo
-            resultado[clave_max] = regla.max_prestamos
-    general = _regla_de_categoria(db, None)
-    if general:
-        resultado["renovaciones_permitidas"] = general.max_renovaciones
-        resultado["multa_por_dia"] = float(general.multa_por_dia)
-    return resultado
+    return {clave: leer(db, clave) for clave in SECCIONES}
 
 
 NOMBRE_SECCION = {
-    "institucion": "datos de la institución", "politicas_prestamo": "políticas de préstamo",
+    "institucion": "datos de la institución",
     "notificaciones": "avisos", "circulacion": "ajustes de circulación",
     "calendario": "días cerrados", "seguridad": "seguridad", "registro": "registro de acciones",
 }
@@ -130,8 +79,6 @@ def guardar(db: Session, secciones: dict, anotar: bool = True) -> dict:
             if valor is None:
                 continue
             antes = leer(db, clave)
-            if clave == "politicas_prestamo":
-                antes = {**antes, **_politicas_desde_reglas(db)}
             cambios = registro.diferencias(antes, {**antes, **valor}, campos=valor.keys())
             if cambios:
                 registro.anotar(db, "configuracion", "ajustes",
@@ -150,54 +97,10 @@ def guardar(db: Session, secciones: dict, anotar: bool = True) -> dict:
             fila.actualizado_en = momento
         else:
             db.add(models.Configuracion(clave=clave, valor=valor, actualizado_en=momento))
-    if secciones.get("politicas_prestamo"):
-        _aplicar_politicas_a_reglas(db, secciones["politicas_prestamo"])
-    # Un solo commit: o se guarda todo (configuración y reglas) o nada.
+    # Un solo commit: o se guardan todas las secciones o ninguna.
     db.commit()
 
     return leer_todo(db)
-
-
-def _aplicar_politicas_a_reglas(db: Session, politicas: dict) -> None:
-    """Escribe las políticas editadas en Configuración en las reglas de circulación.
-
-    Días y tope van a la regla de cada categoría; renovaciones y multa diaria van
-    a la regla general y a las de categoría. Las reglas por tipo de ítem o por sede
-    no se tocan: se editan una por una en "Reglas y calendario" y esas diferencias
-    son justamente su razón de ser.
-    """
-    from app.services import reglas  # import diferido: reglas no depende de configuración
-
-    base = reglas.regla_general(db)
-    for codigo, (clave_dias, clave_max) in _CATEGORIA_POR_POLITICA.items():
-        if clave_dias not in politicas and clave_max not in politicas:
-            continue
-        categoria = db.query(models.CategoriaUsuario).filter_by(codigo=codigo).first()
-        if not categoria:
-            continue
-        regla = _regla_de_categoria(db, codigo)
-        if regla is None:
-            regla = models.ReglaCirculacion(
-                categoria_id=categoria.id, prestable=True, dias_prestamo=base.dias_prestamo,
-                max_prestamos=base.max_prestamos, max_renovaciones=base.max_renovaciones,
-                multa_por_dia=base.multa_por_dia, multa_maxima=base.multa_maxima,
-                dias_gracia=base.dias_gracia, max_reservas=base.max_reservas)
-            db.add(regla)
-        if clave_dias in politicas:
-            regla.dias_prestamo = int(politicas[clave_dias])
-        if clave_max in politicas:
-            regla.max_prestamos = int(politicas[clave_max])
-
-    if "renovaciones_permitidas" in politicas or "multa_por_dia" in politicas:
-        amplias = db.query(models.ReglaCirculacion).filter(
-            models.ReglaCirculacion.prestable.is_(True),
-            models.ReglaCirculacion.tipo_item_id.is_(None),
-            models.ReglaCirculacion.biblioteca_id.is_(None)).all()
-        for regla in amplias:
-            if "renovaciones_permitidas" in politicas:
-                regla.max_renovaciones = int(politicas["renovaciones_permitidas"])
-            if "multa_por_dia" in politicas:
-                regla.multa_por_dia = float(politicas["multa_por_dia"])
 
 
 def info_sistema(db: Session) -> dict:
@@ -209,5 +112,4 @@ def info_sistema(db: Session) -> dict:
         "total_registros": db.query(models.RegistroBibliografico).count(),
         "total_ejemplares": db.query(models.Item).count(),
         "total_usuarios": db.query(models.Usuario).count(),
-        "total_prestamos": db.query(models.Prestamo).count(),
     }

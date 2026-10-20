@@ -167,11 +167,11 @@ def test_baja_solo_sin_ejemplares(client, datos, db):
 
 
 def test_editar_exige_permiso_de_catalogo(como, datos):
-    lector_de_circulacion = como(["circulacion"])
-    r = lector_de_circulacion.post(f"{URL}/records", json={
+    sin_permiso = como([])
+    r = sin_permiso.post(f"{URL}/records", json={
         "plantilla": "BKS", "marc": _registro(_campo("245", ("a", "T")))})
     assert r.status_code == 403
-    assert lector_de_circulacion.get(f"{URL}/frameworks").status_code == 200
+    assert sin_permiso.get(f"{URL}/frameworks").status_code == 200
 
 
 # --- Derivación y migración ---------------------------------------------------------

@@ -4,8 +4,8 @@ Los servicios llaman a `anotar` justo antes de su commit, así la anotación ent
 misma transacción que la operación: si la operación falla, no queda registrada, y si
 se guarda, su anotación también.
 
-Quién actuó, desde qué IP y en qué sede lo deja la sesión en `db.info` (ver
-`app/security.py`); sin sesión (una tarea programada, la consola) el actor es el sistema.
+Quién actuó y desde qué IP lo deja la sesión en `db.info` (ver `app/security.py`); sin
+sesión (una tarea programada, la consola) el actor es el sistema.
 Qué módulos se registran se elige en Configuración → Registro de acciones.
 """
 
@@ -23,35 +23,17 @@ from app.core.tiempo import ahora, fin_del_dia, formatear_fecha_hora, inicio_del
 R = models.RegistroAccion
 
 MODULOS: Dict[str, str] = {
-    "circulacion": "Préstamos, devoluciones, renovaciones, pérdidas y traslados",
-    "reservas": "Reservas: altas, cambios y cancelaciones",
-    "cuentas": "Pagos y condonaciones",
-    "lectores": "Lectores y personal: altas, cambios, suspensiones, contraseñas y permisos",
-    "catalogo": "Registros y ejemplares: altas, cambios, bajas e importaciones",
-    "configuracion": "Ajustes, reglas, calendario, sedes y avisos",
-    "sesion": "Entradas y salidas del personal a la intranet",
-    "adquisiciones": "Pedidos, recepciones, facturas y sugerencias",
-    "seriadas": "Suscripciones y fascículos",
+    "catalogo": "Libros, ejemplares y registros MARC: altas, cambios, bajas e importaciones",
+    "configuracion": "Ajustes, personal y permisos",
+    "sesion": "Entradas y salidas del personal, y cambios de contraseña",
+    "respaldo": "Respaldos de la base y del catálogo",
 }
 
 NOMBRE_ACCION: Dict[str, str] = {
-    "prestamo": "Préstamo", "devolucion": "Devolución", "renovacion": "Renovación",
-    "perdido": "Declarado perdido", "recuperado": "Perdido recuperado",
-    "traslado": "Traslado", "traslado_recibido": "Traslado recibido",
-    "traslado_cancelado": "Traslado cancelado",
-    "reserva": "Reserva", "reserva_cambio": "Cambio de reserva",
-    "reserva_cancelada": "Reserva cancelada",
-    "pago": "Pago", "condonacion": "Condonación",
     "alta": "Alta", "edicion": "Edición", "baja": "Baja", "eliminacion": "Eliminación",
-    "suspension": "Suspensión", "reactivacion": "Reactivación",
     "clave_restablecida": "Contraseña restablecida", "clave_cambiada": "Contraseña cambiada",
-    "permisos": "Permisos", "importacion": "Importación",
-    "ajustes": "Ajustes", "reglas": "Reglas", "calendario": "Calendario", "sede": "Sede",
-    "plantilla": "Plantilla de aviso",
+    "permisos": "Permisos", "importacion": "Importación", "ajustes": "Ajustes",
     "entrada": "Entrada", "entrada_fallida": "Entrada fallida", "salida": "Salida",
-    "inventario": "Inventario",
-    "pedido": "Pedido", "recepcion": "Recepción", "factura": "Factura",
-    "sugerencia": "Sugerencia", "suscripcion": "Suscripción", "fasciculo": "Fascículo",
 }
 
 POR_DEFECTO = {"modulos": {m: True for m in MODULOS}, "dias_retencion": 730}
@@ -117,15 +99,6 @@ def _id(objeto) -> Optional[int]:
     return getattr(objeto, "id", objeto)
 
 
-def _sede(db: Session) -> Optional[int]:
-    sede = db.info.get("sede_id")
-    cabecera = db.info.get("sede_cabecera")
-    if sede is None and cabecera and str(cabecera).isdigit():
-        sede = int(cabecera)
-    # La cabecera viene del navegador: solo se guarda si la sede existe.
-    return sede if sede is not None and db.get(models.Biblioteca, sede) else None
-
-
 def anotar(db: Session, modulo: str, accion: str, descripcion: str, *,
            lector=None, biblio=None, item=None,
            objeto: Optional[Tuple[str, Optional[int]]] = None,
@@ -147,7 +120,7 @@ def anotar(db: Session, modulo: str, accion: str, descripcion: str, *,
         lector_id=_id(lector), biblio_id=_id(biblio), item_id=_id(item),
         objeto_tipo=objeto[0] if objeto else None, objeto_id=objeto[1] if objeto else None,
         datos=_sin_secretos(datos) if datos else None,
-        ip=db.info.get("ip"), sede_id=_sede(db),
+        ip=db.info.get("ip"),
     ))
 
 

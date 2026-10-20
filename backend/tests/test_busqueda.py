@@ -110,21 +110,3 @@ def test_se_actualiza_al_editar_el_registro(client, catalogo, db):
 
 def test_requiere_sesion_de_personal(anonimo):
     assert anonimo.get(URL).status_code == 401
-
-
-# --- OPAC ------------------------------------------------------------------------
-
-def test_opac_total_cuenta_todo_no_solo_la_pagina(client, catalogo):
-    r = client.get("/api/v1/opac/search", params={"q": "", "limit": 2}).json()
-    assert (r["total"], r["paginas"], len(r["resultados"])) == (5, 3, 2)
-    assert client.get("/api/v1/opac/search", params={"q": "arbol"}).json()["total"] == 2
-
-
-def test_opac_avanzada_por_campo_sin_acentos(client, catalogo):
-    def total(**params):
-        return client.get("/api/v1/opac/advanced-search", params=params).json()["total"]
-
-    assert total(titulo="arbol") == 1           # el autor "Árbol" no cuenta como título
-    assert total(autor="arbol") == 1
-    assert total(materia="agronomia", solo_disponibles="true") == 2
-    assert total(isbn="0307474728") == 1

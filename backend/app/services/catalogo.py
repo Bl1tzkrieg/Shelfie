@@ -1,7 +1,4 @@
-"""Catálogo: títulos con su disponibilidad, alta de material y ejemplares.
-
-Las reservas viven en app/services/reservas.py.
-"""
+"""Catálogo: títulos con su disponibilidad, alta de material y ejemplares."""
 
 import re
 from typing import List, Optional
@@ -11,10 +8,9 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.core.errores import NoEncontrado, ReglaIncumplida
-from app.core.tiempo import ahora, formatear_fecha
+from app.core.tiempo import formatear_fecha
 from app.core import marc_plantillas
 from app.services import busqueda, registro
-from app.services.reservas import ACTIVAS as RESERVAS_ACTIVAS
 from app.services import marc as marc_svc
 
 def sede_por_defecto(db: Session) -> Optional[int]:
@@ -46,12 +42,11 @@ def _obtener_registro(db: Session, biblio_id: int) -> models.RegistroBibliografi
 
 
 def vista_de_titulo(db: Session, biblio: models.RegistroBibliografico,
-                    items: Optional[list] = None, tipos: Optional[dict] = None,
-                    reservas_pendientes: Optional[int] = None) -> dict:
+                    items: Optional[list] = None, tipos: Optional[dict] = None) -> dict:
     """Un título con la disponibilidad agregada de sus ejemplares.
 
-    `items`, `tipos` y `reservas_pendientes` se pasan ya cargados al listar el
-    catálogo completo, para no hacer una consulta por título.
+    `items` y `tipos` se pasan ya cargados al listar el catálogo completo, para no
+    hacer una consulta por título.
     """
     if items is None:
         items = db.query(models.Item).filter(models.Item.biblio_id == biblio.id).all()
@@ -61,10 +56,6 @@ def vista_de_titulo(db: Session, biblio: models.RegistroBibliografico,
     if items and items[0].tipo_item_id:
         tipo = (tipos.get(items[0].tipo_item_id) if tipos is not None
                 else db.get(models.TipoItem, items[0].tipo_item_id))
-    if reservas_pendientes is None:
-        reservas_pendientes = db.query(models.Reserva).filter(
-            models.Reserva.biblio_id == biblio.id,
-            models.Reserva.estado.in_(RESERVAS_ACTIVAS)).count()
 
     return {
         "id": str(biblio.id),
@@ -77,25 +68,18 @@ def vista_de_titulo(db: Session, biblio: models.RegistroBibliografico,
         "location": items[0].signatura_topografica if items else None,
         "copies": len(items),
         "available": len(disponibles),
-        # /circulation/checkout necesita un código de barras para prestar desde la tarjeta.
         "availableBarcode": disponibles[0].codigo_barras if disponibles else None,
-        "holds": reservas_pendientes,
     }
 
 
 # --- Títulos y ejemplares ---------------------------------------------------------
 
 def vistas_de_titulos(db: Session, registros: list) -> List[dict]:
-    """Vista de varios títulos con tres consultas en total, sin importar cuántos sean."""
+    """Vista de varios títulos con dos consultas en total, sin importar cuántos sean."""
     ids = [b.id for b in registros]
     items = busqueda.items_por_titulo(db, ids)
     tipos = {t.id: t for t in db.query(models.TipoItem).all()}
-    reservas = dict(db.query(models.Reserva.biblio_id, func.count(models.Reserva.id)).filter(
-        models.Reserva.biblio_id.in_(ids),
-        models.Reserva.estado.in_(RESERVAS_ACTIVAS)).group_by(
-        models.Reserva.biblio_id).all()) if ids else {}
-    return [vista_de_titulo(db, b, items[b.id], tipos, reservas.get(b.id, 0))
-            for b in registros]
+    return [vista_de_titulo(db, b, items[b.id], tipos) for b in registros]
 
 
 def listar_titulos(db: Session) -> List[dict]:
@@ -261,31 +245,15 @@ def crear_registro(db: Session, datos) -> dict:
 
 
 def eliminar_registro(db: Session, biblio_id: int) -> None:
-    """Solo se borra un registro sin ejemplares ni reservas activas, como en Koha."""
+    """Solo se borra un registro sin ejemplares, como en Koha."""
     biblio = _obtener_registro(db, biblio_id)
     if db.query(models.Item).filter(models.Item.biblio_id == biblio.id).count():
         raise ReglaIncumplida("El registro tiene ejemplares: elimínalos o muévelos primero")
-    reservas_del_titulo = db.query(models.Reserva).filter(models.Reserva.biblio_id == biblio.id)
-    if reservas_del_titulo.filter(models.Reserva.estado.in_(RESERVAS_ACTIVAS)).count():
-        raise ReglaIncumplida("El registro tiene reservas activas")
-    # Como Koha: un pedido o una suscripción sin su registro no podría crear ejemplares.
-    lineas = db.query(models.LineaOrden).filter(models.LineaOrden.biblio_id == biblio.id).count()
-    if lineas:
-        raise ReglaIncumplida(f"El registro está en {lineas} línea(s) de pedido de adquisiciones")
-    suscripciones = db.query(models.Suscripcion).filter(
-        models.Suscripcion.biblio_id == biblio.id).count()
-    if suscripciones:
-        raise ReglaIncumplida(f"El registro tiene {suscripciones} suscripción(es) de seriadas")
-    reservas_del_titulo.delete(synchronize_session=False)
     # Sin `biblio=`: el registro se borra; quedan su número y su MARC en la anotación.
     registro.anotar(db, "catalogo", "eliminacion", f"Eliminó el registro «{biblio.titulo}»",
                     objeto=("registro", biblio.id), datos={"marc": biblio.marc_json})
     db.delete(biblio)
     db.commit()
-
-
-# Estados que la circulación maneja sola: mientras el ejemplar esté así no se cambia a mano.
-_EN_CIRCULACION = ("Prestado", "Reservado", "EnTransito")
 
 
 def _obtener_ejemplar(db: Session, biblio_id: int, item_id: int) -> models.Item:
@@ -328,8 +296,8 @@ def editar_ejemplar(db: Session, biblio_id: int, item_id: int, datos: dict) -> L
         if not db.get(models.Biblioteca, datos["biblioteca_propia_id"]):
             raise ReglaIncumplida("La sede elegida no existe")
         item.biblioteca_propia_id = datos["biblioteca_propia_id"]
-    if datos.get("estado") and datos["estado"] != item.estado:
-        _cambiar_estado(item, datos["estado"])
+    if datos.get("estado"):
+        item.estado = datos["estado"]
     db.flush()
     cambios = registro.diferencias(antes, {c: getattr(item, c) for c in _CAMPOS_EJEMPLAR})
     if cambios:
@@ -342,29 +310,9 @@ def editar_ejemplar(db: Session, biblio_id: int, item_id: int, datos: dict) -> L
     return listar_ejemplares(db, biblio_id)
 
 
-def _cambiar_estado(item: models.Item, nuevo: str) -> None:
-    if item.estado in _EN_CIRCULACION:
-        raise ReglaIncumplida(
-            f"El ejemplar está {item.estado}: su estado lo cambia la circulación "
-            "(devolverlo, cancelar la reserva o recibir el traslado)")
-    if nuevo == "Disponible" and item.estado == "Perdido":
-        raise ReglaIncumplida(
-            "Un ejemplar perdido que apareció se pasa por Devoluciones: así se reintegra "
-            "lo que pagó el lector")
-    item.estado = nuevo
-
-
 def eliminar_ejemplar(db: Session, biblio_id: int, item_id: int) -> None:
-    """Borra un ejemplar cargado por error. Con historial se da de baja (Retirado) en su lugar."""
+    """Borra un ejemplar cargado por error."""
     item = _obtener_ejemplar(db, biblio_id, item_id)
-    if item.estado in _EN_CIRCULACION:
-        raise ReglaIncumplida(f"El ejemplar está {item.estado}: no se puede eliminar")
-    if db.query(models.Prestamo.id).filter(models.Prestamo.item_id == item.id).first():
-        raise ReglaIncumplida(
-            "El ejemplar tiene historial de préstamos: márcalo como Retirado para darlo de baja")
-    # Las reservas cerradas que lo mencionan conservan el título, no el ejemplar.
-    db.query(models.Reserva).filter(models.Reserva.item_id == item.id).update(
-        {models.Reserva.item_id: None}, synchronize_session=False)
     registro.anotar(db, "catalogo", "eliminacion",
                     f"Eliminó el ejemplar {item.codigo_barras} (cargado por error)",
                     biblio=item.biblio_id, objeto=("ejemplar", item.id),
@@ -380,51 +328,20 @@ def listar_ejemplares(db: Session, biblio_id: int) -> List[dict]:
         models.Item.id).all()
     nombres = {b.id: b.nombre for b in db.query(models.Biblioteca).all()}
     tipos = {t.id: t.codigo for t in db.query(models.TipoItem).all()}
-    destinos = {t.item_id: t.hacia_id for t in db.query(models.Traslado).filter(
-        models.Traslado.item_id.in_([i.id for i in items]),
-        models.Traslado.estado.in_(("Solicitado", "Enviado")))} if items else {}
-
-    # Préstamos abiertos y sus lectores en una sola consulta (no una por ejemplar).
-    abiertos = {p.item_id: (p, u) for p, u in db.query(models.Prestamo, models.Usuario).outerjoin(
-        models.Usuario, models.Usuario.id == models.Prestamo.usuario_id).filter(
-        models.Prestamo.item_id.in_([i.id for i in items]),
-        models.Prestamo.fecha_devolucion == None)} if items else {}  # noqa: E711
 
     resultado = []
     for item in items:
-        prestamo, usuario = abiertos.get(item.id, (None, None))
-        lector = f"{usuario.nombre} {usuario.apellido}" if usuario else None
-
         resultado.append({
             "id": str(item.id),
             "barcode": item.codigo_barras,
             "location": item.signatura_topografica,
             "enumeration": item.enumeracion,
             "status": item.estado,
-            "dueDate": formatear_fecha(prestamo.fecha_vencimiento) if prestamo else None,
-            "borrowedBy": lector,
             "branch": nombres.get(item.biblioteca_actual_id),
             "homeBranch": nombres.get(item.biblioteca_propia_id),
-            "transitTo": nombres.get(destinos.get(item.id)),
             "itemType": tipos.get(item.tipo_item_id),
             "homeBranchId": item.biblioteca_propia_id,
             "price": float(item.precio_reposicion) if item.precio_reposicion is not None else None,
             "lastSeen": formatear_fecha(item.fecha_ultimo_inventario),
         })
     return resultado
-
-
-# --- Métricas ---------------------------------------------------------------------
-
-def estadisticas_dashboard(db: Session) -> dict:
-    momento = ahora()
-    return {
-        "totalItems": db.query(models.Item).count(),
-        "totalUsers": db.query(models.Usuario).filter(
-            models.Usuario.activo == True).count(),  # noqa: E712
-        "activeLoans": db.query(models.Prestamo).filter(
-            models.Prestamo.fecha_devolucion == None).count(),  # noqa: E711
-        "overdueLoans": db.query(models.Prestamo).filter(
-            models.Prestamo.fecha_devolucion == None,  # noqa: E711
-            models.Prestamo.fecha_vencimiento < momento).count(),
-    }

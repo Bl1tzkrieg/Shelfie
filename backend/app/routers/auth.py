@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app import models, schemas
 from app.database import get_db
 from app.security import abrir_sesion, cerrar_sesion, get_current_user, verificar_origen
-from app.services import autenticacion, usuarios
+from app.services import autenticacion, personal
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Autenticación"])
 
@@ -17,7 +17,7 @@ def login(payload: schemas.LoginRequest, request: Request, response: Response,
     usuario = autenticacion.autenticar_personal(db, payload.username, payload.password,
                                                  request.client.host if request.client else None)
     abrir_sesion(response, usuario)
-    return {"usuario": usuarios.vista_de_usuario(db, usuario)}
+    return {"usuario": personal.vista_de_usuario(db, usuario)}
 
 
 @router.post("/logout", status_code=204)
@@ -27,7 +27,7 @@ def logout(response: Response, request: Request, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=schemas.UserResponse)
 def me(usuario: models.Usuario = Depends(get_current_user), db: Session = Depends(get_db)):
-    return usuarios.vista_de_usuario(db, usuario)
+    return personal.vista_de_usuario(db, usuario)
 
 
 @router.post("/password", status_code=204)

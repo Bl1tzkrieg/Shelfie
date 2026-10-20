@@ -8,15 +8,15 @@ def _login(cliente, username, password):
 
 
 def test_login_por_username_o_carnet(anonimo, datos):
-    datos.personal("1001", ["circulacion"], username="ana")
+    datos.personal("1001", ["catalogo"], username="ana")
     for identificador in ("ana", "1001"):
         r = _login(anonimo, identificador, "1001")
         assert r.status_code == 200, r.text
-        assert r.json()["usuario"]["permisos"] == ["circulacion"]
+        assert r.json()["usuario"]["permisos"] == ["catalogo"]
 
 
 def test_la_sesion_va_en_cookie_httponly_y_no_en_el_cuerpo(anonimo, datos):
-    datos.personal("1001", ["circulacion"])
+    datos.personal("1001", ["catalogo"])
     r = _login(anonimo, "1001", "1001")
 
     assert "access_token" not in r.json()
@@ -27,7 +27,7 @@ def test_la_sesion_va_en_cookie_httponly_y_no_en_el_cuerpo(anonimo, datos):
 
 
 def test_login_no_revela_si_el_usuario_existe(anonimo, datos):
-    datos.personal("1001", ["circulacion"])
+    datos.personal("1001", ["catalogo"])
     malo = _login(anonimo, "1001", "otra")
     inexistente = _login(anonimo, "nadie", "otra")
     assert malo.status_code == inexistente.status_code == 401
@@ -36,7 +36,7 @@ def test_login_no_revela_si_el_usuario_existe(anonimo, datos):
 
 def test_lector_y_cuenta_suspendida_no_entran(anonimo, datos):
     datos.lector("2001")
-    datos.personal("1001", ["circulacion"], activo=False)
+    datos.personal("1001", ["catalogo"], activo=False)
     assert _login(anonimo, "2001", "2001").status_code == 403
     assert _login(anonimo, "1001", "1001").status_code == 403
 
@@ -57,14 +57,6 @@ def test_me_y_logout(anonimo, datos):
 def test_cookie_manipulada_es_rechazada(anonimo, datos):
     anonimo.cookies.set(COOKIE_SESION, "basura")
     assert anonimo.get("/api/v1/auth/me").status_code == 401
-
-
-def test_suspender_a_alguien_corta_su_sesion(client, como, datos, db):
-    auxiliar = como(["circulacion"], carnet="AUX")
-    assert auxiliar.get("/api/v1/circulation/loans").status_code == 200
-
-    client.patch("/api/v1/users/AUX/status", json={"activo": False})
-    assert auxiliar.get("/api/v1/circulation/loans").status_code == 401
 
 
 def test_set_password_ya_no_existe(anonimo):

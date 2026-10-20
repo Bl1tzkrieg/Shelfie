@@ -154,7 +154,7 @@ def test_exportar_marc_con_ejemplares_y_volver_a_leerlo(client, datos):
 
 
 def test_importar_exige_permiso_de_catalogo(como):
-    assert _importar(como(["circulacion"]), _mrc(_libro("X"))).status_code == 403
+    assert _importar(como([]), _mrc(_libro("X"))).status_code == 403
 
 
 def _utf8_sin_marcar(r):

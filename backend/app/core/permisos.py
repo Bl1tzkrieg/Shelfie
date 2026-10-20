@@ -10,27 +10,13 @@ from typing import Iterable
 
 
 class Permiso(str, Enum):
-    CIRCULACION = "circulacion"
     CATALOGO = "catalogo"
-    LECTORES = "lectores"
-    REPORTES = "reportes"
-    CONFIGURACION = "configuracion"
-    ADQUISICIONES = "adquisiciones"
-    SERIADAS = "seriadas"
-    REGISTRO = "registro"
     SUPERBIBLIOTECARIO = "superbibliotecario"
 
 
 DESCRIPCIONES = {
-    Permiso.CIRCULACION: "Préstamos, devoluciones, renovaciones, reservas, pérdidas y cobros",
-    Permiso.CATALOGO: "Alta y edición de material bibliográfico",
-    Permiso.LECTORES: "Alta, edición y suspensión de lectores; condonación de deudas",
-    Permiso.REPORTES: "Estadísticas y reportes descargables",
-    Permiso.CONFIGURACION: "Institución, reglas de circulación y calendario",
-    Permiso.ADQUISICIONES: "Proveedores y órdenes de compra",
-    Permiso.SERIADAS: "Suscripciones y kardex de fascículos",
-    Permiso.REGISTRO: "Consultar el registro de acciones (quién hizo qué y cuándo)",
-    Permiso.SUPERBIBLIOTECARIO: "Acceso total, incluida la gestión de permisos del personal",
+    Permiso.CATALOGO: "Alta y edición de libros, ejemplares y registros MARC",
+    Permiso.SUPERBIBLIOTECARIO: "Acceso total: personal, configuración, registro de acciones y respaldo",
 }
 
 PERFILES = {
@@ -38,14 +24,9 @@ PERFILES = {
         "nombre": "Administrador",
         "permisos": [Permiso.SUPERBIBLIOTECARIO],
     },
-    "bibliotecario": {
-        "nombre": "Bibliotecario",
-        "permisos": [Permiso.CIRCULACION, Permiso.CATALOGO, Permiso.LECTORES,
-                     Permiso.REPORTES, Permiso.ADQUISICIONES, Permiso.SERIADAS],
-    },
-    "auxiliar": {
-        "nombre": "Auxiliar de circulación",
-        "permisos": [Permiso.CIRCULACION],
+    "catalogador": {
+        "nombre": "Catalogador",
+        "permisos": [Permiso.CATALOGO],
     },
 }
 

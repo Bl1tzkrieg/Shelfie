@@ -7,9 +7,9 @@ from app import schemas
 from app.core.errores import NoEncontrado, ReglaIncumplida
 from app.core.permisos import Permiso
 from app.database import get_db
-from app.security import requiere, requiere_personal, sede_de_trabajo
+from app.security import requiere, requiere_personal
 from app.core import marc_plantillas
-from app.services import busqueda, catalogo, intercambio_marc, reservas
+from app.services import busqueda, catalogo, intercambio_marc
 
 router = APIRouter(prefix="/api/v1/catalog", tags=["Catálogo"],
                    dependencies=[Depends(requiere_personal)])
@@ -111,7 +111,7 @@ def get_item(biblio_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/items/{biblio_id}", status_code=204, dependencies=CATALOGA)
 def eliminar_registro(biblio_id: int, db: Session = Depends(get_db)):
-    """Borra un registro sin ejemplares ni reservas activas."""
+    """Borra un registro sin ejemplares."""
     catalogo.eliminar_registro(db, biblio_id)
 
 
@@ -136,7 +136,7 @@ def editar_ejemplar(biblio_id: int, item_id: int, payload: schemas.EditarEjempla
 
 @router.delete("/items/{biblio_id}/ejemplares/{item_id}", status_code=204, dependencies=CATALOGA)
 def eliminar_ejemplar(biblio_id: int, item_id: int, db: Session = Depends(get_db)):
-    """Borra un ejemplar sin historial de préstamos (cargado por error)."""
+    """Borra un ejemplar cargado por error."""
     catalogo.eliminar_ejemplar(db, biblio_id, item_id)
 
 
@@ -173,30 +173,3 @@ def guardar_marc(biblio_id: int, payload: schemas.RegistroMarcRequest,
 def crear_registro(payload: schemas.RegistroMarcRequest, db: Session = Depends(get_db)):
     """Catalogación completa con el editor MARC; los ejemplares se agregan después."""
     return catalogo.crear_registro(db, payload)
-
-
-@router.post("/reservations", response_model=schemas.ReservaResponse, status_code=201,
-             dependencies=[Depends(requiere(Permiso.CIRCULACION))])
-def crear_reserva(payload: schemas.ReservaRequest, db: Session = Depends(get_db),
-                  sede: Optional[int] = Depends(sede_de_trabajo)):
-    return reservas.reservar(db, payload.biblio_id, payload.nro_carnet,
-                             biblioteca_retiro_id=payload.biblioteca_retiro_id,
-                             fecha_limite=payload.fecha_limite, notas=payload.notas,
-                             sede_trabajo=sede)
-
-
-@router.get("/reservations")
-def listar_reservas(db: Session = Depends(get_db)):
-    """Todas las reservas, incluidas las cerradas (ver también /circulation/holds)."""
-    return reservas.listar(db)
-
-
-@router.delete("/reservations/{reserva_id}", dependencies=[Depends(requiere(Permiso.CIRCULACION))])
-def cancelar_reserva(reserva_id: int, db: Session = Depends(get_db)):
-    reservas.cancelar(db, reserva_id)
-    return {"mensaje": "Reserva cancelada"}
-
-
-@router.get("/dashboard-stats", tags=["Métricas"])
-def get_dashboard_stats(db: Session = Depends(get_db)):
-    return catalogo.estadisticas_dashboard(db)

@@ -158,8 +158,6 @@ def marcar_actor(db: Session, request: Optional[Request], usuario: Optional[mode
     db.info["actor_id"] = usuario.id if usuario else None
     db.info["desde_opac"] = desde_opac
     db.info["ip"] = ip_de(request)
-    db.info["sede_cabecera"] = request.headers.get("X-Shelfie-Sede") if request is not None else None
-    db.info.pop("sede_id", None)
 
 
 def _usuario_del_token(request: Request, db: Session, cookie: str,
@@ -187,7 +185,7 @@ def _usuario_del_token(request: Request, db: Session, cookie: str,
     if payload.get("clave") != huella_de_clave(usuario):
         raise HTTPException(status_code=401,
                             detail="La contraseña cambió: inicia sesión nuevamente")
-    # Para el registro de acciones: quién actúa en esta petición, desde dónde y en qué sede.
+    # Para el registro de acciones: quién actúa en esta petición y desde dónde.
     marcar_actor(db, request, usuario, desde_opac=audiencia == AUDIENCIA_OPAC)
     if usuario.debe_cambiar_clave and request.url.path not in _SIN_CAMBIO_DE_CLAVE:
         from app.services.autenticacion import tiene_que_cambiar_clave
@@ -231,12 +229,3 @@ def requiere(permiso: Permiso):
         return usuario
 
     return _verificar
-
-
-def sede_de_trabajo(request: Request, usuario: models.Usuario = Depends(requiere_personal),
-                    db: Session = Depends(get_db)) -> Optional[int]:
-    """Sede donde opera el personal (cabecera X-Shelfie-Sede; ver app/services/sedes.py)."""
-    from app.services import sedes
-    sede = sedes.de_trabajo(db, usuario, request.headers.get(sedes.CABECERA))
-    db.info["sede_id"] = sede
-    return sede

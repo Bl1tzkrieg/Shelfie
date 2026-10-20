@@ -222,12 +222,12 @@ class UserResponse(BaseModel):
     apellido: str
     email: str
     activo: bool
-    saldo_multas: float
+    saldo_multas: float = 0
     departamento: Optional[str] = None
     fecha_creacion: Optional[datetime] = None
     categoria: Optional[CategoriaSchema] = None
-    prestamos_activos_count: int
-    total_prestamos_count: int
+    prestamos_activos_count: int = 0
+    total_prestamos_count: int = 0
     es_personal: bool = False
     permisos: List[str] = []
     debe_cambiar_clave: bool = False
@@ -315,7 +315,6 @@ class CatalogoPermisosResponse(BaseModel):
 
 class ConfiguracionResponse(BaseModel):
     institucion: Dict[str, Any]
-    politicas_prestamo: Dict[str, Any]
     notificaciones: Dict[str, Any]
     circulacion: Dict[str, Any] = {}
     calendario: Dict[str, Any] = {}
@@ -330,21 +329,8 @@ class AjustesCirculacionRequest(BaseModel):
     perdonar_mora_al_perder: Optional[bool] = None
 
 
-class PoliticasPrestamoRequest(BaseModel):
-    """Lo que se escribe en las reglas de circulación; los omitidos no cambian."""
-    dias_estudiante: Optional[int] = Field(default=None, ge=1, le=3650)
-    dias_docente: Optional[int] = Field(default=None, ge=1, le=3650)
-    dias_personal: Optional[int] = Field(default=None, ge=1, le=3650)
-    max_estudiante: Optional[int] = Field(default=None, ge=0, le=1000)
-    max_docente: Optional[int] = Field(default=None, ge=0, le=1000)
-    max_personal: Optional[int] = Field(default=None, ge=0, le=1000)
-    renovaciones_permitidas: Optional[int] = Field(default=None, ge=0, le=100)
-    multa_por_dia: Optional[float] = Field(default=None, ge=0)
-
-
 class ActualizarConfiguracionRequest(BaseModel):
     institucion: Optional[Dict[str, Any]] = None
-    politicas_prestamo: Optional[PoliticasPrestamoRequest] = None
     notificaciones: Optional[Dict[str, Any]] = None
     circulacion: Optional[AjustesCirculacionRequest] = None
 
