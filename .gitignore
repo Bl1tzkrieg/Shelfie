@@ -40,3 +40,6 @@ dist/
 # Playwright
 test-results/
 playwright-report/
+
+# Next lo regenera en cada dev/build
+frontend/next-env.d.ts

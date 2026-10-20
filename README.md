@@ -114,6 +114,8 @@ npm run lint
 npm run build        # exporta el sitio estático a frontend/out
 ```
 
+`frontend/next-env.d.ts` no se versiona: Next lo regenera en cada `dev` o `build`.
+
 Recorrido de punta a punta (Playwright 1.56.0). Necesita `npm run build` hecho **sin** `NEXT_PUBLIC_API_URL`
 (renombra `.env.local` mientras compilas: la prueba y la instalación usan el mismo origen) y una base
 **exclusiva** cuyo nombre contenga `e2e`: **se borra entera en cada corrida**. Levanta uvicorn

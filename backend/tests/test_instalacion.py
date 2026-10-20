@@ -206,9 +206,15 @@ def test_python_de_la_store_no_sirve():
     assert instalar.index("'py -3.12'") < instalar.index("'python'")
 
 
-def test_empaquetar_deja_next_env_como_estaba():
+def test_empaquetar_no_hornea_la_url_de_desarrollo():
     script = (RAIZ / "scripts" / "empaquetar.sh").read_text(encoding="utf-8")
-    assert "next-env.d.ts" in script and "trap limpiar EXIT" in script
+    assert "trap limpiar EXIT" in script
+    assert "frontend/.env.local" in script and ".env.*.local" in script
+    assert "env -u NEXT_PUBLIC_API_URL npm run build" in script
+    assert 'grep -rq "localhost:8000" frontend/out' in script
+    # Los apartados se apartan antes de compilar y se devuelven en el trap.
+    assert script.index('mv "$f" "$APARTADOS/') < script.index("npm ci && env -u")
+    assert "next-env.d.ts" in (RAIZ / ".gitignore").read_text(encoding="utf-8")
 
 
 def test_python_de_usuario_y_carpeta_en_perfiles_se_rechazan():

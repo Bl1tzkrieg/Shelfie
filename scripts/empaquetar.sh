@@ -12,19 +12,33 @@ VERSION="$(git describe --tags --always)"
 ZIP="$RAIZ/dist/shelfie-lite-$VERSION.zip"
 
 TEMPORAL="$(mktemp -d)"
-# next build reescribe frontend/next-env.d.ts (.next/dev/types ↔ .next/types): al terminar,
-# pase lo que pase, se deja como estaba para no ensuciar el árbol de trabajo.
-NEXT_ENV="$RAIZ/frontend/next-env.d.ts"
-[ -f "$NEXT_ENV" ] && cp -p "$NEXT_ENV" "$TEMPORAL/next-env.d.ts"
+# Next hornea en el JS todo lo que lea de frontend/.env.local (p. ej. NEXT_PUBLIC_API_URL=
+# http://localhost:8000 de desarrollo): en las PC de la biblioteca la API es del mismo origen.
+# Esos archivos se apartan durante la compilación y, pase lo que pase, se devuelven al terminar.
+APARTADOS="$TEMPORAL/env-apartados"
+mkdir -p "$APARTADOS"
+devolver_env() {
+    for f in "$APARTADOS"/.env*; do
+        [ -e "$f" ] && mv "$f" "$RAIZ/frontend/$(basename "$f")"
+    done
+    return 0
+}
 limpiar() {
-    [ -f "$TEMPORAL/next-env.d.ts" ] && cp -p "$TEMPORAL/next-env.d.ts" "$NEXT_ENV"
+    devolver_env
     rm -rf "$TEMPORAL"
 }
 trap limpiar EXIT
+for f in "$RAIZ"/frontend/.env.local "$RAIZ"/frontend/.env.*.local; do
+    [ -e "$f" ] && mv "$f" "$APARTADOS/$(basename "$f")"
+done
 
 echo "== Compilando el frontend (frontend/out)"
-(cd frontend && npm ci && npm run build)
+(cd frontend && npm ci && env -u NEXT_PUBLIC_API_URL npm run build)
 test -f frontend/out/index.html || { echo "ERROR: next build no dejó frontend/out/index.html" >&2; exit 1; }
+if grep -rq "localhost:8000" frontend/out; then
+    echo "ERROR: frontend/out trae la URL de desarrollo (localhost:8000); no se empaqueta." >&2
+    exit 1
+fi
 
 echo "== Armando el paquete"
 PAQUETE="$TEMPORAL/paquete"
