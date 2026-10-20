@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { BookMarked } from "lucide-react"
 
+import { AvisoRespaldo } from "@/components/lite/aviso-respaldo"
 import { useSesion } from "@/components/auth/sesion-provider"
 import { useNombreBiblioteca } from "@/lib/biblioteca"
 
@@ -16,6 +17,7 @@ export function PaginaPublica({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background">
+      <AvisoRespaldo />
       <header className="border-b border-border bg-card">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-4 px-4">
           <Link href="/" className="flex min-w-0 items-center gap-3">

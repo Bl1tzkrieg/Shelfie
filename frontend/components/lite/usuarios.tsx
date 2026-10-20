@@ -81,7 +81,7 @@ export function ListaUsuarios() {
         </Button>
       </div>
 
-      <div className="rounded-lg border border-border bg-card">
+      <div className="hidden rounded-lg border border-border bg-card sm:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -100,65 +100,107 @@ export function ListaUsuarios() {
                 </TableCell>
               </TableRow>
             )}
-            {personal?.map((p) => {
-              const esYo = p.id === yo?.id
-              const bloqueado = ocupado === p.id
-              return (
-                <TableRow key={p.id} className={p.activo ? "" : "opacity-60"}>
-                  <TableCell className="font-mono text-sm">
-                    {p.username}
-                    {esYo && <Badge variant="secondary" className="ml-2 font-sans">Tú</Badge>}
-                  </TableCell>
-                  <TableCell>{p.nombre} {p.apellido}</TableCell>
-                  <TableCell>
-                    <span title={esYo ? NO_PROPIA : undefined}>
-                      <Select value={p.rol} disabled={esYo || bloqueado}
-                              onValueChange={(rol) => cambiar(p, "role", { rol },
-                                `${p.username} ahora es ${NOMBRE_ROL[rol as Rol]}`)}>
-                        <SelectTrigger className="w-40" aria-label={`Rol de ${p.username}`}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ROLES.map((r) => <SelectItem key={r} value={r}>{NOMBRE_ROL[r]}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    {p.activo
-                      ? <Badge>Activo</Badge>
-                      : <Badge variant="outline">Desactivado</Badge>}
-                    {p.debe_cambiar_clave && (
-                      <span className="ml-2 text-xs text-muted-foreground">Clave por cambiar</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-2">
-                      <span title={esYo ? NO_PROPIA : undefined}>
-                        <Button variant="outline" size="sm" disabled={esYo || bloqueado}
-                                onClick={() => cambiar(p, "active", { activo: !p.activo },
-                                  p.activo ? `${p.username} fue desactivado` : `${p.username} fue activado`)}>
-                          {p.activo
-                            ? <><UserX className="mr-1.5 h-4 w-4" />Desactivar</>
-                            : <><UserCheck className="mr-1.5 h-4 w-4" />Activar</>}
-                        </Button>
-                      </span>
-                      <Button variant="outline" size="sm" disabled={bloqueado}
-                              onClick={() => setRestableciendo(p)}>
-                        <KeyRound className="mr-1.5 h-4 w-4" />Restablecer clave
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
+            {personal?.map((p) => (
+              <TableRow key={p.id} className={p.activo ? "" : "opacity-60"}>
+                <TableCell className="font-mono text-sm"><Usuario p={p} yo={yo?.id} /></TableCell>
+                <TableCell>{p.nombre} {p.apellido}</TableCell>
+                <TableCell><SelectorRol p={p} yo={yo?.id} ocupado={ocupado} cambiar={cambiar} /></TableCell>
+                <TableCell><Estado p={p} /></TableCell>
+                <TableCell>
+                  <div className="flex justify-end gap-2">
+                    <Botones p={p} yo={yo?.id} ocupado={ocupado} cambiar={cambiar}
+                             onRestablecer={setRestableciendo} />
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
           </TableBody>
         </Table>
       </div>
 
+      {/* En pantallas angostas cada persona es una tarjeta con todo a la vista. */}
+      <ul className="space-y-3 sm:hidden">
+        {personal === null && <li className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></li>}
+        {personal?.map((p) => (
+          <li key={p.id} className={`space-y-3 rounded-lg border border-border bg-card p-4 ${p.activo ? "" : "opacity-60"}`}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="font-medium text-foreground">{p.nombre} {p.apellido}</p>
+                <p className="font-mono text-sm text-muted-foreground"><Usuario p={p} yo={yo?.id} /></p>
+              </div>
+              <Estado p={p} />
+            </div>
+            <SelectorRol p={p} yo={yo?.id} ocupado={ocupado} cambiar={cambiar} />
+            <div className="flex flex-wrap gap-2">
+              <Botones p={p} yo={yo?.id} ocupado={ocupado} cambiar={cambiar} onRestablecer={setRestableciendo} />
+            </div>
+          </li>
+        ))}
+      </ul>
+
       <DialogoNuevo open={creando} onOpenChange={setCreando} onCreado={cargar} />
       <DialogoClave persona={restableciendo} onCerrar={() => setRestableciendo(null)} />
     </div>
+  )
+}
+
+type Cambiar = (p: Personal, ruta: "role" | "active", cuerpo: object, ok: string) => Promise<void>
+type ControlesFila = { p: Personal; yo: number | undefined; ocupado: number | null; cambiar: Cambiar }
+
+function Usuario({ p, yo }: { p: Personal; yo: number | undefined }) {
+  return (
+    <>
+      {p.username}
+      {p.id === yo && <Badge variant="secondary" className="ml-2 font-sans">Tú</Badge>}
+    </>
+  )
+}
+
+function Estado({ p }: { p: Personal }) {
+  return (
+    <span className="shrink-0">
+      {p.activo ? <Badge>Activo</Badge> : <Badge variant="outline">Desactivado</Badge>}
+      {p.debe_cambiar_clave && <span className="ml-2 text-xs text-muted-foreground">Clave por cambiar</span>}
+    </span>
+  )
+}
+
+function SelectorRol({ p, yo, ocupado, cambiar }: ControlesFila) {
+  const esYo = p.id === yo
+  return (
+    <span title={esYo ? NO_PROPIA : undefined} className="block">
+      <Select value={p.rol} disabled={esYo || ocupado === p.id}
+              onValueChange={(rol) => cambiar(p, "role", { rol }, `${p.username} ahora es ${NOMBRE_ROL[rol as Rol]}`)}>
+        <SelectTrigger className="w-full sm:w-40" aria-label={`Rol de ${p.username}`}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {ROLES.map((r) => <SelectItem key={r} value={r}>{NOMBRE_ROL[r]}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </span>
+  )
+}
+
+function Botones({ p, yo, ocupado, cambiar, onRestablecer }: ControlesFila & {
+  onRestablecer: (p: Personal) => void
+}) {
+  const esYo = p.id === yo
+  return (
+    <>
+      <span title={esYo ? NO_PROPIA : undefined}>
+        <Button variant="outline" size="sm" disabled={esYo || ocupado === p.id}
+                onClick={() => cambiar(p, "active", { activo: !p.activo },
+                  p.activo ? `${p.username} fue desactivado` : `${p.username} fue activado`)}>
+          {p.activo
+            ? <><UserX className="mr-1.5 h-4 w-4" />Desactivar</>
+            : <><UserCheck className="mr-1.5 h-4 w-4" />Activar</>}
+        </Button>
+      </span>
+      <Button variant="outline" size="sm" disabled={ocupado === p.id} onClick={() => onRestablecer(p)}>
+        <KeyRound className="mr-1.5 h-4 w-4" />Restablecer clave
+      </Button>
+    </>
   )
 }
 
@@ -168,7 +210,7 @@ function CampoClave({ valor, onCambio }: { valor: string; onCambio: (v: string) 
       <Label htmlFor="clave-temporal">Clave temporal</Label>
       <div className="flex gap-2">
         <Input id="clave-temporal" value={valor} autoComplete="off" spellCheck={false}
-               className="font-mono" onChange={(e) => onCambio(e.target.value)}
+               className="font-mono" maxLength={128} onChange={(e) => onCambio(e.target.value)}
                aria-describedby="clave-ayuda" />
         <Button type="button" variant="outline" onClick={() => onCambio(generarClave())}>
           <Shuffle className="mr-1.5 h-4 w-4" />Generar
