@@ -1,6 +1,5 @@
 """Registro MARC como fuente: plantillas, validación, derivación y alta completa."""
 
-import importlib
 
 import pytest
 
@@ -144,7 +143,7 @@ def test_crear_registro_y_agregarle_ejemplares(client, datos):
     assert r.status_code == 201, r.text
     assert r.json()["copies"] == 1
     assert client.post(f"{URL}/items/{biblio_id}/ejemplares",
-                       json={"codigo_barras": "TES-001"}).status_code == 400
+                       json={"codigo_barras": "TES-001"}).status_code == 409
 
 
 def test_isbn_repetido_avisa_y_se_puede_forzar(client, datos):
@@ -174,23 +173,10 @@ def test_editar_exige_permiso_de_catalogo(como, datos):
     assert sin_permiso.get(f"{URL}/frameworks").status_code == 200
 
 
-# --- Derivación y migración ---------------------------------------------------------
+# --- Derivación ---------------------------------------------------------------------
 
 def test_ano_desde_260_o_008():
     con_260 = marc.normalizar(_registro(_campo("260", ("c", "[ca. 1998]")), f008=False))
     assert marc.ano_de(con_260) == 1998
     solo_008 = marc.normalizar({"leader": "", "fields": [{"008": marc.campo_008(1975)}]})
     assert marc.ano_de(solo_008) == 1975
-
-
-def test_la_migracion_completa_el_marc_sin_cambiar_las_columnas():
-    m = importlib.import_module("migrations.versions.0007_marc_como_fuente")
-    viejo = {"leader": "00000cam a22000001a 4500",
-             "fields": [{"020": {"subfields": [{"a": "9780307474728"}]}},
-                        {"245": {"subfields": [{"a": "Cien años de soledad"}]}}]}
-    nuevo = m._completar(viejo, "Cien años de soledad", "Gabriel García Márquez",
-                         "9780307474728", 1967, "Literatura")
-    canonico, _ = marc.preparar(nuevo, "BKS")
-    assert marc.derivar(canonico) == {
-        "titulo": "Cien años de soledad", "autor": "Gabriel García Márquez",
-        "materia": "Literatura", "ano_publicacion": 1967, "isbn": "9780307474728"}

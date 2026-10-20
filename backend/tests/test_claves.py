@@ -7,7 +7,7 @@ from tests.conftest import iniciar_sesion
 
 
 def test_cambiar_la_propia_contrasena(como, anonimo):
-    yo = como(["catalogo"], carnet="P-1")
+    yo = como(["catalogo"], username="P-1")
 
     malo = yo.post("/api/v1/auth/password", json={"actual": "otra", "nueva": "nueva-clave-1"})
     assert malo.status_code == 400 and "actual" in malo.json()["detail"]

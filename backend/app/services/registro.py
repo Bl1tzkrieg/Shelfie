@@ -13,7 +13,7 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from sqlalchemy import func, or_
+from sqlalchemy import func
 from sqlalchemy.orm import Session, aliased
 
 from app import models
@@ -105,7 +105,7 @@ def anotar(db: Session, modulo: str, accion: str, descripcion: str, *,
            datos: Optional[dict] = None, actor=None, forzar: bool = False) -> None:
     """Agrega una anotación a la sesión (sin commit: entra con el de la operación).
 
-    `lector`, `biblio` e `item` aceptan el objeto o su id. `actor` solo hace falta cuando
+    `lector` (el usuario del personal afectado), `biblio` e `item` aceptan el objeto o su id. `actor` solo hace falta cuando
     no hay sesión abierta todavía (p. ej. al entrar).
     """
     if modulo not in MODULOS:
@@ -115,7 +115,6 @@ def anotar(db: Session, modulo: str, accion: str, descripcion: str, *,
     actor_id = _id(actor) if actor is not None else db.info.get("actor_id")
     db.add(R(
         fecha=ahora(), usuario_id=actor_id,
-        desde_opac=False,  # la columna queda; en lite no hay OPAC
         modulo=modulo, accion=accion, descripcion=descripcion[:2000],
         lector_id=_id(lector), biblio_id=_id(biblio), item_id=_id(item),
         objeto_tipo=objeto[0] if objeto else None, objeto_id=objeto[1] if objeto else None,
@@ -143,7 +142,7 @@ def diferencias(antes: dict, despues: dict, campos: Optional[Iterable[str]] = No
 
 
 def nombre(u: Optional[models.Usuario]) -> str:
-    return f"{u.nombre} {u.apellido} ({u.nro_carnet})" if u else "—"
+    return f"{u.nombre} {u.apellido} ({u.username})" if u else "—"
 
 
 # --- Consultar ------------------------------------------------------------------------
@@ -164,10 +163,9 @@ def _filtrar(db: Session, filtros: dict):
         if quien.lower() == "sistema":
             consulta = consulta.filter(R.usuario_id.is_(None))
         else:
-            consulta = consulta.filter(or_(func.lower(Actor.nro_carnet) == quien.lower(),
-                                           func.lower(Actor.username) == quien.lower()))
+            consulta = consulta.filter(func.lower(Actor.username) == quien.lower())
     if filtros.get("lector"):
-        consulta = consulta.filter(func.lower(Lector.nro_carnet) == filtros["lector"].strip().lower())
+        consulta = consulta.filter(func.lower(Lector.username) == filtros["lector"].strip().lower())
     if filtros.get("biblio_id"):
         consulta = consulta.filter(R.biblio_id == filtros["biblio_id"])
     if filtros.get("codigo"):
@@ -192,10 +190,9 @@ def _fila(r: models.RegistroAccion, actor, lector, biblio, item) -> dict:
         "accion_nombre": NOMBRE_ACCION.get(r.accion, r.accion),
         "descripcion": r.descripcion,
         "actor": (f"{actor.nombre} {actor.apellido}" if actor else "Sistema"),
-        "actor_carnet": actor.nro_carnet if actor else None,
-        "desde_opac": r.desde_opac,
+        "actor_username": actor.username if actor else None,
         "lector": f"{lector.nombre} {lector.apellido}" if lector else None,
-        "lector_carnet": lector.nro_carnet if lector else None,
+        "lector_username": lector.username if lector else None,
         "biblio_id": r.biblio_id,
         "titulo": biblio.titulo if biblio else None,
         "codigo_barras": item.codigo_barras if item else None,
@@ -214,8 +211,9 @@ def consultar(db: Session, filtros: dict, pagina: int = 1, por_pagina: int = 50)
             "filas": [_fila(*f) for f in filas]}
 
 
-COLUMNAS_EXPORTACION = ["fecha", "modulo", "accion_nombre", "descripcion", "actor", "actor_carnet",
-                        "lector", "lector_carnet", "titulo", "codigo_barras", "ip"]
+COLUMNAS_EXPORTACION = ["fecha", "modulo", "accion_nombre", "descripcion", "actor",
+                        "actor_username", "lector", "lector_username", "titulo", "codigo_barras",
+                        "ip"]
 
 
 def exportar(db: Session, filtros: dict, limite: int = 50000) -> List[dict]:

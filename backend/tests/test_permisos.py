@@ -11,7 +11,10 @@ RUTAS_INTRANET = [
     ("GET", "/api/v1/settings"),
     ("PUT", "/api/v1/settings"),
     ("GET", "/api/v1/staff"),
-    ("PUT", "/api/v1/staff/1001"),
+    ("POST", "/api/v1/staff"),
+    ("PUT", "/api/v1/staff/1/role"),
+    ("PUT", "/api/v1/staff/1/active"),
+    ("POST", "/api/v1/staff/1/password"),
     ("GET", "/api/v1/logs"),
     ("PUT", "/api/v1/logs/settings"),
 ]
@@ -29,7 +32,7 @@ def test_raiz_es_publica(anonimo):
 def test_personal_sin_permisos_consulta_pero_no_modifica(como, datos):
     consulta = como([])
     assert consulta.get("/api/v1/catalog/items").status_code == 200
-    assert consulta.get("/api/v1/staff").status_code == 200
+    assert consulta.get("/api/v1/staff").status_code == 403
 
     r = consulta.post("/api/v1/catalog/items", json={"titulo": "T", "codigo_barras": "B"})
     assert r.status_code == 403
@@ -42,6 +45,8 @@ def test_personal_sin_permisos_consulta_pero_no_modifica(como, datos):
     ("superbibliotecario", "PUT", "/api/v1/settings", {}),
     ("superbibliotecario", "GET", "/api/v1/logs", None),
     ("superbibliotecario", "PUT", "/api/v1/logs/settings", {}),
+    ("superbibliotecario", "GET", "/api/v1/staff", None),
+    ("superbibliotecario", "POST", "/api/v1/staff", {}),
 ])
 def test_cada_ruta_exige_su_permiso(como, permiso, metodo, ruta, cuerpo):
     sin_permiso = como(["catalogo"] if permiso != "catalogo" else [])
@@ -81,49 +86,10 @@ def test_login_desde_origen_ajeno_es_rechazado(anonimo, datos):
     assert r.status_code == 403
 
 
-# --- Gestión de permisos -------------------------------------------------------
+# --- Perfiles ------------------------------------------------------------------
 
-def test_catalogo_de_permisos_y_perfiles(client):
-    c = client.get("/api/v1/staff/permissions").json()
-    assert {p["codigo"] for p in c["permisos"]} == {"catalogo", "superbibliotecario"}
-    perfiles = {p["codigo"]: p["permisos"] for p in c["perfiles"]}
-    assert perfiles == {"administrador": ["superbibliotecario"], "catalogador": ["catalogo"]}
-
-
-def test_superbibliotecario_asigna_permisos(client, datos, anonimo):
-    datos.lector("2001")
-    r = client.put("/api/v1/staff/2001",
-                   json={"es_personal": True, "permisos": ["superbibliotecario", "catalogo", "catalogo"]})
-    assert r.status_code == 200, r.text
-    assert r.json()["permisos"] == ["catalogo", "superbibliotecario"]  # normalizados
-
-    assert anonimo.post("/api/v1/auth/login",
-                        json={"username": "2001", "password": "2001"}).status_code == 200
-    assert {p["nro_carnet"] for p in client.get("/api/v1/staff").json()} == {"ADMIN", "2001"}
-
-
-def test_quitar_acceso_vacia_los_permisos(client, datos):
-    datos.personal("2001", ["catalogo"])
-    r = client.put("/api/v1/staff/2001", json={"es_personal": False, "permisos": ["catalogo"]})
-    assert r.json()["es_personal"] is False
-    assert r.json()["permisos"] == []
-
-
-@pytest.mark.parametrize("permiso", ["volar", "circulacion", "configuracion", "registro"])
-def test_permiso_desconocido_es_rechazado(client, datos, permiso):
-    datos.lector("2001")
-    r = client.put("/api/v1/staff/2001", json={"es_personal": True, "permisos": [permiso]})
-    assert r.status_code == 400
-
-
-def test_solo_superbibliotecario_gestiona_permisos(como, datos):
-    datos.lector("2001")
-    catalogador = como(["catalogo"])
-    r = catalogador.put("/api/v1/staff/2001", json={"es_personal": True, "permisos": ["catalogo"]})
-    assert r.status_code == 403
-
-
-def test_nadie_se_quita_a_si_mismo_el_superbibliotecario(client):
-    r = client.put("/api/v1/staff/ADMIN", json={"es_personal": True, "permisos": ["catalogo"]})
-    assert r.status_code == 400
-    assert "propio" in r.json()["detail"]
+def test_perfiles_administrador_y_catalogador():
+    from app.core.permisos import PERFILES, Permiso
+    assert {p.value for p in Permiso} == {"catalogo", "superbibliotecario"}
+    assert {c: [p.value for p in perfil["permisos"]] for c, perfil in PERFILES.items()} == {
+        "administrador": ["superbibliotecario"], "catalogador": ["catalogo"]}

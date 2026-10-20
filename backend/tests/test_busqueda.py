@@ -8,7 +8,6 @@ URL = "/api/v1/catalog/search"
 @pytest.fixture()
 def catalogo(datos):
     """Cinco títulos con lo justo para ejercitar cada caso."""
-    revista = datos.tipo_item("REV", "Revista")
     t = {}
     t["cien"] = datos.titulo("Cien años de soledad", "978-0-307-47472-8",
                              autor="García Márquez, Gabriel", ano=1967, materia="Literatura")
@@ -21,11 +20,11 @@ def catalogo(datos):
     t["revista"] = datos.titulo("Revista agronómica venezolana", "",
                                 autor=None, ano=None, materia="Agronomía")
     datos.ejemplar(t["cien"], "CIEN-1")
-    datos.ejemplar(t["cien"], "CIEN-2", estado="Prestado")
-    datos.ejemplar(t["arboles"], "ARB-1", estado="Prestado")
+    datos.ejemplar(t["cien"], "CIEN-2")
+    # "árboles" no tiene ejemplares.
     datos.ejemplar(t["suelos"], "SUE-1")
     datos.ejemplar(t["arbol_genealogico"], "GEN-1")
-    datos.ejemplar(t["revista"], "REV-1", tipo=revista)
+    datos.ejemplar(t["revista"], "REV-1")
     return t
 
 
@@ -65,7 +64,6 @@ def test_solo_palabras_vacias_o_simbolos_no_filtran(client, catalogo):
 def test_facetas_cuentan_sobre_el_resultado(client, catalogo):
     f = client.get(URL, params={"q": "agronomia"}).json()["facetas"]
     assert {x["valor"]: x["cantidad"] for x in f["materias"]} == {"Agronomía": 3}
-    assert {x["valor"]: x["cantidad"] for x in f["tipos"]} == {"LIB": 2, "REV": 1}
     assert {x["valor"]: x["cantidad"] for x in f["disponibilidad"]} == {"si": 2, "no": 1}
     assert {x["valor"]: x["cantidad"] for x in f["decadas"]} == {2010: 1, 2000: 1}
     assert f["decadas"][0]["etiqueta"] == "2010–2019"
@@ -78,9 +76,8 @@ def test_filtros_de_faceta(client, catalogo):
         return client.get(URL, params=params).json()["total"]
 
     assert total(materia="Agronomía") == 3
-    assert total(materia="Agronomía", tipo="REV") == 1
     assert total(disponible="true") == 4
-    assert total(disponible="false") == 1          # "árboles": su único ejemplar está prestado
+    assert total(disponible="false") == 1          # "árboles": no tiene ejemplares
     assert total(ano_desde=2000, ano_hasta=2009) == 1
     assert total(autor="Pérez, Ana") == 1
     assert total(q="arbol", materia="Historia") == 1
@@ -97,9 +94,9 @@ def test_paginacion_y_orden(client, catalogo):
     assert client.get(URL, params={"orden": "otro"}).status_code == 422
 
 
-def test_resultados_traen_disponibilidad_del_titulo(client, catalogo):
+def test_resultados_traen_los_ejemplares_del_titulo(client, catalogo):
     cien = client.get(URL, params={"q": "soledad"}).json()["resultados"][0]
-    assert (cien["copies"], cien["available"], cien["availableBarcode"]) == (2, 1, "CIEN-1")
+    assert (cien["copies"], cien["available"]) == (2, 2)
 
 
 def test_se_actualiza_al_editar_el_registro(client, catalogo, db):

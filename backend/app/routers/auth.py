@@ -12,12 +12,12 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Autenticación"])
 @router.post("/login", response_model=schemas.LoginResponse)
 def login(payload: schemas.LoginRequest, request: Request, response: Response,
           db: Session = Depends(get_db)):
-    """Inicia sesión en la intranet (username o carnet). Deja la sesión en una cookie httpOnly."""
+    """Inicia sesión con el nombre de usuario. Deja la sesión en una cookie httpOnly."""
     verificar_origen(request)
     usuario = autenticacion.autenticar_personal(db, payload.username, payload.password,
                                                  request.client.host if request.client else None)
     abrir_sesion(response, usuario)
-    return {"usuario": personal.vista_de_usuario(db, usuario)}
+    return {"usuario": personal.vista_de_sesion(db, usuario)}
 
 
 @router.post("/logout", status_code=204)
@@ -25,9 +25,9 @@ def logout(response: Response, request: Request, db: Session = Depends(get_db)):
     cerrar_sesion(response, request, db)
 
 
-@router.get("/me", response_model=schemas.UserResponse)
+@router.get("/me", response_model=schemas.SesionResponse)
 def me(usuario: models.Usuario = Depends(get_current_user), db: Session = Depends(get_db)):
-    return personal.vista_de_usuario(db, usuario)
+    return personal.vista_de_sesion(db, usuario)
 
 
 @router.post("/password", status_code=204)

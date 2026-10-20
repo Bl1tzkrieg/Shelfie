@@ -1,11 +1,11 @@
-"""Crea (o promueve) un superbibliotecario para entrar a la intranet.
+"""Crea (o promueve) un administrador (permiso superbibliotecario) para entrar a la intranet.
 
 Uso (desde backend/, con el entorno virtual activo):
 
     python -m scripts.crear_admin
 
-Pide los datos por consola. Si el carnet ya existe, lo convierte en
-superbibliotecario y opcionalmente le cambia la contraseña.
+Pide los datos por consola. Si el usuario ya existe, lo convierte en
+administrador, lo reactiva y opcionalmente le cambia la contraseña.
 """
 
 import getpass
@@ -14,6 +14,8 @@ import sys
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BACKEND_DIR)
+
+from sqlalchemy import func  # noqa: E402
 
 from app import models  # noqa: E402
 from app.core.permisos import Permiso  # noqa: E402
@@ -45,37 +47,29 @@ def _pedir_clave() -> str:
 def main() -> None:
     db = SessionLocal()
     try:
-        carnet = _preguntar("Número de carnet")
-        usuario = db.query(models.Usuario).filter_by(nro_carnet=carnet).first()
+        username = _preguntar("Usuario (para iniciar sesión)")
+        usuario = db.query(models.Usuario).filter(
+            func.lower(models.Usuario.username) == username.lower()).first()
 
         if usuario:
             print(f"Ya existe: {usuario.nombre} {usuario.apellido} ({usuario.username}).")
             if input("¿Cambiar su contraseña? [s/N]: ").strip().lower() == "s":
                 usuario.password_hash = hash_password(_pedir_clave())
         else:
-            categoria = (db.query(models.CategoriaUsuario).filter_by(codigo="ADM").first()
-                         or db.query(models.CategoriaUsuario).first())
-            if not categoria:
-                sys.exit("No hay categorías de usuario. Corre primero el instalador o seed.py.")
             usuario = models.Usuario(
-                nro_carnet=carnet,
-                username=_preguntar("Usuario (para iniciar sesión)"),
+                username=username,
                 nombre=_preguntar("Nombre"),
                 apellido=_preguntar("Apellido"),
-                email=_preguntar("Email"),
+                email=_preguntar("Email (opcional)", obligatorio=False) or None,
                 password_hash=hash_password(_pedir_clave()),
-                categoria_id=categoria.id,
-                saldo_multas=0,
-                activo=True,
                 fecha_creacion=ahora(),
             )
             db.add(usuario)
 
-        usuario.es_personal = True
         usuario.activo = True
         usuario.permisos = sorted(set(usuario.permisos or []) | {Permiso.SUPERBIBLIOTECARIO.value})
         db.commit()
-        print(f"\nListo: '{usuario.username}' es superbibliotecario y puede entrar a la intranet.")
+        print(f"\nListo: '{usuario.username}' es administrador y puede entrar a la intranet.")
     except Exception as error:  # noqa: BLE001 — mensaje claro en vez de traceback
         db.rollback()
         sys.exit(f"No se pudo crear el administrador: {error}")

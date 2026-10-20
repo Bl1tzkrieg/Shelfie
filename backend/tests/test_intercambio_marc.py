@@ -42,10 +42,10 @@ def _importar(client, contenido, modo="aplicar", **params):
 
 
 def test_vista_previa_no_escribe_y_aplicar_importa_con_ejemplares(client, datos, db):
-    datos.tipo_item("REV", "Revista")
     archivo = _mrc(
         _libro("Doña Bárbara", "978-980-00-0012-3", "Gallegos, Rómulo",
-               ejemplares=[[("p", "IMP-1"), ("y", "LIB"), ("o", "863 G16"), ("v", "15,50")],
+               ejemplares=[[("p", "IMP-1"), ("y", "LIB"), ("o", "863 G16"), ("t", "c.1"),
+                            ("z", "Firmado")],
                            [("p", "IMP-2"), ("y", "XYZ"), ("1", "1")]]),
         _libro("Revista Agronomía Tropical", lider_tipo="as",
                ejemplares=[[("p", "IMP-3"), ("y", "REV")]]),
@@ -60,7 +60,6 @@ def test_vista_previa_no_escribe_y_aplicar_importa_con_ejemplares(client, datos,
     assert (r["nuevos"], r["con_errores"], r["ejemplares"]) == (2, 0, 3)
     barbara, revista = r["registros"]
     assert barbara["plantilla"] == "BKS" and revista["plantilla"] == "SER"
-    assert any("XYZ" in m for m in barbara["mensajes"])  # tipo desconocido → LIB
 
     biblio = db.get(models.RegistroBibliografico, barbara["registro_id"])
     assert (biblio.titulo, biblio.autor, biblio.isbn) == (
@@ -68,9 +67,8 @@ def test_vista_previa_no_escribe_y_aplicar_importa_con_ejemplares(client, datos,
     tags = [list(c)[0] for c in biblio.marc_json["fields"]]
     assert "008" in tags and "952" not in tags and "999" not in tags
     items = {i.codigo_barras: i for i in db.query(models.Item).all()}
-    assert float(items["IMP-1"].precio_reposicion) == 15.5
-    assert items["IMP-1"].signatura_topografica == "863 G16"
-    assert items["IMP-2"].estado == "Perdido"
+    assert (items["IMP-1"].signatura_topografica, items["IMP-1"].numero_copia,
+            items["IMP-1"].nota) == ("863 G16", "c.1", "Firmado")
     # Lo importado aparece en la búsqueda.
     assert client.get(f"{URL}/search", params={"q": "barbara"}).json()["total"] == 1
 
@@ -126,12 +124,10 @@ def test_marcxml_y_archivos_invalidos(client, datos):
 
 
 def test_exportar_marc_con_ejemplares_y_volver_a_leerlo(client, datos):
-    datos.tipo_item("REV", "Revista")
     client.post(f"{URL}/items", json={"titulo": "Cien años de soledad", "isbn": "9780307474728",
                                       "autor": "García Márquez, Gabriel",
                                       "codigo_barras": "CIEN-1", "signatura_topografica": "863 G2"})
-    client.post(f"{URL}/items", json={"titulo": "Ciencia del suelo", "codigo_barras": "SUE-1",
-                                      "tipo_item_codigo": "REV"})
+    client.post(f"{URL}/items", json={"titulo": "Ciencia del suelo", "codigo_barras": "SUE-1"})
 
     r = client.get(f"{URL}/export", params={"formato": "marc"})
     assert r.status_code == 200
@@ -141,7 +137,6 @@ def test_exportar_marc_con_ejemplares_y_volver_a_leerlo(client, datos):
     cien = next(x for x in leidos if x["245"]["a"].startswith("Cien años"))
     assert cien["001"].data.isdigit()
     assert cien["952"]["p"] == "CIEN-1" and cien["952"]["o"] == "863 G2"
-    assert cien["952"]["y"] == "LIB"
 
     sin = client.get(f"{URL}/export", params={"formato": "marcxml", "ejemplares": "false",
                                                "q": "soledad"})

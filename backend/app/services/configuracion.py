@@ -37,10 +37,10 @@ DEFAULTS = {
         "dias_cerrados": [6],  # 0 = lunes … 6 = domingo
     },
     "seguridad": {
-        # Quien entra con el carnet como contraseña, o con una que le puso el personal,
+        # Quien entra con su usuario como contraseña, o con una que le puso el administrador,
         # tiene que elegir una propia antes de seguir.
         "forzar_cambio_clave": True,
-        # Intentos fallidos seguidos (por carnet) antes de tener que esperar; 0 desactiva.
+        # Intentos fallidos seguidos (por usuario) antes de tener que esperar; 0 desactiva.
         "max_intentos": 5,
         "minutos_bloqueo": 15,
     },

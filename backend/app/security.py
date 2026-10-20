@@ -61,7 +61,7 @@ def huella_de_clave(usuario: models.Usuario) -> str:
 
 def crear_token_acceso(usuario: models.Usuario) -> str:
     expira = datetime.now(timezone.utc) + timedelta(hours=settings.SESION_HORAS)
-    # Sin el carnet: el token solo identifica al usuario por su id.
+    # Sin el username: el token solo identifica al usuario por su id.
     # jti: identifica este token para poder anularlo al cerrar la sesión.
     payload = {"sub": str(usuario.id), "exp": expira, "clave": huella_de_clave(usuario),
                "jti": secrets.token_hex(16)}
@@ -184,9 +184,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> models.
 
 
 def requiere_personal(usuario: models.Usuario = Depends(get_current_user)) -> models.Usuario:
-    """Cualquier miembro del personal: basta para consultar la intranet."""
-    if not usuario.es_personal:
-        raise HTTPException(status_code=403, detail="Esta cuenta no tiene acceso a la intranet")
+    """Cualquier miembro del personal con sesión: basta para consultar la intranet."""
     return usuario
 
 

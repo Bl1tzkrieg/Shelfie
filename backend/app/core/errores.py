@@ -24,6 +24,11 @@ class NoEncontrado(ErrorDeNegocio):
     status_code = 404
 
 
+class Conflicto(ErrorDeNegocio):
+    """Otro registro ya usa ese dato único, p. ej. un código de barras (409)."""
+    status_code = 409
+
+
 class CredencialesInvalidas(ErrorDeNegocio):
     status_code = 401
 

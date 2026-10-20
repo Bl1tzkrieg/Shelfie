@@ -3,9 +3,7 @@
 Los ejemplares viajan en el campo 952, con los mismos subcampos que usa Koha,
 para poder migrar desde o hacia Koha sin transformar nada:
 
-    952 $a sede propietaria  $b sede actual   $h numeración (seriadas)
-        $o signatura         $p código de barras              $y tipo de ítem
-        $v precio de reposición                               $1 perdido (≠ 0)
+    952 $o signatura   $p código de barras   $t número de copia   $z nota
 
 Al importar, el duplicado se detecta por ISBN (solo dígitos). La política elige qué
 hacer con él: omitirlo, reemplazar su MARC (conserva sus ejemplares y suma los
@@ -15,7 +13,6 @@ nuevos) o agregar un registro aparte.
 import io
 import re
 from dataclasses import dataclass, field
-from decimal import Decimal, InvalidOperation
 from typing import Dict, List, Optional, Set
 
 import pymarc
@@ -27,7 +24,7 @@ from app.core import marc_plantillas
 from app.core.errores import ErroresDeValidacion, ReglaIncumplida
 from app.core.tiempo import sello_archivo
 from app.services import busqueda, configuracion, marc
-from app.services.catalogo import aplicar_marc, sede_por_defecto
+from app.services.catalogo import aplicar_marc
 
 FORMATOS = {"marc": ("application/marc", "mrc"), "marcxml": ("application/marcxml+xml", "xml")}
 DUPLICADOS = ("omitir", "reemplazar", "agregar")
@@ -46,31 +43,26 @@ def _solo_digitos(isbn: Optional[str]) -> Optional[str]:
 
 # --- Exportación -------------------------------------------------------------------
 
-def _campo_952(item: models.Item, tipos: Dict[int, str], sedes: Dict[int, str]) -> dict:
+def _campo_952(item: models.Item) -> dict:
     subs = []
-    for codigo, valor in (("a", sedes.get(item.biblioteca_propia_id)),
-                          ("b", sedes.get(item.biblioteca_actual_id)),
-                          ("h", item.enumeracion),
-                          ("o", item.signatura_topografica),
+    for codigo, valor in (("o", item.signatura_topografica),
                           ("p", item.codigo_barras),
-                          ("y", tipos.get(item.tipo_item_id)),
-                          ("v", f"{item.precio_reposicion:.2f}"
-                           if item.precio_reposicion is not None else None),
-                          ("1", "1" if item.estado == "Perdido" else None)):
+                          ("t", item.numero_copia),
+                          ("z", item.nota)):
         if valor:
             subs.append({codigo: str(valor)})
     return {TAG_EJEMPLAR: {"ind1": " ", "ind2": " ", "subfields": subs}}
 
 
 def _para_exportar(biblio: models.RegistroBibliografico, organizacion: str,
-                   ejemplares: Optional[List[models.Item]], tipos, sedes) -> pymarc.Record:
+                   ejemplares: Optional[List[models.Item]]) -> pymarc.Record:
     origen = biblio.marc_json or marc.desde_columnas(biblio.titulo, biblio.autor, biblio.isbn,
                                                      biblio.ano_publicacion, biblio.materia)
     campos = [c for c in origen.get("fields", [])
               if next(iter(c)) not in {"001", "003"} | TAGS_DE_OTRO_SISTEMA]
     campos = [{"001": str(biblio.id)}, {"003": organizacion}] + campos
     if ejemplares:
-        campos += [_campo_952(i, tipos, sedes) for i in ejemplares]
+        campos += [_campo_952(i) for i in ejemplares]
     lider = (origen.get("leader") or marc_plantillas.obtener(biblio.plantilla).lider).ljust(24)
     lider = lider[:9] + "a" + lider[10:24]  # posición 9 = "a": texto en UTF-8
     return marc.a_pymarc({"leader": lider, "fields": campos})
@@ -109,19 +101,16 @@ def exportar(db: Session, filtros: busqueda.Filtros, formato: str,
     registros = busqueda.todos_los_que_cumplen(db, filtros).all()
     organizacion = (configuracion.leer(db, "institucion").get("codigo") or "SHELFIE")[:16]
     items = busqueda.items_por_titulo(db, [b.id for b in registros]) if con_ejemplares else {}
-    tipos = {t.id: t.codigo for t in db.query(models.TipoItem).all()}
-    sedes = {b.id: b.codigo for b in db.query(models.Biblioteca).all()}
 
     salida = io.BytesIO()
     if formato == "marcxml":
         escritor = pymarc.XMLWriter(salida)
         for b in registros:
-            escritor.write(_para_exportar(b, organizacion, items.get(b.id), tipos, sedes))
+            escritor.write(_para_exportar(b, organizacion, items.get(b.id)))
         escritor.close(close_fh=False)
     else:
         for b in registros:
-            salida.write(_iso2709(_para_exportar(b, organizacion, items.get(b.id), tipos, sedes),
-                                  b))
+            salida.write(_iso2709(_para_exportar(b, organizacion, items.get(b.id)), b))
 
     tipo_mime, extension = FORMATOS[formato]
     return salida.getvalue(), tipo_mime, f"catalogo-{sello_archivo()}.{extension}"
@@ -212,23 +201,10 @@ def _completar_008(registro: dict) -> dict:
             "fields": [{"008": marc.campo_008(marc.ano_de(registro))}] + registro["fields"]}
 
 
-def _precio(texto: Optional[str]) -> Optional[Decimal]:
-    if not texto:
-        return None
-    try:
-        return Decimal(re.sub(r"[^0-9.]", "", texto.replace(",", "."))).quantize(Decimal("0.01"))
-    except InvalidOperation:
-        return None
-
-
 class _Contexto:
-    """Datos que se consultan una vez por importación."""
+    """Datos que se acumulan a lo largo de una importación."""
 
-    def __init__(self, db: Session):
-        self.tipos = {t.codigo: t for t in db.query(models.TipoItem).all()}
-        self.tipo_defecto = self.tipos.get("LIB") or next(iter(self.tipos.values()), None)
-        self.sedes = {b.codigo: b.id for b in db.query(models.Biblioteca).all()}
-        self.sede_defecto = sede_por_defecto(db)
+    def __init__(self):
         self.barcodes_en_archivo: Set[str] = set()
         self.isbn_en_archivo: Dict[str, int] = {}
 
@@ -250,53 +226,18 @@ def _ejemplares(db: Session, ctx: _Contexto, campos_952: List[dict], resultado: 
             continue
         largo = next(((nombre, maximo) for nombre, valor, maximo in (
             ("código de barras ($p)", barcode, 50), ("signatura ($o)", sub("o"), 100),
-            ("numeración ($h)", sub("h"), 100)) if valor and len(valor) > maximo), None)
+            ("número de copia ($t)", sub("t"), 20)) if valor and len(valor) > maximo), None)
         if largo:
             resultado.mensajes.append(
                 f"{barcode[:50]}: el {largo[0]} supera los {largo[1]} caracteres; ejemplar omitido")
             continue
-        precio = _precio(sub("v") or sub("g"))
-        if precio is not None and precio >= Decimal("100000000"):
-            resultado.mensajes.append(f"{barcode}: precio fuera de rango; se importó sin precio")
-            precio = None
-        codigo_tipo = sub("y")
-        tipo = ctx.tipos.get(codigo_tipo) if codigo_tipo else None
-        if tipo is None:
-            tipo = ctx.tipo_defecto
-            if codigo_tipo:
-                resultado.mensajes.append(
-                    f"Tipo de ítem «{codigo_tipo}» desconocido en {barcode}: se usó "
-                    f"{tipo.codigo if tipo else 'ninguno'}")
-        if tipo is None:
-            resultado.mensajes.append(f"No hay tipos de ítem definidos: {barcode} omitido")
-            continue
-        for codigo in ("a", "b"):
-            if sub(codigo) and sub(codigo) not in ctx.sedes:
-                resultado.mensajes.append(f"Sede «{sub(codigo)}» desconocida en {barcode} "
-                                          f"(${codigo}): se usa la sede por defecto")
-        estado = "Perdido" if _marcado(sub("1")) else "Retirado" if _marcado(sub("0")) else "Disponible"
-        if _marcado(sub("7")):
-            resultado.mensajes.append(
-                f"{barcode} figura como no prestable ($7): revisa su tipo de ítem")
-        if _marcado(sub("4")):
-            resultado.mensajes.append(f"{barcode} figura como dañado ($4): Shelfie no lo registra")
         ctx.barcodes_en_archivo.add(barcode)
         resultado.ejemplares += 1
         if not aplicar:
             continue
-        sede_propia = ctx.sedes.get(sub("a") or "", ctx.sede_defecto)
-        db.add(models.Item(
-            biblio_id=biblio.id, codigo_barras=barcode, tipo_item_id=tipo.id,
-            signatura_topografica=sub("o"), enumeracion=sub("h"), estado=estado,
-            biblioteca_propia_id=sede_propia,
-            biblioteca_actual_id=ctx.sedes.get(sub("b") or "", sede_propia),
-            precio_reposicion=precio,
-        ))
-
-
-def _marcado(valor: Optional[str]) -> bool:
-    """Los subcampos de estado de Koha ($0, $1, $4, $7): vacío o 0 = no."""
-    return (valor or "0") != "0"
+        db.add(models.Item(biblio_id=biblio.id, codigo_barras=barcode,
+                           signatura_topografica=sub("o"), numero_copia=sub("t"),
+                           nota=sub("z")))
 
 
 def _duplicado(db: Session, isbn_digitos: Optional[str]):
@@ -395,7 +336,7 @@ def importar(db: Session, contenido: bytes, *, aplicar: bool, duplicados: str = 
     if codificacion not in CODIFICACIONES:
         raise ReglaIncumplida(f"Codificación no válida: {', '.join(CODIFICACIONES)}")
     formato, registros = _leer(contenido, codificacion)
-    ctx = _Contexto(db)
+    ctx = _Contexto()
     resultados = [_importar_uno(db, ctx, r, n, aplicar, duplicados, plantilla)
                   for n, r in enumerate(registros, start=1)]
     def contar(accion):

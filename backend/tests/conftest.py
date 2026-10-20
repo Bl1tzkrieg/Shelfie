@@ -49,7 +49,7 @@ import pytest  # noqa: E402
 from alembic import command  # noqa: E402
 from alembic.config import Config  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy import create_engine, text  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
 from app import models  # noqa: E402
@@ -95,11 +95,15 @@ def engine():
     cfg = Config(os.path.join(BACKEND_DIR, "alembic.ini"))
     cfg.set_main_option("script_location", os.path.join(BACKEND_DIR, "migrations"))
     cfg.set_main_option("sqlalchemy.url", TEST_DATABASE_URL)
-    # Partir siempre de una base vacía y migrada hasta la última revisión.
-    command.downgrade(cfg, "base")
+    # Partir siempre de una base vacía y migrada hasta la última revisión. Se borra el
+    # esquema entero (y no `downgrade base`): así sirve aunque la base venga de otra
+    # historia de migraciones (p. ej. de Shelfie completo, en 0016).
+    eng = create_engine(TEST_DATABASE_URL)
+    with eng.begin() as conexion:
+        conexion.execute(text("DROP SCHEMA public CASCADE"))
+        conexion.execute(text("CREATE SCHEMA public"))
     command.upgrade(cfg, "head")
 
-    eng = create_engine(TEST_DATABASE_URL)
     yield eng
     eng.dispose()
 
@@ -141,12 +145,12 @@ def como(db, datos):
     app.dependency_overrides[get_db] = lambda: db
     abiertos = []
 
-    def _crear(permisos, carnet=None):
-        carnet = carnet or f"P-{len(abiertos) + 1}"
-        datos.personal(carnet, permisos)
+    def _crear(permisos, username=None):
+        username = username or f"P-{len(abiertos) + 1}"
+        datos.personal(username, permisos)
         cliente = TestClient(app)
         abiertos.append(cliente)
-        return iniciar_sesion(cliente, carnet, carnet)
+        return iniciar_sesion(cliente, username, username)
 
     yield _crear
     for c in abiertos:
@@ -157,7 +161,7 @@ def como(db, datos):
 @pytest.fixture()
 def client(como):
     """Cliente con sesión de superbibliotecario: prueba la lógica, no los permisos."""
-    return como(["superbibliotecario"], carnet="ADMIN")
+    return como(["superbibliotecario"], username="ADMIN")
 
 
 # --- Datos de prueba ----------------------------------------------------------
@@ -167,41 +171,20 @@ class Datos:
 
     def __init__(self, db: Session):
         self.db = db
-        self.est = self._categoria("EST", "Estudiante")
-        self.doc = self._categoria("DOC", "Docente")
-        self.adm = self._categoria("ADM", "Personal")
-        self.lib = models.TipoItem(codigo="LIB", descripcion="Libro", es_prestable=True)
-        db.add(self.lib)
-        db.flush()
 
-    def _categoria(self, codigo, descripcion):
-        c = models.CategoriaUsuario(codigo=codigo, descripcion=descripcion)
-        self.db.add(c)
-        self.db.flush()
-        return c
-
-    def lector(self, carnet="1001", categoria=None, activo=True, multas=0, **extra):
+    def personal(self, username, permisos, **extra):
+        """Miembro del personal (clave = username)."""
         u = models.Usuario(
-            nro_carnet=carnet,
-            username=extra.pop("username", f"u{carnet}"),
-            password_hash=hash_password(extra.pop("password", carnet)),
-            nombre=extra.pop("nombre", "Ana"),
-            apellido=extra.pop("apellido", "Pérez"),
-            email=extra.pop("email", f"{carnet}@example.com"),
-            categoria_id=(categoria or self.est).id,
-            saldo_multas=multas,
-            activo=activo,
+            username=username,
+            password_hash=hash_password(extra.pop("password", username)),
+            nombre=extra.pop("nombre", "Staff"),
+            apellido=extra.pop("apellido", username),
+            permisos=list(permisos),
             **extra,
         )
         self.db.add(u)
         self.db.flush()
         return u
-
-    def personal(self, carnet, permisos, **extra):
-        """Miembro del personal con acceso a la intranet (clave = carnet)."""
-        return self.lector(carnet, categoria=self.adm, es_personal=True,
-                           permisos=list(permisos), nombre=extra.pop("nombre", "Staff"),
-                           apellido=extra.pop("apellido", carnet), **extra)
 
     def titulo(self, titulo="Cien años de soledad", isbn="9780307474728", **extra):
         b = models.RegistroBibliografico(
@@ -210,30 +193,15 @@ class Datos:
             ano_publicacion=extra.pop("ano", 1967),
             materia=extra.pop("materia", "Literatura"),
             marc_json={"leader": "", "fields": []},
+            **extra,
         )
         self.db.add(b)
         self.db.flush()
         return b
 
-    def tipo_item(self, codigo, descripcion, prestable=True):
-        t = models.TipoItem(codigo=codigo, descripcion=descripcion, es_prestable=prestable)
-        self.db.add(t)
-        self.db.flush()
-        return t
-
-    def sede(self, codigo, nombre=None, punto_retiro=True):
-        b = models.Biblioteca(codigo=codigo, nombre=nombre or f"Sede {codigo}",
-                              punto_retiro=punto_retiro)
-        self.db.add(b)
-        self.db.flush()
-        return b
-
-    def ejemplar(self, biblio, barcode="B-001", estado="Disponible", tipo=None, sede=None):
-        i = models.Item(
-            biblio_id=biblio.id, codigo_barras=barcode,
-            tipo_item_id=(tipo or self.lib).id, signatura_topografica="PQ 8180",
-            estado=estado, biblioteca_propia_id=sede.id if sede else None,
-            biblioteca_actual_id=sede.id if sede else None)
+    def ejemplar(self, biblio, codigo=None, cota=None, copia=None):
+        i = models.Item(biblio_id=biblio.id, codigo_barras=codigo,
+                        signatura_topografica=cota, numero_copia=copia)
         self.db.add(i)
         self.db.flush()
         return i
@@ -254,7 +222,7 @@ def hashing_rapido(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def sin_cambio_de_clave_forzado(db):
-    """Los datos de prueba usan el carnet como contraseña: aquí no se fuerza el cambio.
+    """Los datos de prueba usan el username como contraseña: aquí no se fuerza el cambio.
 
     Las pruebas de ese comportamiento (test_seguridad.py) lo vuelven a encender.
     """

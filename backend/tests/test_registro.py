@@ -15,12 +15,15 @@ def _acciones(db, **filtro):
         models.RegistroAccion.id).all()
 
 
-def test_cambio_de_permisos(client, datos, db):
-    datos.lector("L-1")
-    client.put("/api/v1/staff/L-1", json={"es_personal": True, "permisos": ["catalogo"]})
+def test_cambio_de_rol(client, datos, db):
+    ana = datos.personal("ana", ["catalogo"])
+    client.put(f"/api/v1/staff/{ana.id}/role", json={"rol": "administrador"})
 
-    [permisos] = _acciones(db, modulo="configuracion")
-    assert permisos.accion == "permisos" and permisos.datos["cambios"]["permisos"] == [[], ["catalogo"]]
+    [rol] = _acciones(db, modulo="configuracion")
+    assert rol.accion == "permisos" and rol.datos["cambios"]["rol"] == ["catalogador", "administrador"]
+    assert rol.lector_id == ana.id
+    # Se filtra por el username del usuario afectado.
+    assert client.get(LOGS, params={"lector": "ANA"}).json()["total"] == 1
 
 
 def test_entradas_fallos_y_salidas_sin_la_contrasena(anonimo, datos, db):
@@ -53,12 +56,12 @@ def test_editar_el_marc_guarda_el_anterior(client, datos, db):
     assert historial["total"] == 2
 
 
-def test_dar_de_baja_un_ejemplar(client, datos, db):
+def test_editar_un_ejemplar(client, datos, db):
     libro = datos.titulo()
     item = datos.ejemplar(libro, "B-1")
-    client.patch(f"/api/v1/catalog/items/{libro.id}/ejemplares/{item.id}", json={"estado": "Retirado"})
-    [baja] = _acciones(db, modulo="catalogo")
-    assert baja.accion == "baja" and baja.datos["cambios"]["estado"] == ["Disponible", "Retirado"]
+    client.patch(f"/api/v1/catalog/items/{libro.id}/ejemplares/{item.id}", json={"nota": "Roto"})
+    [edicion] = _acciones(db, modulo="catalogo")
+    assert edicion.accion == "edicion" and edicion.datos["cambios"]["nota"] == [None, "Roto"]
 
 
 def test_ajustes_con_antes_y_despues(client, db):
@@ -73,7 +76,7 @@ def test_apagar_un_modulo_deja_de_registrarlo_pero_el_cambio_queda(client, datos
     assert r.status_code == 200 and r.json()["modulos"]["catalogo"] is False
     libro = datos.titulo()
     item = datos.ejemplar(libro, "R-1")
-    client.patch(f"/api/v1/catalog/items/{libro.id}/ejemplares/{item.id}", json={"estado": "Retirado"})
+    client.patch(f"/api/v1/catalog/items/{libro.id}/ejemplares/{item.id}", json={"nota": "Roto"})
 
     assert _acciones(db, modulo="catalogo") == []
     # Apagar el registro de configuración no impide que se vea quién lo apagó.
@@ -85,10 +88,10 @@ def test_apagar_un_modulo_deja_de_registrarlo_pero_el_cambio_queda(client, datos
 def test_exportar_y_buscar_por_texto(client, datos):
     libro = datos.titulo()
     item = datos.ejemplar(libro, "B-1")
-    client.patch(f"/api/v1/catalog/items/{libro.id}/ejemplares/{item.id}", json={"estado": "Retirado"})
-    assert client.get(LOGS, params={"q": "dio de baja"}).json()["total"] == 1
+    client.delete(f"/api/v1/catalog/items/{libro.id}/ejemplares/{item.id}")
+    assert client.get(LOGS, params={"q": "eliminó el ejemplar"}).json()["total"] == 1
     r = client.get(f"{LOGS}/export", params={"modulo": "catalogo"})
-    assert r.status_code == 200 and "Dio de baja el ejemplar B-1" in r.text
+    assert r.status_code == 200 and "Eliminó el ejemplar B-1" in r.text
 
 
 def test_retencion_borra_lo_viejo(client, db):

@@ -19,7 +19,7 @@ CATALOGA = [Depends(requiere(Permiso.CATALOGO))]
 
 @router.get("/items", response_model=List[schemas.MaterialResponse])
 def get_all_items(db: Session = Depends(get_db)):
-    """Catálogo por título: cada fila agrupa sus ejemplares y su disponibilidad."""
+    """Catálogo por título: cada fila agrupa sus ejemplares."""
     return catalogo.listar_titulos(db)
 
 
@@ -28,8 +28,7 @@ def buscar(
     q: str = Query("", description="Título, autor, materia, ISBN o código de barras"),
     materia: Optional[str] = None,
     autor: Optional[str] = None,
-    tipo: Optional[str] = Query(None, description="Código del tipo de ítem"),
-    disponible: Optional[bool] = Query(None, description="true: con ejemplares libres"),
+    disponible: Optional[bool] = Query(None, description="true: con ejemplares; false: sin ninguno"),
     ano_desde: Optional[int] = None,
     ano_hasta: Optional[int] = None,
     orden: str = Query("relevancia", pattern="^(relevancia|titulo|ano_desc|ano_asc)$"),
@@ -38,7 +37,7 @@ def buscar(
     db: Session = Depends(get_db),
 ):
     """Búsqueda de texto completo (sin acentos, por raíz) con facetas y paginación."""
-    filtros = busqueda.Filtros(q=q, materia=materia, autor=autor, tipo=tipo,
+    filtros = busqueda.Filtros(q=q, materia=materia, autor=autor,
                                disponible=disponible, ano_desde=ano_desde, ano_hasta=ano_hasta)
     return catalogo.buscar_titulos(db, filtros, pagina=pagina, por_pagina=por_pagina,
                                    orden=orden)
@@ -51,14 +50,13 @@ def exportar(
     q: str = "",
     materia: Optional[str] = None,
     autor: Optional[str] = None,
-    tipo: Optional[str] = None,
     disponible: Optional[bool] = None,
     ano_desde: Optional[int] = None,
     ano_hasta: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
     """Descarga en MARC (ISO 2709) o MARCXML los registros que cumplen la búsqueda."""
-    filtros = busqueda.Filtros(q=q, materia=materia, autor=autor, tipo=tipo,
+    filtros = busqueda.Filtros(q=q, materia=materia, autor=autor,
                                disponible=disponible, ano_desde=ano_desde, ano_hasta=ano_hasta)
     contenido, tipo_mime, nombre = intercambio_marc.exportar(db, filtros, formato, ejemplares)
     return Response(content=contenido, media_type=tipo_mime,
@@ -130,7 +128,7 @@ def agregar_ejemplar(biblio_id: int, payload: schemas.NuevoEjemplarRequest,
 @router.patch("/items/{biblio_id}/ejemplares/{item_id}", dependencies=CATALOGA)
 def editar_ejemplar(biblio_id: int, item_id: int, payload: schemas.EditarEjemplarRequest,
                     db: Session = Depends(get_db)):
-    """Corrige un ejemplar o lo da de baja (estado Retirado). Devuelve los ejemplares del título."""
+    """Corrige un ejemplar. Devuelve los ejemplares del título."""
     return catalogo.editar_ejemplar(db, biblio_id, item_id, payload.model_dump(exclude_unset=True))
 
 

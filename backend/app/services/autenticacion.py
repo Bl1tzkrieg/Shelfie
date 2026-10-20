@@ -5,8 +5,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app import models
-from app.core.errores import (AccesoDenegado, CredencialesInvalidas, DemasiadosIntentos,
-                              ReglaIncumplida)
+from app.core.errores import CredencialesInvalidas, DemasiadosIntentos, ReglaIncumplida
 from app.security import hash_password, verify_password
 from app.services import personal, registro
 
@@ -14,9 +13,10 @@ from app.services import personal, registro
 # --- Entrar ------------------------------------------------------------------------------
 #
 # Mismo mensaje para usuario inexistente y contraseña incorrecta, y el mismo trabajo en
-# ambos casos (se verifica contra un hash de relleno), para no revelar qué carnets
-# existen. Tras varios fallos seguidos con el mismo carnet (o desde la misma IP) hay que
-# esperar unos minutos (FailedLoginAttempts de Koha, pero temporal).
+# ambos casos (se verifica contra un hash de relleno), para no revelar qué usuarios
+# existen; una cuenta desactivada cuenta como inexistente. Tras varios fallos seguidos
+# con el mismo usuario (o desde la misma IP) hay que esperar unos minutos
+# (FailedLoginAttempts de Koha, pero temporal).
 
 _HASH_DE_RELLENO = hash_password("shelfie-relleno-para-igualar-tiempos")
 
@@ -37,9 +37,9 @@ def _frenar_si_insiste(db: Session, identificador: str, ip: Optional[str]) -> No
         return
     I = models.IntentoAcceso
     desde = ahora() - timedelta(minutes=minutos)
-    por_carnet = db.query(I).filter(I.identificador == identificador, I.fecha > desde).count()
+    por_usuario = db.query(I).filter(I.identificador == identificador, I.fecha > desde).count()
     por_ip = db.query(I).filter(I.ip == ip, I.fecha > desde).count() if ip else 0
-    if por_carnet >= maximo or por_ip >= maximo * 6:
+    if por_usuario >= maximo or por_ip >= maximo * 6:
         raise DemasiadosIntentos(
             f"Demasiados intentos fallidos. Espera {minutos} minutos y vuelve a intentarlo")
 
@@ -50,7 +50,7 @@ def _verificar(db: Session, identificador: str, password: str, ip: Optional[str]
 
     clave = (identificador or "").strip().lower()[:100]
     _frenar_si_insiste(db, clave, ip)
-    usuario = personal.buscar_por_identificador(db, (identificador or "").strip())
+    usuario = personal.buscar_para_entrar(db, identificador)
     valida = verify_password(password, usuario.password_hash if usuario else _HASH_DE_RELLENO)
     if not usuario or not valida:
         db.add(models.IntentoAcceso(identificador=clave, ip=ip, fecha=ahora()))
@@ -58,9 +58,9 @@ def _verificar(db: Session, identificador: str, password: str, ip: Optional[str]
         raise CredencialesInvalidas(mensaje)
     db.query(models.IntentoAcceso).filter(models.IntentoAcceso.identificador == clave).delete(
         synchronize_session=False)
-    # Entrar con el carnet (o el usuario) como contraseña obliga a elegir una propia.
-    if _seguridad(db)["forzar_cambio_clave"] and password.strip().lower() in {
-            usuario.nro_carnet.lower(), (usuario.username or "").lower()}:
+    # Entrar con el nombre de usuario como contraseña obliga a elegir una propia.
+    if _seguridad(db)["forzar_cambio_clave"] and \
+            password.strip().lower() == usuario.username.lower():
         usuario.debe_cambiar_clave = True
     db.commit()
     return usuario
@@ -68,18 +68,14 @@ def _verificar(db: Session, identificador: str, password: str, ip: Optional[str]
 
 def autenticar_personal(db: Session, identificador: str, password: str,
                         ip: Optional[str] = None):
-    """Devuelve el usuario si las credenciales son válidas y tiene acceso a la intranet.
+    """Devuelve el usuario si las credenciales son válidas y la cuenta está activa.
 
     Entradas y fallos quedan en el registro (módulo «sesion»), con el identificador
     que se escribió; nunca la contraseña."""
     db.info["ip"] = ip
     try:
         usuario = _verificar(db, identificador, password, ip, "Usuario o contraseña incorrectos")
-        if not usuario.activo:
-            raise AccesoDenegado("La cuenta está suspendida")
-        if not usuario.es_personal:
-            raise AccesoDenegado("Esta cuenta no tiene acceso a la intranet")
-    except (CredencialesInvalidas, AccesoDenegado) as error:
+    except CredencialesInvalidas as error:
         registro.anotar(db, "sesion", "entrada_fallida",
                         f"Intento fallido de entrar a la intranet como «{(identificador or '').strip()[:60]}»"
                         f": {error.mensaje}", actor=None)
@@ -101,8 +97,8 @@ MINIMO_CLAVE = 8
 def validar_clave_nueva(usuario: models.Usuario, nueva: str) -> None:
     if len(nueva or "") < MINIMO_CLAVE:
         raise ReglaIncumplida(f"La contraseña nueva necesita al menos {MINIMO_CLAVE} caracteres")
-    if nueva.strip().lower() in {usuario.nro_carnet.lower(), (usuario.username or "").lower()}:
-        raise ReglaIncumplida("La contraseña no puede ser el carnet ni el nombre de usuario")
+    if nueva.strip().lower() == usuario.username.lower():
+        raise ReglaIncumplida("La contraseña no puede ser el nombre de usuario")
 
 
 def cambiar_clave(db: Session, usuario: models.Usuario, actual: str, nueva: str) -> None:

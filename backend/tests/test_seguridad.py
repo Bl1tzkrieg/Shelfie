@@ -30,7 +30,7 @@ def nuevo(db):
     app.dependency_overrides.clear()
 
 
-def test_entrar_con_el_carnet_obliga_a_cambiar_la_clave(forzado, nuevo, datos):
+def test_entrar_con_el_usuario_como_clave_obliga_a_cambiarla(forzado, nuevo, datos):
     datos.personal("ADM", ["superbibliotecario"])
     admin = nuevo()
     r = admin.post("/api/v1/auth/login", json={"username": "ADM", "password": "ADM"})
@@ -58,7 +58,7 @@ def test_intentos_fallidos_frenan_y_se_reinician(nuevo, datos, db):
         assert c.post(LOGIN, json={"username": "1001", "password": "x"}).status_code == 401
     frenado = c.post(LOGIN, json={"username": "1001", "password": "1001"})
     assert frenado.status_code == 429 and "15 minutos" in frenado.json()["detail"]
-    # Otro carnet sigue entrando; al pasar el tiempo (aquí: borrar los intentos) vuelve a entrar.
+    # Otro usuario sigue entrando; al pasar el tiempo (aquí: borrar los intentos) vuelve a entrar.
     datos.personal("1002", ["catalogo"])
     assert c.post(LOGIN, json={"username": "1002", "password": "1002"}).status_code == 200
     db.query(models.IntentoAcceso).delete()
@@ -67,7 +67,7 @@ def test_intentos_fallidos_frenan_y_se_reinician(nuevo, datos, db):
     assert db.query(models.IntentoAcceso).count() == 0
 
 
-def test_carnet_inexistente_cuenta_como_intento(nuevo):
+def test_usuario_inexistente_cuenta_como_intento(nuevo):
     c = nuevo()
     for _ in range(5):
         c.post("/api/v1/auth/login", json={"username": "nadie", "password": "x"})

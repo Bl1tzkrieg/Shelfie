@@ -1,7 +1,7 @@
-"""Búsqueda en el catálogo: texto completo con facetas, para la intranet y el OPAC.
+"""Búsqueda en el catálogo: texto completo con facetas.
 
 El texto se busca en `registros_bibliograficos.busqueda` (tsvector con índice
-GIN, migración 0006) con la configuración `shelfie_es`: español, sin acentos y
+GIN, migración 0001_lite) con la configuración `shelfie_es`: español, sin acentos y
 reducido a la raíz. La última palabra se busca como prefijo, para que funcione
 mientras se escribe ("cien añ" ya encuentra "Cien años de soledad").
 
@@ -35,13 +35,12 @@ _ISBN = re.compile(r"^[0-9][0-9\- ]{8,16}[0-9Xx]$")
 class Filtros:
     """Lo que el usuario eligió. Todo es opcional."""
     q: str = ""
-    # Búsqueda por campo (búsqueda avanzada del OPAC), con las mismas reglas que `q`.
+    # Búsqueda por campo (búsqueda avanzada), con las mismas reglas que `q`.
     campos: Dict[str, str] = field(default_factory=dict)
     # Facetas: valores exactos tal como los devuelve la propia búsqueda.
     materia: Optional[str] = None
     autor: Optional[str] = None
-    tipo: Optional[str] = None          # código del tipo de ítem
-    disponible: Optional[bool] = None   # True: con algún ejemplar libre; False: ninguno
+    disponible: Optional[bool] = None   # True: con algún ejemplar; False: sin ninguno
     ano_desde: Optional[int] = None
     ano_hasta: Optional[int] = None
 
@@ -82,7 +81,8 @@ def _condicion_campo(columna, texto: str):
 
 
 def _hay_disponible():
-    return exists().where(and_(Item.biblio_id == RB.id, Item.estado == "Disponible"))
+    """Sin circulación, un título está disponible si tiene algún ejemplar."""
+    return exists().where(Item.biblio_id == RB.id)
 
 
 def _condiciones(filtros: Filtros) -> list:
@@ -110,10 +110,6 @@ def _condiciones(filtros: Filtros) -> list:
         condiciones.append(RB.materia == filtros.materia)
     if filtros.autor:
         condiciones.append(RB.autor == filtros.autor)
-    if filtros.tipo:
-        condiciones.append(exists().where(and_(
-            Item.biblio_id == RB.id, Item.tipo_item_id == models.TipoItem.id,
-            models.TipoItem.codigo == filtros.tipo)))
     if filtros.disponible is True:
         condiciones.append(_hay_disponible())
     elif filtros.disponible is False:
@@ -149,15 +145,6 @@ def _facetas(db: Session, ids) -> dict:
         ).all()
         return [{"valor": v, "cantidad": n} for v, n in filas]
 
-    tipos = db.execute(
-        select(models.TipoItem.codigo, models.TipoItem.descripcion,
-               func.count(func.distinct(Item.biblio_id)))
-        .join(Item, Item.tipo_item_id == models.TipoItem.id)
-        .where(Item.biblio_id.in_(ids))
-        .group_by(models.TipoItem.codigo, models.TipoItem.descripcion)
-        .order_by(func.count(func.distinct(Item.biblio_id)).desc())
-    ).all()
-
     decada = (func.floor(RB.ano_publicacion / 10) * 10).label("decada")
     decadas = db.execute(
         select(decada, func.count()).where(RB.id.in_(ids), RB.ano_publicacion.isnot(None))
@@ -170,10 +157,8 @@ def _facetas(db: Session, ids) -> dict:
     ).one()
 
     return {
-        "disponibilidad": [{"valor": "si", "etiqueta": "Con ejemplares libres", "cantidad": con},
-                           {"valor": "no", "etiqueta": "Todos prestados o sin ejemplares",
-                            "cantidad": sin}],
-        "tipos": [{"valor": c, "etiqueta": d, "cantidad": n} for c, d, n in tipos],
+        "disponibilidad": [{"valor": "si", "etiqueta": "Con ejemplares", "cantidad": con},
+                           {"valor": "no", "etiqueta": "Sin ejemplares", "cantidad": sin}],
         "materias": top(RB.materia),
         "autores": top(RB.autor),
         "decadas": [{"valor": int(d), "etiqueta": f"{int(d)}–{int(d) + 9}", "cantidad": n}
@@ -185,8 +170,8 @@ def buscar(db: Session, filtros: Filtros, *, pagina: int = 1, por_pagina: int = 
            orden: str = "relevancia", con_facetas: bool = True) -> dict:
     """Ids de la página pedida, en orden, más el total y las facetas.
 
-    Quien llama arma la vista de cada título (la intranet y el OPAC muestran cosas
-    distintas) a partir de `registros`, que ya viene en el orden correcto.
+    Quien llama arma la vista de cada título a partir de `registros`, que ya viene en
+    el orden correcto.
     """
     orden = orden if orden in ORDENES else "relevancia"
     pagina = max(1, pagina)

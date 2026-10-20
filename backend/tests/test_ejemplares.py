@@ -1,4 +1,4 @@
-"""M9: editar, dar de baja y eliminar ejemplares."""
+"""M9: editar y eliminar ejemplares."""
 
 from app import models
 
@@ -9,41 +9,26 @@ def _url(libro, item):
     return f"{URL}/{libro.id}/ejemplares/{item.id}"
 
 
-def test_corregir_codigo_signatura_tipo_y_sede(client, datos, db):
-    sede = datos.sede("NOR", "Sede Norte")
-    referencia = datos.tipo_item("REF", "Referencia")
+def test_corregir_codigo_signatura_copia_y_nota(client, datos, db):
     libro = datos.titulo()
     item = datos.ejemplar(libro, "B-01")
     datos.ejemplar(libro, "B-02")
 
     r = client.patch(_url(libro, item), json={
         "codigo_barras": " B-001 ", "signatura_topografica": "863 G16",
-        "tipo_item_codigo": "REF", "biblioteca_propia_id": sede.id, "precio_reposicion": 30})
+        "numero_copia": "c.1", "nota": "Dedicado por el autor"})
 
     assert r.status_code == 200, r.text
     fila = next(e for e in r.json() if e["id"] == str(item.id))
-    assert (fila["barcode"], fila["location"], fila["homeBranch"]) == ("B-001", "863 G16", "Sede Norte")
-    db.refresh(item)
-    assert item.tipo_item_id == referencia.id
-    assert float(item.precio_reposicion) == 30
+    assert (fila["barcode"], fila["location"], fila["copy"], fila["note"]) == (
+        "B-001", "863 G16", "c.1", "Dedicado por el autor")
     repetido = client.patch(_url(libro, item), json={"codigo_barras": "B-02"})
-    assert repetido.status_code == 400 and "B-02" in repetido.json()["detail"]
-    assert client.patch(_url(libro, item), json={"tipo_item_codigo": "NO"}).status_code == 400
-    assert client.patch(_url(libro, item), json={"biblioteca_propia_id": 999}).status_code == 400
+    assert repetido.status_code == 409 and "B-02" in repetido.json()["detail"]
 
-
-def test_dar_de_baja_y_reincorporar(client, datos, db):
-    libro = datos.titulo()
-    item = datos.ejemplar(libro)
-
-    assert client.patch(_url(libro, item), json={"estado": "Retirado"}).status_code == 200
+    # El código es opcional: vaciarlo lo quita.
+    assert client.patch(_url(libro, item), json={"codigo_barras": ""}).status_code == 200
     db.refresh(item)
-    assert item.estado == "Retirado"
-
-    assert client.patch(_url(libro, item), json={"estado": "Disponible"}).status_code == 200
-    db.refresh(item)
-    assert item.estado == "Disponible"
-    assert client.patch(_url(libro, item), json={"estado": "Prestado"}).status_code == 422
+    assert item.codigo_barras is None
 
 
 def test_eliminar_ejemplar_cargado_por_error(client, datos, db):

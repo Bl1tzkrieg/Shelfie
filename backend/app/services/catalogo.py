@@ -7,17 +7,10 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import models
-from app.core.errores import NoEncontrado, ReglaIncumplida
-from app.core.tiempo import formatear_fecha
+from app.core.errores import Conflicto, NoEncontrado, ReglaIncumplida
 from app.core import marc_plantillas
 from app.services import busqueda, registro
 from app.services import marc as marc_svc
-
-def sede_por_defecto(db: Session) -> Optional[int]:
-    """Única sede mientras la biblioteca no tenga varias (Fase 3: una sola sede)."""
-    sede = db.query(models.Biblioteca.id).order_by(models.Biblioteca.id).first()
-    return sede[0] if sede else None
-
 
 def buscar_por_isbn(db: Session, isbn: Optional[str],
                     excluir_id: Optional[int] = None) -> Optional[models.RegistroBibliografico]:
@@ -42,44 +35,36 @@ def _obtener_registro(db: Session, biblio_id: int) -> models.RegistroBibliografi
 
 
 def vista_de_titulo(db: Session, biblio: models.RegistroBibliografico,
-                    items: Optional[list] = None, tipos: Optional[dict] = None) -> dict:
-    """Un título con la disponibilidad agregada de sus ejemplares.
+                    items: Optional[list] = None) -> dict:
+    """Un título con la cantidad de ejemplares.
 
-    `items` y `tipos` se pasan ya cargados al listar el catálogo completo, para no
-    hacer una consulta por título.
+    `items` se pasa ya cargado al listar el catálogo completo, para no hacer una
+    consulta por título. Sin circulación, todos los ejemplares están en el estante.
     """
     if items is None:
         items = db.query(models.Item).filter(models.Item.biblio_id == biblio.id).all()
-    disponibles = [i for i in items if i.estado == "Disponible"]
-
-    tipo = None
-    if items and items[0].tipo_item_id:
-        tipo = (tipos.get(items[0].tipo_item_id) if tipos is not None
-                else db.get(models.TipoItem, items[0].tipo_item_id))
-
     return {
         "id": str(biblio.id),
         "title": biblio.titulo or "Sin título",
         "author": biblio.autor or "Autor desconocido",
         "year": biblio.ano_publicacion,
         "category": biblio.materia or "Sin clasificar",
-        "type": tipo.descripcion if tipo else "Sin tipo",
+        "type": marc_plantillas.obtener(biblio.plantilla).nombre,
         "isbn": biblio.isbn or "N/A",
-        "location": items[0].signatura_topografica if items else None,
+        "location": biblio.cota or next(
+            (i.signatura_topografica for i in items if i.signatura_topografica), None),
         "copies": len(items),
-        "available": len(disponibles),
-        "availableBarcode": disponibles[0].codigo_barras if disponibles else None,
+        "available": len(items),
     }
 
 
 # --- Títulos y ejemplares ---------------------------------------------------------
 
 def vistas_de_titulos(db: Session, registros: list) -> List[dict]:
-    """Vista de varios títulos con dos consultas en total, sin importar cuántos sean."""
+    """Vista de varios títulos con una consulta de ejemplares, sin importar cuántos sean."""
     ids = [b.id for b in registros]
     items = busqueda.items_por_titulo(db, ids)
-    tipos = {t.id: t for t in db.query(models.TipoItem).all()}
-    return [vista_de_titulo(db, b, items[b.id], tipos) for b in registros]
+    return [vista_de_titulo(db, b, items[b.id]) for b in registros]
 
 
 def listar_titulos(db: Session) -> List[dict]:
@@ -90,7 +75,7 @@ def listar_titulos(db: Session) -> List[dict]:
 
 def buscar_titulos(db: Session, filtros: "busqueda.Filtros", *, pagina: int, por_pagina: int,
                    orden: str) -> dict:
-    """Búsqueda de la intranet: página de títulos con disponibilidad y facetas."""
+    """Búsqueda de la intranet: página de títulos con sus ejemplares y facetas."""
     r = busqueda.buscar(db, filtros, pagina=pagina, por_pagina=por_pagina, orden=orden)
     registros = r.pop("registros")
     return {**r, "resultados": vistas_de_titulos(db, registros)}
@@ -100,16 +85,25 @@ def obtener_titulo(db: Session, biblio_id: int) -> dict:
     return vista_de_titulo(db, _obtener_registro(db, biblio_id))
 
 
+def _codigo(texto: Optional[str]) -> Optional[str]:
+    return (texto or "").strip() or None
+
+
+def _exigir_codigo_libre(db: Session, codigo: Optional[str],
+                         propio_id: Optional[int] = None) -> None:
+    if not codigo:
+        return
+    consulta = db.query(models.Item.id).filter(models.Item.codigo_barras == codigo)
+    if propio_id:
+        consulta = consulta.filter(models.Item.id != propio_id)
+    if consulta.first():
+        raise Conflicto(f"Ya existe un ejemplar con el código de barras {codigo}")
+
+
 def dar_de_alta(db: Session, datos) -> dict:
     """Alta de un ejemplar; si el ISBN ya existe, se suma al título en vez de duplicarlo."""
-    if db.query(models.Item).filter(models.Item.codigo_barras == datos.codigo_barras).first():
-        raise ReglaIncumplida(
-            f"Ya existe un ejemplar con el código de barras {datos.codigo_barras}")
-
-    tipo = db.query(models.TipoItem).filter(
-        models.TipoItem.codigo == datos.tipo_item_codigo).first()
-    if not tipo:
-        raise ReglaIncumplida(f"No existe el tipo de ítem '{datos.tipo_item_codigo}'")
+    codigo = _codigo(datos.codigo_barras)
+    _exigir_codigo_libre(db, codigo)
 
     biblio = buscar_por_isbn(db, marc_svc.normalizar_isbn(datos.isbn))
     if not biblio:
@@ -121,29 +115,28 @@ def dar_de_alta(db: Session, datos) -> dict:
         db.add(biblio)
         db.flush()
 
-    item = _nuevo_item(db, biblio, datos.codigo_barras, tipo, datos.signatura_topografica,
-                       datos.precio_reposicion)
+    item = _nuevo_item(db, biblio, codigo=codigo, signatura=datos.signatura_topografica)
     db.flush()
     registro.anotar(db, "catalogo", "alta",
-                    f"Alta rápida: ejemplar {item.codigo_barras} de «{biblio.titulo}»",
+                    f"Alta rápida: {_nombre_ejemplar(item)} de «{biblio.titulo}»",
                     biblio=biblio, item=item)
     db.commit()
     db.refresh(biblio)
     return vista_de_titulo(db, biblio)
 
 
-def _nuevo_item(db: Session, biblio, codigo_barras: str, tipo, signatura, precio,
-                sede: Optional[int] = None) -> models.Item:
-    sede = sede or sede_por_defecto(db)
+def _nombre_ejemplar(item: models.Item) -> str:
+    return f"ejemplar {item.codigo_barras}" if item.codigo_barras else "ejemplar sin código"
+
+
+def _nuevo_item(db: Session, biblio, *, codigo: Optional[str], signatura: Optional[str],
+                copia: Optional[str] = None, nota: Optional[str] = None) -> models.Item:
     item = models.Item(
         biblio_id=biblio.id,
-        codigo_barras=codigo_barras,
-        tipo_item_id=tipo.id,
-        signatura_topografica=signatura,
-        estado="Disponible",
-        biblioteca_propia_id=sede,
-        biblioteca_actual_id=sede,
-        precio_reposicion=precio,
+        codigo_barras=codigo,
+        signatura_topografica=_codigo(signatura),
+        numero_copia=_codigo(copia),
+        nota=_codigo(nota),
     )
     db.add(item)
     return item
@@ -152,18 +145,13 @@ def _nuevo_item(db: Session, biblio, codigo_barras: str, tipo, signatura, precio
 def agregar_ejemplar(db: Session, biblio_id: int, datos) -> dict:
     """Otro ejemplar de un título que ya existe (p. ej. una tesis, que no tiene ISBN)."""
     biblio = _obtener_registro(db, biblio_id)
-    if db.query(models.Item).filter(models.Item.codigo_barras == datos.codigo_barras).first():
-        raise ReglaIncumplida(
-            f"Ya existe un ejemplar con el código de barras {datos.codigo_barras}")
-    tipo = db.query(models.TipoItem).filter(
-        models.TipoItem.codigo == datos.tipo_item_codigo).first()
-    if not tipo:
-        raise ReglaIncumplida(f"No existe el tipo de ítem '{datos.tipo_item_codigo}'")
-    item = _nuevo_item(db, biblio, datos.codigo_barras, tipo, datos.signatura_topografica,
-                       datos.precio_reposicion)
+    codigo = _codigo(datos.codigo_barras)
+    _exigir_codigo_libre(db, codigo)
+    item = _nuevo_item(db, biblio, codigo=codigo, signatura=datos.signatura_topografica,
+                       copia=datos.numero_copia, nota=datos.nota)
     db.flush()
     registro.anotar(db, "catalogo", "alta",
-                    f"Nuevo ejemplar {item.codigo_barras} de «{biblio.titulo}»",
+                    f"Nuevo {_nombre_ejemplar(item)} de «{biblio.titulo}»",
                     biblio=biblio, item=item)
     db.commit()
     return vista_de_titulo(db, biblio)
@@ -264,47 +252,25 @@ def _obtener_ejemplar(db: Session, biblio_id: int, item_id: int) -> models.Item:
     return item
 
 
-_CAMPOS_EJEMPLAR = ("codigo_barras", "tipo_item_id", "signatura_topografica", "enumeracion",
-                    "precio_reposicion", "biblioteca_propia_id", "estado")
+_CAMPOS_EJEMPLAR = ("codigo_barras", "signatura_topografica", "numero_copia", "nota")
 
 
 def editar_ejemplar(db: Session, biblio_id: int, item_id: int, datos: dict) -> List[dict]:
-    """Corrige un ejemplar: código, signatura, tipo, sede propia, precio o baja (Retirado)."""
+    """Corrige un ejemplar: código, signatura, número de copia o nota."""
     item = _obtener_ejemplar(db, biblio_id, item_id)
     antes = {c: getattr(item, c) for c in _CAMPOS_EJEMPLAR}
     if "codigo_barras" in datos:
-        codigo = (datos["codigo_barras"] or "").strip()
-        if not codigo:
-            raise ReglaIncumplida("El código de barras no puede quedar vacío")
-        otro = db.query(models.Item.id).filter(models.Item.codigo_barras == codigo,
-                                               models.Item.id != item.id).first()
-        if otro:
-            raise ReglaIncumplida(f"Ya existe un ejemplar con el código de barras {codigo}")
+        codigo = _codigo(datos["codigo_barras"])
+        _exigir_codigo_libre(db, codigo, propio_id=item.id)
         item.codigo_barras = codigo
-    if datos.get("tipo_item_codigo") is not None:
-        tipo = db.query(models.TipoItem).filter(
-            models.TipoItem.codigo == datos["tipo_item_codigo"]).first()
-        if not tipo:
-            raise ReglaIncumplida(f"No existe el tipo de ítem '{datos['tipo_item_codigo']}'")
-        item.tipo_item_id = tipo.id
-    for campo in ("signatura_topografica", "enumeracion"):
+    for campo in ("signatura_topografica", "numero_copia", "nota"):
         if campo in datos:
-            item.__setattr__(campo, (datos[campo] or "").strip() or None)
-    if "precio_reposicion" in datos:
-        item.precio_reposicion = datos["precio_reposicion"]
-    if datos.get("biblioteca_propia_id") is not None:
-        if not db.get(models.Biblioteca, datos["biblioteca_propia_id"]):
-            raise ReglaIncumplida("La sede elegida no existe")
-        item.biblioteca_propia_id = datos["biblioteca_propia_id"]
-    if datos.get("estado"):
-        item.estado = datos["estado"]
+            setattr(item, campo, _codigo(datos[campo]))
     db.flush()
     cambios = registro.diferencias(antes, {c: getattr(item, c) for c in _CAMPOS_EJEMPLAR})
     if cambios:
-        baja = cambios.get("estado", [None, None])[1] == "Retirado"
-        registro.anotar(db, "catalogo", "baja" if baja else "edicion",
-                        f"{'Dio de baja' if baja else 'Editó'} el ejemplar {item.codigo_barras}"
-                        + ("" if baja else f" ({', '.join(cambios)})"),
+        registro.anotar(db, "catalogo", "edicion",
+                        f"Editó el {_nombre_ejemplar(item)} ({', '.join(cambios)})",
                         biblio=item.biblio_id, item=item, datos={"cambios": cambios})
     db.commit()
     return listar_ejemplares(db, biblio_id)
@@ -314,7 +280,7 @@ def eliminar_ejemplar(db: Session, biblio_id: int, item_id: int) -> None:
     """Borra un ejemplar cargado por error."""
     item = _obtener_ejemplar(db, biblio_id, item_id)
     registro.anotar(db, "catalogo", "eliminacion",
-                    f"Eliminó el ejemplar {item.codigo_barras} (cargado por error)",
+                    f"Eliminó el {_nombre_ejemplar(item)} (cargado por error)",
                     biblio=item.biblio_id, objeto=("ejemplar", item.id),
                     datos={"codigo_barras": item.codigo_barras,
                            "signatura": item.signatura_topografica})
@@ -326,22 +292,10 @@ def listar_ejemplares(db: Session, biblio_id: int) -> List[dict]:
     _obtener_registro(db, biblio_id)
     items = db.query(models.Item).filter(models.Item.biblio_id == biblio_id).order_by(
         models.Item.id).all()
-    nombres = {b.id: b.nombre for b in db.query(models.Biblioteca).all()}
-    tipos = {t.id: t.codigo for t in db.query(models.TipoItem).all()}
-
-    resultado = []
-    for item in items:
-        resultado.append({
-            "id": str(item.id),
-            "barcode": item.codigo_barras,
-            "location": item.signatura_topografica,
-            "enumeration": item.enumeracion,
-            "status": item.estado,
-            "branch": nombres.get(item.biblioteca_actual_id),
-            "homeBranch": nombres.get(item.biblioteca_propia_id),
-            "itemType": tipos.get(item.tipo_item_id),
-            "homeBranchId": item.biblioteca_propia_id,
-            "price": float(item.precio_reposicion) if item.precio_reposicion is not None else None,
-            "lastSeen": formatear_fecha(item.fecha_ultimo_inventario),
-        })
-    return resultado
+    return [{
+        "id": str(item.id),
+        "barcode": item.codigo_barras,
+        "location": item.signatura_topografica,
+        "copy": item.numero_copia,
+        "note": item.nota,
+    } for item in items]

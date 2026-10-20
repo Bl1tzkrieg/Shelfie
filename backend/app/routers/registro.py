@@ -20,8 +20,8 @@ CONSULTA = [Depends(requiere(Permiso.SUPERBIBLIOTECARIO))]
 
 
 def _filtros(modulo: Optional[str] = None, accion: Optional[str] = None,
-             actor: Optional[str] = Query(None, description="Carnet o usuario de quien actuó; «sistema»"),
-             lector: Optional[str] = Query(None, description="Carnet del lector afectado"),
+             actor: Optional[str] = Query(None, description="Usuario (username) de quien actuó; «sistema»"),
+             lector: Optional[str] = Query(None, description="Usuario (username) afectado"),
              biblio_id: Optional[int] = None,
              codigo: Optional[str] = Query(None, description="Código de barras del ejemplar"),
              desde: Optional[date] = None, hasta: Optional[date] = None,

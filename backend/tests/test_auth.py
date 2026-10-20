@@ -7,12 +7,13 @@ def _login(cliente, username, password):
     return cliente.post("/api/v1/auth/login", json={"username": username, "password": password})
 
 
-def test_login_por_username_o_carnet(anonimo, datos):
-    datos.personal("1001", ["catalogo"], username="ana")
-    for identificador in ("ana", "1001"):
-        r = _login(anonimo, identificador, "1001")
+def test_login_por_username_sin_distinguir_mayusculas(anonimo, datos):
+    datos.personal("ana", ["catalogo"], password="clave-de-ana")
+    for identificador in ("ana", "ANA", " Ana "):
+        r = _login(anonimo, identificador, "clave-de-ana")
         assert r.status_code == 200, r.text
         assert r.json()["usuario"]["permisos"] == ["catalogo"]
+        assert r.json()["usuario"]["rol"] == "catalogador"
 
 
 def test_la_sesion_va_en_cookie_httponly_y_no_en_el_cuerpo(anonimo, datos):
@@ -34,11 +35,12 @@ def test_login_no_revela_si_el_usuario_existe(anonimo, datos):
     assert malo.json()["detail"] == inexistente.json()["detail"]
 
 
-def test_lector_y_cuenta_suspendida_no_entran(anonimo, datos):
-    datos.lector("2001")
+def test_cuenta_desactivada_no_entra(anonimo, datos):
     datos.personal("1001", ["catalogo"], activo=False)
-    assert _login(anonimo, "2001", "2001").status_code == 403
-    assert _login(anonimo, "1001", "1001").status_code == 403
+    r = _login(anonimo, "1001", "1001")
+    # Igual que un usuario inexistente: no revela que la cuenta existe.
+    assert r.status_code == 401
+    assert r.json()["detail"] == _login(anonimo, "nadie", "x").json()["detail"]
 
 
 def test_me_y_logout(anonimo, datos):
@@ -48,7 +50,7 @@ def test_me_y_logout(anonimo, datos):
     _login(anonimo, "1001", "1001")
     me = anonimo.get("/api/v1/auth/me")
     assert me.status_code == 200
-    assert me.json()["nro_carnet"] == "1001"
+    assert me.json()["username"] == "1001"
 
     assert anonimo.post("/api/v1/auth/logout").status_code == 204
     assert anonimo.get("/api/v1/auth/me").status_code == 401
