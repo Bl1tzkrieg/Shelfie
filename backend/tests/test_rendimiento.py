@@ -22,7 +22,7 @@ def _consultas(client, contador, ruta):
     return contador["n"]
 
 
-@pytest.mark.parametrize("ruta", ["/api/v1/books", "/api/v1/catalog/search?q=T",
+@pytest.mark.parametrize("ruta", ["/api/v1/books", "/api/v1/buscar?q=T",
                                   "/api/v1/staff"])
 def test_el_numero_de_consultas_no_crece_con_los_datos(client, datos, contar_consultas, ruta):
     datos.ejemplar(datos.titulo("T0", "0"), "E-0")

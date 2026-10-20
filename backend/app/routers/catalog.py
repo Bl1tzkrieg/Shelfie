@@ -1,5 +1,3 @@
-from typing import Optional
-
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
@@ -19,42 +17,15 @@ router = APIRouter(prefix="/api/v1/catalog", tags=["Catálogo"],
 CATALOGA = [Depends(requiere(Permiso.CATALOGO))]
 
 
-@router.get("/search", response_model=schemas.BusquedaCatalogoResponse)
-def buscar(
-    q: str = Query("", description="Título, autor, materia, ISBN o código de barras"),
-    materia: Optional[str] = None,
-    autor: Optional[str] = None,
-    disponible: Optional[bool] = Query(None, description="true: con ejemplares; false: sin ninguno"),
-    ano_desde: Optional[int] = None,
-    ano_hasta: Optional[int] = None,
-    orden: str = Query("relevancia", pattern="^(relevancia|titulo|ano_desc|ano_asc)$"),
-    pagina: int = Query(1, ge=1),
-    por_pagina: int = Query(24, ge=1, le=100),
-    db: Session = Depends(get_db),
-):
-    """Búsqueda de texto completo (sin acentos, por raíz) con facetas y paginación."""
-    filtros = busqueda.Filtros(q=q, materia=materia, autor=autor,
-                               disponible=disponible, ano_desde=ano_desde, ano_hasta=ano_hasta)
-    return catalogo.buscar_titulos(db, filtros, pagina=pagina, por_pagina=por_pagina,
-                                   orden=orden)
-
-
 @router.get("/export")
 def exportar(
     formato: str = Query("marc", pattern="^(marc|marcxml)$"),
     ejemplares: bool = Query(True, description="Incluir los ejemplares en 952, como Koha"),
     q: str = "",
-    materia: Optional[str] = None,
-    autor: Optional[str] = None,
-    disponible: Optional[bool] = None,
-    ano_desde: Optional[int] = None,
-    ano_hasta: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
     """Descarga en MARC (ISO 2709) o MARCXML los registros que cumplen la búsqueda."""
-    filtros = busqueda.Filtros(q=q, materia=materia, autor=autor,
-                               disponible=disponible, ano_desde=ano_desde, ano_hasta=ano_hasta)
-    contenido, tipo_mime, nombre = intercambio_marc.exportar(db, filtros, formato, ejemplares)
+    contenido, tipo_mime, nombre = intercambio_marc.exportar(db, busqueda.Filtros(q=q), formato, ejemplares)
     return Response(content=contenido, media_type=tipo_mime,
                     headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
 

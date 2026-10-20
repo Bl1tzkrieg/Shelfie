@@ -1,4 +1,4 @@
-from typing import Annotated, Any, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
@@ -6,19 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 # ==========================================
 # CATÁLOGO
 # ==========================================
-
-class MaterialResponse(BaseModel):
-    id: str
-    title: str
-    author: str
-    year: Optional[int] = None
-    category: str
-    type: str
-    isbn: str
-    location: Optional[str] = None
-    copies: int
-    available: int
-
 
 class RegistroMarcRequest(BaseModel):
     plantilla: Literal["BKS", "SER", "TES", "ERE"] = "BKS"
@@ -38,29 +25,6 @@ class RegistroMarcResponse(BaseModel):
     materia: Optional[str] = None
     ano_publicacion: Optional[int] = None
     isbn: Optional[str] = None
-
-
-class ValorFaceta(BaseModel):
-    valor: Union[str, int]
-    etiqueta: Optional[str] = None
-    cantidad: int
-
-
-class Facetas(BaseModel):
-    disponibilidad: List[ValorFaceta]
-    materias: List[ValorFaceta]
-    autores: List[ValorFaceta]
-    decadas: List[ValorFaceta]
-
-
-class BusquedaCatalogoResponse(BaseModel):
-    total: int
-    pagina: int
-    por_pagina: int
-    paginas: int
-    orden: str
-    resultados: List[MaterialResponse]
-    facetas: Facetas
 
 
 # ==========================================

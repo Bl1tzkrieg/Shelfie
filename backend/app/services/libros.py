@@ -8,13 +8,13 @@ parte siempre del MARC guardado, así lo importado que el formulario no muestra 
 import re
 from typing import List, Optional
 
-from sqlalchemy import and_, case, collate, func, literal, or_
+from sqlalchemy import and_, func, literal, or_
 from sqlalchemy.orm import Session
 
 from app import models
 from app.core import marc_plantillas
 from app.core.errores import Conflicto, NoEncontrado
-from app.core.signaturas import normalizar_cota
+from app.core.signaturas import clave_signatura_sql, escapar_like, normalizar_cota
 from app.schemas import FichaLibro
 from app.services import ficha as ficha_svc
 from app.services import marc as marc_svc
@@ -90,6 +90,17 @@ def _vista(db: Session, biblio: models.RegistroBibliografico) -> dict:
         "ejemplares": [_vista_ejemplar(i) for i in items],
         "creado_en": biblio.creado_en,
         "actualizado_en": biblio.actualizado_en,
+    }
+
+
+def ficha_publica(db: Session, biblio_id: int) -> dict:
+    """Lo que ve cualquiera: la ficha y, por ejemplar, cota, copia y nota (sin códigos de barras)."""
+    biblio = obtener_registro(db, biblio_id)
+    items = sorted(_ejemplares(db, biblio.id), key=_orden_de_copia)
+    return {
+        "ficha": ficha_svc.desde_marc(biblio.marc_json).model_dump(),
+        "ejemplares": [{"cota": i.signatura_topografica, "numero_copia": i.numero_copia,
+                        "nota": i.nota} for i in items],
     }
 
 
@@ -186,22 +197,6 @@ def obtener(db: Session, biblio_id: int) -> dict:
     return _vista(db, obtener_registro(db, biblio_id))
 
 
-def _clave_de_estante(cota):
-    """`core.signaturas.clave_signatura` en SQL, sobre la cota ya normalizada: la parte
-    numérica inicial con ceros a la izquierda. Con intercalación "C" (por código, como Python)."""
-    inicio = func.substring(cota, r"^\d+")
-    clave = case(
-        (inicio.isnot(None),
-         func.concat(func.lpad(inicio, func.greatest(6, func.length(inicio)), "0"),
-                     func.substr(cota, func.length(inicio) + 1))),
-        else_=cota)
-    return collate(clave, "C")
-
-
-def _escapar_like(texto: str) -> str:
-    return texto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
 def listar(db: Session, *, q: str = "", pagina: int = 1, por_pagina: int = 50) -> dict:
     """Libros en el orden del estante (por cota); los que no tienen cota, al final.
     `q` filtra por título, autor o cota (sin mayúsculas ni acentos)."""
@@ -212,12 +207,12 @@ def listar(db: Session, *, q: str = "", pagina: int = 1, por_pagina: int = 50) -
         cuenta, cuenta.c.biblio_id == RB.id)
     texto = " ".join((q or "").split())
     if texto:
-        patron = func.unaccent(f"%{_escapar_like(texto)}%")
+        patron = func.unaccent(f"%{escapar_like(texto)}%")
         consulta = consulta.filter(or_(*(
             func.unaccent(columna).ilike(patron, escape="\\")
             for columna in (RB.titulo, RB.autor, RB.cota))))
     total = consulta.count()
-    filas = consulta.order_by(RB.cota.is_(None), _clave_de_estante(RB.cota), RB.titulo,
+    filas = consulta.order_by(RB.cota.is_(None), clave_signatura_sql(RB.cota), RB.titulo,
                               RB.id).offset((pagina - 1) * por_pagina).limit(por_pagina).all()
     return {
         "total": total,

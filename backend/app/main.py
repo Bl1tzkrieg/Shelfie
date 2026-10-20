@@ -7,6 +7,7 @@ from app.config import comprobar_clave_de_firma, settings
 from app.core.errores import ErrorDeNegocio
 from app.routers import (
     auth,
+    buscar,
     catalog,
     libros,
     personal,
@@ -56,6 +57,7 @@ def manejar_error_de_negocio(_request: Request, error: ErrorDeNegocio):
 
 
 app.include_router(auth.router)
+app.include_router(buscar.router)
 app.include_router(catalog.router)
 app.include_router(libros.router)
 app.include_router(personal.router)

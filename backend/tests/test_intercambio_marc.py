@@ -82,7 +82,7 @@ def test_vista_previa_no_escribe_y_aplicar_importa_con_ejemplares(client, datos,
     assert (items["IMP-1"].signatura_topografica, items["IMP-1"].numero_copia,
             items["IMP-1"].nota) == ("863 G16", "c.1", "Firmado")
     # Lo importado aparece en la búsqueda.
-    assert client.get(f"{URL}/search", params={"q": "barbara"}).json()["total"] == 1
+    assert client.get("/api/v1/buscar", params={"q": "barbara"}).json()["total"] == 1
 
 
 def test_duplicados_por_isbn(client, datos, db):

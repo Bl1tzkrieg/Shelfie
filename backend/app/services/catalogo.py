@@ -1,17 +1,16 @@
-"""Catálogo MARC: el registro como fuente, sus columnas derivadas y la vista de búsqueda.
+"""Catálogo MARC: el registro como fuente y sus columnas derivadas.
 
 El alta, la edición simple y los ejemplares están en `services/libros.py`."""
 
 import re
-from typing import List, Optional
+from typing import Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import models
 from app.core.errores import NoEncontrado, ReglaIncumplida
-from app.core import marc_plantillas
-from app.services import busqueda, ficha, registro
+from app.services import ficha, registro
 from app.services import marc as marc_svc
 
 def buscar_por_isbn(db: Session, isbn: Optional[str],
@@ -37,47 +36,6 @@ def obtener_registro(db: Session, biblio_id: int, *,
     if not biblio:
         raise NoEncontrado("Título no encontrado en el catálogo")
     return biblio
-
-
-# --- Títulos (vista de la búsqueda) ----------------------------------------------
-
-def vista_de_titulo(db: Session, biblio: models.RegistroBibliografico,
-                    items: Optional[list] = None) -> dict:
-    """Un título con la cantidad de ejemplares.
-
-    `items` se pasa ya cargado al listar el catálogo completo, para no hacer una
-    consulta por título. Sin circulación, todos los ejemplares están en el estante.
-    """
-    if items is None:
-        items = db.query(models.Item).filter(models.Item.biblio_id == biblio.id).all()
-    return {
-        "id": str(biblio.id),
-        "title": biblio.titulo or "Sin título",
-        "author": biblio.autor or "Autor desconocido",
-        "year": biblio.ano_publicacion,
-        "category": biblio.materia or "Sin clasificar",
-        "type": marc_plantillas.obtener(biblio.plantilla).nombre,
-        "isbn": biblio.isbn or "N/A",
-        "location": biblio.cota or next(
-            (i.signatura_topografica for i in items if i.signatura_topografica), None),
-        "copies": len(items),
-        "available": len(items),
-    }
-
-
-def vistas_de_titulos(db: Session, registros: list) -> List[dict]:
-    """Vista de varios títulos con una consulta de ejemplares, sin importar cuántos sean."""
-    ids = [b.id for b in registros]
-    items = busqueda.items_por_titulo(db, ids)
-    return [vista_de_titulo(db, b, items[b.id]) for b in registros]
-
-
-def buscar_titulos(db: Session, filtros: "busqueda.Filtros", *, pagina: int, por_pagina: int,
-                   orden: str) -> dict:
-    """Búsqueda de la intranet: página de títulos con sus ejemplares y facetas."""
-    r = busqueda.buscar(db, filtros, pagina=pagina, por_pagina=por_pagina, orden=orden)
-    registros = r.pop("registros")
-    return {**r, "resultados": vistas_de_titulos(db, registros)}
 
 
 # --- Registro MARC ----------------------------------------------------------------

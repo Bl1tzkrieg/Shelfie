@@ -77,8 +77,9 @@ def test_editar_el_marc_actualiza_columnas_y_busqueda(client, datos, db):
     # Editorial desde el 260 (sin la coma ISBD); el MARC nuevo no trae 092: sin cota.
     biblio = db.get(models.RegistroBibliografico, biblio_id)
     assert (biblio.editorial, biblio.cota) == ("Sinauer", None)
-    hallados = client.get(f"{URL}/search", params={"q": "ilustrado"}).json()["resultados"]
-    assert [h["title"] for h in hallados] == ["Fisiología vegetal: texto ilustrado"]
+    hallados = client.get("/api/v1/buscar", params={"q": "ilustrado"}).json()["resultados"]
+    assert [(h["id"], h["titulo"], h["subtitulo"]) for h in hallados] == [
+        (biblio_id, "Fisiología vegetal", "texto ilustrado")]
 
 
 def test_normaliza_campos_vacios_indicadores_y_orden(client, datos):

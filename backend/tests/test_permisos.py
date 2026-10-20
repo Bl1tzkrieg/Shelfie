@@ -6,7 +6,6 @@ import pytest
 RUTAS_INTRANET = [
     ("GET", "/api/v1/books"),
     ("POST", "/api/v1/books"),
-    ("GET", "/api/v1/catalog/search"),
     ("POST", "/api/v1/catalog/records"),
     ("PUT", "/api/v1/settings"),
     ("GET", "/api/v1/settings/system-info"),
@@ -29,13 +28,18 @@ def test_nombre_de_la_biblioteca_es_publico(anonimo):
     assert anonimo.get("/api/v1/settings").status_code == 200
 
 
+def test_busqueda_y_ficha_son_publicas(anonimo):
+    assert anonimo.get("/api/v1/buscar", params={"q": "x"}).status_code == 200
+    assert anonimo.get("/api/v1/buscar/1").status_code == 404
+
+
 def test_raiz_es_publica(anonimo):
     assert anonimo.get("/").status_code == 200
 
 
 def test_personal_sin_permisos_consulta_pero_no_modifica(como, datos):
     consulta = como([])
-    assert consulta.get("/api/v1/catalog/search").status_code == 200
+    assert consulta.get("/api/v1/buscar").status_code == 200
     assert consulta.get("/api/v1/staff").status_code == 403
 
     r = consulta.post("/api/v1/books", json={"ficha": {"cota": "1 X", "titulo": "T"}})

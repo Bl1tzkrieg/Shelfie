@@ -1,201 +1,166 @@
-"""Búsqueda en el catálogo: texto completo con facetas.
+"""Búsqueda pública en el catálogo: por palabras, por campo, por cota y por ISBN.
 
-El texto se busca en `registros_bibliograficos.busqueda` (tsvector con índice
-GIN, migración 0001_lite) con la configuración `shelfie_es`: español, sin acentos y
-reducido a la raíz. La última palabra se busca como prefijo, para que funcione
-mientras se escribe ("cien añ" ya encuentra "Cien años de soledad").
+El texto se busca en `registros_bibliograficos.busqueda` (tsvector con índice GIN,
+migración 0001_lite) con la configuración `shelfie_es`: español, sin acentos y reducido a la
+raíz. La última palabra se busca como prefijo, para que funcione mientras se escribe
+("bioqui" ya encuentra "Bioquímica de Harper").
 
-Además del texto, un ISBN (con o sin guiones) o un código de barras exacto
-encuentran su título aunque no estén en el índice.
+En `todo` se suman tres vías: el texto, la cota por prefijo (en el registro o en alguno de sus
+ejemplares) y el ISBN con o sin guiones. En los demás campos solo vale esa vía.
 
-Las facetas se calculan sobre el conjunto ya filtrado: cada número dice cuántos
-títulos quedarían al elegir ese valor.
+Una consulta sin términos útiles ("de la", "¿?", "-") no llega a la base: da cero resultados.
 """
 
 import re
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from sqlalchemy import and_, exists, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app import models
+from app.core.errores import ReglaIncumplida
+from app.core.signaturas import clave_signatura_sql, escapar_like, normalizar_cota
+from app.services import ficha as ficha_svc
 
 RB = models.RegistroBibliografico
 Item = models.Item
 CONFIG = "shelfie_es"
-MAX_POR_FACETA = 12
-ORDENES = ("relevancia", "titulo", "ano_desc", "ano_asc")
+CAMPOS = ("todo", "titulo", "autor", "materia", "cota", "isbn", "editorial")
+_COLUMNAS_DE_TEXTO = {"titulo": RB.titulo, "autor": RB.autor, "materia": RB.materia,
+                      "editorial": RB.editorial}
 
 _PALABRA = re.compile(r"\w+", re.UNICODE)
 _ISBN = re.compile(r"^[0-9][0-9\- ]{8,16}[0-9Xx]$")
 
 
-@dataclass
 class Filtros:
-    """Lo que el usuario eligió. Todo es opcional."""
-    q: str = ""
-    # Búsqueda por campo (búsqueda avanzada), con las mismas reglas que `q`.
-    campos: Dict[str, str] = field(default_factory=dict)
-    # Facetas: valores exactos tal como los devuelve la propia búsqueda.
-    materia: Optional[str] = None
-    autor: Optional[str] = None
-    disponible: Optional[bool] = None   # True: con algún ejemplar; False: sin ninguno
-    ano_desde: Optional[int] = None
-    ano_hasta: Optional[int] = None
+    """Lo mínimo que necesita la exportación: el texto de la búsqueda (campo `todo`)."""
+
+    def __init__(self, q: str = ""):
+        self.q = q
 
 
-def _consulta_de_texto(texto: str):
-    """tsquery con todas las palabras (AND) y la última como prefijo, o None si no hay."""
+def _digitos_isbn(texto: str) -> str:
+    return re.sub(r"[^0-9Xx]", "", texto or "").upper()
+
+
+def _isbn_sin_signos():
+    return func.upper(func.regexp_replace(func.coalesce(RB.isbn, ""), "[^0-9Xx]", "", "g"))
+
+
+def _consulta_de_texto(db: Session, texto: str):
+    """tsquery con todas las palabras (AND) y la última como prefijo.
+
+    None si no hay nada útil: sin palabras o solo palabras vacías ("de la"), cuya tsquery
+    queda vacía, no encuentra nada y hace que PostgreSQL avise con un NOTICE."""
     palabras = _PALABRA.findall(texto or "")
     if not palabras:
+        return None
+    utiles = db.execute(select(func.length(func.to_tsvector(CONFIG, " ".join(palabras))))
+                        ).scalar_one()
+    if not utiles:
         return None
     terminos = palabras[:-1] + [f"{palabras[-1]}:*"]
     return func.to_tsquery(CONFIG, " & ".join(terminos))
 
 
-def _condicion_texto(texto: str):
-    """Coincidencia por texto, ISBN o código de barras."""
-    tsq = _consulta_de_texto(texto)
-    if tsq is None:  # solo signos: no hay nada que buscar
+def _condicion_cota(texto: str):
+    """Cota por prefijo, normalizada como se guarda («616.39  h» → «616.39 H»)."""
+    cota = normalizar_cota(texto)
+    if not cota or not _PALABRA.search(cota):
         return None
-    # Solo palabras vacías ("de", "la"): la consulta queda vacía y no filtra nada.
-    opciones = [or_(func.numnode(tsq) == 0, RB.busqueda.op("@@")(tsq))]
-
-    limpio = texto.strip()
-    if _ISBN.match(limpio):
-        digitos = re.sub(r"[^0-9Xx]", "", limpio).upper()
-        opciones.append(func.upper(func.replace(func.replace(RB.isbn, "-", ""), " ", "")) == digitos)
-    if limpio and " " not in limpio:
-        opciones.append(exists().where(and_(Item.biblio_id == RB.id,
-                                            func.upper(Item.codigo_barras) == limpio.upper())))
-    return or_(*opciones)
+    patron = escapar_like(cota) + "%"
+    return or_(RB.cota.ilike(patron, escape="\\"),
+               exists().where(and_(Item.biblio_id == RB.id,
+                                   Item.signatura_topografica.ilike(patron, escape="\\"))))
 
 
-def _condicion_campo(columna, texto: str):
-    tsq = _consulta_de_texto(texto)
-    if tsq is None:
+def _condicion_isbn(texto: str, *, exacto: bool):
+    digitos = _digitos_isbn(texto)
+    if not digitos:
         return None
-    vector = func.to_tsvector(CONFIG, func.coalesce(columna, ""))
-    return or_(func.numnode(tsq) == 0, vector.op("@@")(tsq))
+    if exacto:
+        return _isbn_sin_signos() == digitos
+    return _isbn_sin_signos().like(f"%{digitos}%")
 
 
-def _hay_disponible():
-    """Sin circulación, un título está disponible si tiene algún ejemplar."""
-    return exists().where(Item.biblio_id == RB.id)
+def _condicion(db: Session, texto: str, campo: str):
+    """(condición, tsquery usada para ordenar y vector sobre el que se aplica) o None."""
+    if campo == "cota":
+        c = _condicion_cota(texto)
+        return (c, None, None) if c is not None else None
+    if campo == "isbn":
+        c = _condicion_isbn(texto, exacto=False)
+        return (c, None, None) if c is not None else None
+
+    tsq = _consulta_de_texto(db, texto)
+    if campo != "todo":
+        if tsq is None:
+            return None
+        vector = func.to_tsvector(CONFIG, func.coalesce(_COLUMNAS_DE_TEXTO[campo], ""))
+        return vector.op("@@")(tsq), tsq, vector
+
+    opciones = []
+    if tsq is not None:
+        opciones.append(RB.busqueda.op("@@")(tsq))
+    cota = _condicion_cota(texto)
+    if cota is not None:
+        opciones.append(cota)
+    if _ISBN.match(texto):
+        opciones.append(_condicion_isbn(texto, exacto=True))
+    return (or_(*opciones), tsq, RB.busqueda) if opciones else None
 
 
-def _condiciones(filtros: Filtros) -> list:
-    condiciones = []
-    if filtros.q and filtros.q.strip():
-        c = _condicion_texto(filtros.q)
-        if c is not None:
-            condiciones.append(c)
-
-    columnas = {"titulo": RB.titulo, "autor": RB.autor, "materia": RB.materia}
-    for nombre, texto in filtros.campos.items():
-        if not texto or not texto.strip():
-            continue
-        if nombre == "isbn":
-            digitos = re.sub(r"[^0-9Xx]", "", texto).upper()
-            # Sin dígitos no hay ISBN que buscar: LIKE '%%' traería todo el catálogo.
-            condiciones.append(func.upper(func.replace(func.replace(RB.isbn, "-", ""), " ", ""))
-                               .like(f"%{digitos}%") if digitos else false())
-        elif nombre in columnas:
-            c = _condicion_campo(columnas[nombre], texto)
-            if c is not None:
-                condiciones.append(c)
-
-    if filtros.materia:
-        condiciones.append(RB.materia == filtros.materia)
-    if filtros.autor:
-        condiciones.append(RB.autor == filtros.autor)
-    if filtros.disponible is True:
-        condiciones.append(_hay_disponible())
-    elif filtros.disponible is False:
-        condiciones.append(~_hay_disponible())
-    if filtros.ano_desde is not None:
-        condiciones.append(RB.ano_publicacion >= filtros.ano_desde)
-    if filtros.ano_hasta is not None:
-        condiciones.append(RB.ano_publicacion <= filtros.ano_hasta)
-    return condiciones
+def _ejemplares_por_registro():
+    return select(Item.biblio_id, func.count(Item.id).label("n")).group_by(
+        Item.biblio_id).subquery()
 
 
-def _orden(filtros: Filtros, orden: str):
-    titulo = func.lower(RB.titulo)
-    if orden == "titulo":
-        return [titulo, RB.id]
-    if orden == "ano_desc":
-        return [RB.ano_publicacion.desc().nulls_last(), titulo, RB.id]
-    if orden == "ano_asc":
-        return [RB.ano_publicacion.asc().nulls_last(), titulo, RB.id]
-    tsq = _consulta_de_texto(filtros.q)
-    if tsq is None:
-        return [titulo, RB.id]
-    return [func.ts_rank_cd(RB.busqueda, tsq).desc(), titulo, RB.id]
-
-
-def _facetas(db: Session, ids) -> dict:
-    """Conteos sobre los títulos que cumplen la búsqueda (`ids` es una subconsulta)."""
-    def top(columna):
-        filas = db.execute(
-            select(columna, func.count()).where(RB.id.in_(ids), columna.isnot(None),
-                                                columna != "")
-            .group_by(columna).order_by(func.count().desc(), columna).limit(MAX_POR_FACETA)
-        ).all()
-        return [{"valor": v, "cantidad": n} for v, n in filas]
-
-    decada = (func.floor(RB.ano_publicacion / 10) * 10).label("decada")
-    decadas = db.execute(
-        select(decada, func.count()).where(RB.id.in_(ids), RB.ano_publicacion.isnot(None))
-        .group_by(decada).order_by(decada.desc())
-    ).all()
-
-    con, sin = db.execute(
-        select(func.count().filter(_hay_disponible()), func.count().filter(~_hay_disponible()))
-        .select_from(RB).where(RB.id.in_(ids))
-    ).one()
-
-    return {
-        "disponibilidad": [{"valor": "si", "etiqueta": "Con ejemplares", "cantidad": con},
-                           {"valor": "no", "etiqueta": "Sin ejemplares", "cantidad": sin}],
-        "materias": top(RB.materia),
-        "autores": top(RB.autor),
-        "decadas": [{"valor": int(d), "etiqueta": f"{int(d)}–{int(d) + 9}", "cantidad": n}
-                    for d, n in decadas],
-    }
-
-
-def buscar(db: Session, filtros: Filtros, *, pagina: int = 1, por_pagina: int = 24,
-           orden: str = "relevancia", con_facetas: bool = True) -> dict:
-    """Ids de la página pedida, en orden, más el total y las facetas.
-
-    Quien llama arma la vista de cada título a partir de `registros`, que ya viene en
-    el orden correcto.
-    """
-    orden = orden if orden in ORDENES else "relevancia"
+def buscar(db: Session, q: str, *, campo: str = "todo", pagina: int = 1,
+           por_pagina: int = 20) -> dict:
+    """Una página de resultados, en orden de relevancia y luego de estante."""
+    if campo not in CAMPOS:
+        raise ReglaIncumplida(f"Campo de búsqueda no válido: usa {', '.join(CAMPOS)}")
     pagina = max(1, pagina)
-    condiciones = _condiciones(filtros)
+    vacio = {"total": 0, "pagina": pagina, "resultados": []}
+    texto = " ".join((q or "").split())
+    encontrada = _condicion(db, texto, campo) if texto else None
+    if encontrada is None:
+        return vacio
+    condicion, tsq, vector = encontrada
 
-    ids = select(RB.id).where(*condiciones)
-    total = db.execute(select(func.count()).select_from(ids.subquery())).scalar_one()
-    registros = db.query(RB).filter(*condiciones).order_by(*_orden(filtros, orden)).offset(
-        (pagina - 1) * por_pagina).limit(por_pagina).all()
+    total = db.query(func.count(RB.id)).filter(condicion).scalar()
+    cuenta = _ejemplares_por_registro()
+    orden = [RB.cota.is_(None), clave_signatura_sql(RB.cota), RB.titulo, RB.id]
+    if tsq is not None:
+        orden.insert(0, func.ts_rank_cd(vector, tsq).desc())
+    filas = (db.query(RB, func.coalesce(cuenta.c.n, 0))
+             .outerjoin(cuenta, cuenta.c.biblio_id == RB.id)
+             .filter(condicion).order_by(*orden)
+             .offset((pagina - 1) * por_pagina).limit(por_pagina).all())
 
-    return {
-        "total": total,
-        "pagina": pagina,
-        "por_pagina": por_pagina,
-        "paginas": max(1, -(-total // por_pagina)),
-        "orden": orden,
-        "registros": registros,
-        "facetas": _facetas(db, ids) if con_facetas else None,
-    }
+    resultados = []
+    for biblio, ejemplares in filas:
+        ficha = ficha_svc.desde_marc(biblio.marc_json)
+        resultados.append({
+            "id": biblio.id, "cota": biblio.cota, "titulo": ficha.titulo or biblio.titulo,
+            "subtitulo": ficha.subtitulo, "autor": biblio.autor, "edicion": ficha.edicion,
+            "editorial": biblio.editorial, "ano": biblio.ano_publicacion,
+            "ejemplares": ejemplares,
+        })
+    return {"total": total, "pagina": pagina, "resultados": resultados}
 
 
-def todos_los_que_cumplen(db: Session, filtros: Filtros, orden: str = "titulo"):
-    """Consulta (sin paginar) de los registros que cumplen la búsqueda, para exportar."""
-    return db.query(RB).filter(*_condiciones(filtros)).order_by(*_orden(filtros, orden))
+# --- Para exportar ---------------------------------------------------------------------
+
+def todos_los_que_cumplen(db: Session, filtros: Filtros):
+    """Consulta (sin paginar) de los registros que cumplen `q`, por título; sin `q`, todos."""
+    consulta = db.query(RB)
+    texto = " ".join((filtros.q or "").split())
+    if texto:
+        encontrada = _condicion(db, texto, "todo")
+        consulta = consulta.filter(encontrada[0] if encontrada else false())
+    return consulta.order_by(func.lower(RB.titulo), RB.id)
 
 
 def items_por_titulo(db: Session, biblio_ids: List[int]) -> Dict[int, list]:
