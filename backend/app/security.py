@@ -51,10 +51,6 @@ def verify_password(password: str, hash_almacenado: Optional[str]) -> bool:
 # leerlo, así que un script inyectado no puede robar la sesión.
 
 COOKIE_SESION = "shelfie_sesion"
-# La sesión del OPAC va aparte: un lector (o alguien del personal consultando su propia
-# cuenta) entra al catálogo público sin abrir la intranet, y viceversa.
-COOKIE_OPAC = "shelfie_opac"
-AUDIENCIA_OPAC = "opac"
 _METODOS_SEGUROS = {"GET", "HEAD", "OPTIONS"}
 
 
@@ -63,14 +59,12 @@ def huella_de_clave(usuario: models.Usuario) -> str:
     return hashlib.sha256((usuario.password_hash or "").encode()).hexdigest()[:12]
 
 
-def crear_token_acceso(usuario: models.Usuario, audiencia: Optional[str] = None) -> str:
+def crear_token_acceso(usuario: models.Usuario) -> str:
     expira = datetime.now(timezone.utc) + timedelta(hours=settings.SESION_HORAS)
     # Sin el carnet: el token solo identifica al usuario por su id.
     # jti: identifica este token para poder anularlo al cerrar la sesión.
     payload = {"sub": str(usuario.id), "exp": expira, "clave": huella_de_clave(usuario),
                "jti": secrets.token_hex(16)}
-    if audiencia:
-        payload["aud"] = audiencia
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 
 
@@ -88,42 +82,30 @@ def abrir_sesion(response: Response, usuario: models.Usuario) -> None:
     _poner_cookie(response, COOKIE_SESION, crear_token_acceso(usuario))
 
 
-def _anular_token(request: Optional[Request], db: Optional[Session], cookie: str,
-                  audiencia: Optional[str]) -> None:
+def _anular_token(request: Optional[Request], db: Optional[Session]) -> None:
     """Guarda el jti del token de la cookie: aunque alguien lo haya copiado, ya no sirve."""
-    token = request.cookies.get(cookie) if request is not None else None
+    token = request.cookies.get(COOKIE_SESION) if request is not None else None
     if not token or db is None:
         return
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"], audience=audiencia)
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
     except jwt.InvalidTokenError:
         return  # vencido o inválido: ya no vale
     if payload.get("jti") and not db.get(models.SesionCerrada, payload["jti"]):
         db.add(models.SesionCerrada(jti=payload["jti"],
                                     expira=datetime.fromtimestamp(payload["exp"], timezone.utc)))
-        if audiencia is None:  # salida de la intranet (las del OPAC no se registran)
-            from app.services import registro
-            usuario = db.get(models.Usuario, int(payload["sub"]))
-            db.info["ip"] = ip_de(request)
-            registro.anotar(db, "sesion", "salida", f"Salió de la intranet: {registro.nombre(usuario)}",
-                            actor=usuario, lector=usuario)
+        from app.services import registro
+        usuario = db.get(models.Usuario, int(payload["sub"]))
+        db.info["ip"] = ip_de(request)
+        registro.anotar(db, "sesion", "salida", f"Salió de la intranet: {registro.nombre(usuario)}",
+                        actor=usuario, lector=usuario)
         db.commit()
 
 
 def cerrar_sesion(response: Response, request: Optional[Request] = None,
                   db: Optional[Session] = None) -> None:
-    _anular_token(request, db, COOKIE_SESION, None)
+    _anular_token(request, db)
     _borrar_cookie(response, COOKIE_SESION)
-
-
-def abrir_sesion_opac(response: Response, usuario: models.Usuario) -> None:
-    _poner_cookie(response, COOKIE_OPAC, crear_token_acceso(usuario, AUDIENCIA_OPAC))
-
-
-def cerrar_sesion_opac(response: Response, request: Optional[Request] = None,
-                       db: Optional[Session] = None) -> None:
-    _anular_token(request, db, COOKIE_OPAC, AUDIENCIA_OPAC)
-    _borrar_cookie(response, COOKIE_OPAC)
 
 
 def verificar_origen(request: Request) -> None:
@@ -152,24 +134,19 @@ def ip_de(request: Optional[Request]) -> Optional[str]:
     return request.client.host if request is not None and request.client else None
 
 
-def marcar_actor(db: Session, request: Optional[Request], usuario: Optional[models.Usuario],
-                 desde_opac: bool = False) -> None:
+def marcar_actor(db: Session, request: Optional[Request], usuario: Optional[models.Usuario]) -> None:
     """Deja en la sesión de base de datos quién actúa (lo lee app/services/registro.py)."""
     db.info["actor_id"] = usuario.id if usuario else None
-    db.info["desde_opac"] = desde_opac
     db.info["ip"] = ip_de(request)
 
 
-def _usuario_del_token(request: Request, db: Session, cookie: str,
-                       audiencia: Optional[str]) -> models.Usuario:
-    token = request.cookies.get(cookie)
+def _usuario_del_token(request: Request, db: Session) -> models.Usuario:
+    token = request.cookies.get(COOKIE_SESION)
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                             detail="Se requiere iniciar sesión")
     try:
-        # Un token del OPAC trae audiencia y uno de la intranet no: ninguno sirve en el otro lado.
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"],
-                             audience=audiencia)
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="La sesión expiró, inicia sesión nuevamente")
     except jwt.InvalidTokenError:
@@ -186,7 +163,7 @@ def _usuario_del_token(request: Request, db: Session, cookie: str,
         raise HTTPException(status_code=401,
                             detail="La contraseña cambió: inicia sesión nuevamente")
     # Para el registro de acciones: quién actúa en esta petición y desde dónde.
-    marcar_actor(db, request, usuario, desde_opac=audiencia == AUDIENCIA_OPAC)
+    marcar_actor(db, request, usuario)
     if usuario.debe_cambiar_clave and request.url.path not in _SIN_CAMBIO_DE_CLAVE:
         from app.services.autenticacion import tiene_que_cambiar_clave
         if tiene_que_cambiar_clave(db, usuario):
@@ -198,18 +175,12 @@ def _usuario_del_token(request: Request, db: Session, cookie: str,
 CAMBIO_DE_CLAVE_PENDIENTE = "Tienes que elegir una contraseña nueva antes de seguir"
 _SIN_CAMBIO_DE_CLAVE = {
     "/api/v1/auth/me", "/api/v1/auth/password", "/api/v1/auth/logout",
-    "/api/v1/opac/account", "/api/v1/opac/account/password", "/api/v1/opac/logout",
 }
 
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> models.Usuario:
     """Usuario autenticado por la cookie de sesión de la intranet."""
-    return _usuario_del_token(request, db, COOKIE_SESION, None)
-
-
-def get_lector(request: Request, db: Session = Depends(get_db)) -> models.Usuario:
-    """Lector autenticado en el OPAC (su propia cuenta; cualquier usuario activo)."""
-    return _usuario_del_token(request, db, COOKIE_OPAC, AUDIENCIA_OPAC)
+    return _usuario_del_token(request, db)
 
 
 def requiere_personal(usuario: models.Usuario = Depends(get_current_user)) -> models.Usuario:

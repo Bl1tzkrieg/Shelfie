@@ -1,15 +1,34 @@
-"""Limpieza del registro de acciones, para cron o el Programador de tareas.
+"""Limpieza diaria, para cron o el Programador de tareas.
 
     python -m scripts.tareas
 
-Borra las anotaciones más viejas que los días de retención configurados
+Borra los intentos de acceso de más de un día, las sesiones cerradas cuyo token ya
+venció y las anotaciones del registro más viejas que los días de retención
 (Configuración → Registro de acciones; 0 = guardar todo).
 """
 
+import json
 import sys
+from datetime import timedelta
 
+from sqlalchemy.orm import Session
+
+from app import models
+from app.core.tiempo import ahora
 from app.database import SessionLocal
 from app.services import registro
+
+
+def limpiar(db: Session) -> dict:
+    """Hace la limpieza con su commit y devuelve cuántas filas borró de cada tabla."""
+    intentos = db.query(models.IntentoAcceso).filter(
+        models.IntentoAcceso.fecha < ahora() - timedelta(days=1)).delete(synchronize_session=False)
+    sesiones = db.query(models.SesionCerrada).filter(
+        models.SesionCerrada.expira < ahora()).delete(synchronize_session=False)
+    acciones = registro.depurar(db)
+    db.commit()
+    return {"intentos_borrados": intentos, "sesiones_borradas": sesiones,
+            "acciones_borradas": acciones}
 
 
 def main(argumentos) -> int:
@@ -18,11 +37,10 @@ def main(argumentos) -> int:
         return 0
     db = SessionLocal()
     try:
-        borradas = registro.depurar(db)
-        db.commit()
+        resultado = limpiar(db)
     finally:
         db.close()
-    print(f"Anotaciones borradas del registro: {borradas}")
+    print(json.dumps(resultado, ensure_ascii=False))
     return 0
 
 

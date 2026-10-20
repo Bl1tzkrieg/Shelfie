@@ -24,32 +24,15 @@ class Settings(BaseSettings):
     # Zona horaria de la biblioteca: define "qué día es" para vencimientos y calendario.
     ZONA_HORARIA: str = "America/Caracas"
 
-    # --- Avisos por correo (Fase 7) ---
-    # archivo: cada correo se guarda como .eml en CARPETA_CORREO (desarrollo, sin servidor).
-    # smtp: se envía por el servidor SMTP de abajo. desactivado: quedan en la cola.
-    CORREO_MODO: str = "archivo"
-    CARPETA_CORREO: str = "correo_saliente"
-    CORREO_REMITENTE: str = "Biblioteca <biblioteca@localhost>"
-    SMTP_HOST: str = ""
-    SMTP_PUERTO: int = 587
-    SMTP_USUARIO: str = ""
-    SMTP_CLAVE: str = ""
-    # starttls (puerto 587), ssl (puerto 465) o ninguno.
-    SMTP_SEGURIDAD: str = "starttls"
-    # Dirección pública del frontend: los enlaces de los correos apuntan aquí.
-    URL_PUBLICA: str = "http://localhost:3000"
-    # Tareas programadas dentro del propio backend: envía la cola cada pocos minutos y
-    # corre las diarias (recordatorios, vencidos, reservas) una vez al día desde HORA_TAREAS.
-    # Apagado, se corren con `python -m scripts.tareas` desde cron o el Programador de tareas.
-    TAREAS_AUTOMATICAS: bool = True
-    HORA_TAREAS: str = "06:00"
-
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     class Config:
         env_file = ".env"
+        # Un .env de Shelfie completo (correo, tareas automáticas) sigue sirviendo: lo que
+        # lite ya no usa se ignora en vez de impedir el arranque.
+        extra = "ignore"
 
 
 def problema_de_clave(s: "Settings") -> str | None:

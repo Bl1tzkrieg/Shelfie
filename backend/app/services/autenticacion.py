@@ -1,4 +1,4 @@
-"""Login de la intranet y del OPAC, y cambio de contraseña."""
+"""Login de la intranet y cambio de la propia contraseña."""
 
 from typing import Optional
 
@@ -91,15 +91,6 @@ def autenticar_personal(db: Session, identificador: str, password: str,
     return usuario
 
 
-def autenticar_lector(db: Session, identificador: str, password: str,
-                      ip: Optional[str] = None):
-    """Login del OPAC: cualquier usuario activo entra a su propia cuenta."""
-    usuario = _verificar(db, identificador, password, ip, "Carnet o contraseña incorrectos")
-    if not usuario.activo:
-        raise AccesoDenegado("Tu cuenta está suspendida: consulta en la biblioteca")
-    return usuario
-
-
 def tiene_que_cambiar_clave(db: Session, usuario: models.Usuario) -> bool:
     return bool(usuario.debe_cambiar_clave) and bool(_seguridad(db)["forzar_cambio_clave"])
 
@@ -126,21 +117,4 @@ def cambiar_clave(db: Session, usuario: models.Usuario, actual: str, nueva: str)
     usuario.debe_cambiar_clave = False
     registro.anotar(db, "sesion", "clave_cambiada",
                     f"{registro.nombre(usuario)} cambió su contraseña", lector=usuario)
-    db.commit()
-
-
-def restablecer_clave(db: Session, actor: models.Usuario, usuario: models.Usuario,
-                      nueva: str) -> None:
-    """Restablecimiento por el personal. La de otro miembro del personal, solo un superbibliotecario."""
-    from app.core.permisos import Permiso, tiene
-    if usuario.es_personal and not tiene(actor.permisos, Permiso.SUPERBIBLIOTECARIO):
-        raise AccesoDenegado(
-            "Solo un superbibliotecario puede restablecer la contraseña de otro miembro del personal")
-    if usuario.id == actor.id:
-        raise ReglaIncumplida("Para tu propia contraseña usa «Cambiar contraseña»")
-    validar_clave_nueva(usuario, nueva)
-    usuario.password_hash = hash_password(nueva)
-    usuario.debe_cambiar_clave = True
-    registro.anotar(db, "sesion", "clave_restablecida",
-                    f"Restableció la contraseña de {registro.nombre(usuario)}", lector=usuario)
     db.commit()

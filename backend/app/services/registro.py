@@ -115,7 +115,7 @@ def anotar(db: Session, modulo: str, accion: str, descripcion: str, *,
     actor_id = _id(actor) if actor is not None else db.info.get("actor_id")
     db.add(R(
         fecha=ahora(), usuario_id=actor_id,
-        desde_opac=bool(db.info.get("desde_opac")) if actor is None else False,
+        desde_opac=False,  # la columna queda; en lite no hay OPAC
         modulo=modulo, accion=accion, descripcion=descripcion[:2000],
         lector_id=_id(lector), biblio_id=_id(biblio), item_id=_id(item),
         objeto_tipo=objeto[0] if objeto else None, objeto_id=objeto[1] if objeto else None,

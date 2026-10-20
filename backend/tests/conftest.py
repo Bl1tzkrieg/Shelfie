@@ -34,8 +34,6 @@ TEST_DATABASE_URL = _url_de_pruebas()
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 # Una clave de firma fuerte (con la de ejemplo el backend advierte al arrancar).
 os.environ["SECRET_KEY"] = "clave-de-pruebas-con-mas-de-treinta-y-dos-bytes"
-# Sin el planificador en segundo plano.
-os.environ["TAREAS_AUTOMATICAS"] = "false"
 
 from sqlalchemy.engine import make_url  # noqa: E402
 
