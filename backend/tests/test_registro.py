@@ -21,9 +21,15 @@ def test_cambio_de_rol(client, datos, db):
 
     [rol] = _acciones(db, modulo="configuracion")
     assert rol.accion == "permisos" and rol.datos["cambios"]["rol"] == ["catalogador", "administrador"]
-    assert rol.lector_id == ana.id
+    assert rol.usuario_afectado_id == ana.id
     # Se filtra por el username del usuario afectado.
-    assert client.get(LOGS, params={"lector": "ANA"}).json()["total"] == 1
+    pagina = client.get(LOGS, params={"usuario": "ANA"}).json()
+    assert pagina["total"] == 1
+    fila = pagina["filas"][0]
+    assert fila["usuario_afectado"] == "Staff ana" and fila["usuario_afectado_username"] == "ana"
+    assert "lector" not in fila and "lector_username" not in fila
+    assert client.get(LOGS, params={"usuario": "otro"}).json()["total"] == 0
+    assert not hasattr(models.RegistroAccion, "lector_id")
 
 
 def test_entradas_fallos_y_salidas_sin_la_contrasena(anonimo, datos, db):

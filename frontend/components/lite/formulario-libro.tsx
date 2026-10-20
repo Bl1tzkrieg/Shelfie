@@ -53,6 +53,11 @@ type CampoTexto = Exclude<keyof Valores, CampoLista>
 type CampoLista = "otros_autores" | "isbn" | "materias"
 
 const MAX_EJEMPLARES = 50
+/** Topes de la API (schemas.FichaLibro): la cota cabe en su columna y la descripción y las
+ * notas en un campo ISO 2709. La API cuenta 9000 bytes; aquí son caracteres (aproximado:
+ * una letra con tilde ocupa 2 bytes, y entonces avisa la API). */
+const MAX_COTA = 100
+const MAX_TEXTO_LARGO = 9000
 
 function vacio(): Valores {
   return {
@@ -339,7 +344,8 @@ export function FormularioLibro({ libro }: FormularioLibroProps) {
       <section className="space-y-4 rounded-lg border border-border bg-card p-4 sm:p-6">
         <Campo campo="cota" rotulo="Cota" obligatorio error={errores.cota}
                ayuda="Clase y librística, p. ej. 616.39 H37">
-          <Input {...props("cota")} ref={cota} required autoComplete="off" spellCheck={false}
+          <Input {...props("cota")} ref={cota} required maxLength={MAX_COTA} autoComplete="off"
+                 spellCheck={false}
                  className="font-mono text-lg" />
         </Campo>
         <Campo campo="titulo" rotulo="Título" obligatorio error={errores.titulo}>
@@ -388,10 +394,10 @@ export function FormularioLibro({ libro }: FormularioLibroProps) {
         <Lista campo="materias" rotulo="Materias" valores={valores.materias}
                error={errores.materias} onCambiar={cambiarLista} onAgregar={agregarALista} />
         <Campo campo="descripcion" rotulo="Descripción / resumen" error={errores.descripcion}>
-          <Textarea {...props("descripcion")} rows={3} />
+          <Textarea {...props("descripcion")} rows={3} maxLength={MAX_TEXTO_LARGO} />
         </Campo>
         <Campo campo="notas" rotulo="Notas" error={errores.notas}>
-          <Textarea {...props("notas")} rows={2} />
+          <Textarea {...props("notas")} rows={2} maxLength={MAX_TEXTO_LARGO} />
         </Campo>
       </section>
 
@@ -403,7 +409,7 @@ export function FormularioLibro({ libro }: FormularioLibroProps) {
           </Campo>
           <Campo campo="nota_ejemplares" rotulo="Nota de ejemplares" error={errores.nota_ejemplares}
                  ayuda="La misma para todos, p. ej. «Donación»">
-            <Input {...props("nota_ejemplares")} autoComplete="off" />
+            <Input {...props("nota_ejemplares")} maxLength={MAX_TEXTO_LARGO} autoComplete="off" />
           </Campo>
         </section>
       )}

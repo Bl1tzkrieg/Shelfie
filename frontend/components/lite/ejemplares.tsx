@@ -24,6 +24,10 @@ type Borrador = { cota: string; numero_copia: string; codigo_barras: string; not
 type CampoEjemplar = keyof Borrador
 
 const BORRADOR_VACIO: Borrador = { cota: "", numero_copia: "", codigo_barras: "", nota: "" }
+/** Los mismos topes que la API (schemas.EjemplarRequest). */
+const LARGO_MAXIMO: Record<keyof Borrador, number> = {
+  cota: 100, numero_copia: 20, codigo_barras: 50, nota: 9000,
+}
 
 function borradorDe(e: EjemplarLibro): Borrador {
   return {
@@ -265,6 +269,7 @@ function Entrada({ campo, rotulo, borrador, onCambio, placeholder, mono, autoFoc
       <Input
         id={id}
         value={borrador[campo]}
+        maxLength={LARGO_MAXIMO[campo]}
         placeholder={placeholder}
         autoFocus={autoFocus}
         autoComplete="off"

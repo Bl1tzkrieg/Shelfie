@@ -226,14 +226,24 @@ def test_exportar_iso2709_avisa_si_un_campo_no_cabe(client, datos, db):
 
 # --- Compatibilidad con Koha ---------------------------------------------------------
 
+FUERA_DE_LA_COMPARACION = {"001", "003", "005", "952", "999"}
+
+
 def _clave_bibliografica(r):
-    """Por registro: 245, 100, 020 y 650 (todos sus subcampos) y los 952 $o, $p y $t."""
-    def valores(tag):
-        return tuple(sorted(tuple((s.code, s.value) for s in c.subfields)
-                            for c in r.get_fields(tag)))
+    """Por registro: todos los campos (etiqueta, indicadores y subcampos, o el dato de un
+    campo de control) salvo 001, 003, 005, 952 y 999, y los 952 $o, $p y $t."""
+    campos = []
+    for c in r.get_fields():
+        if c.tag in FUERA_DE_LA_COMPARACION:
+            continue
+        if c.is_control_field():
+            campos.append((c.tag, c.data))
+        else:
+            campos.append((c.tag, tuple(c.indicators),
+                           tuple((s.code, s.value) for s in c.subfields)))
     ejemplares = tuple(sorted((c.get("o") or "", c.get("p") or "", c.get("t") or "")
                               for c in r.get_fields("952")))
-    return (valores("245"), valores("100"), valores("020"), valores("650"), ejemplares)
+    return (tuple(sorted(campos, key=repr)), ejemplares)
 
 
 def test_ida_y_vuelta_koha(client, datos):
@@ -260,19 +270,17 @@ def test_952_sin_codigo_se_importa(client, datos, db):
     assert [(i.codigo_barras, i.signatura_topografica, i.numero_copia) for i in items] == [
         (None, "001 S5", "c.1"), (None, "001 S5", "c.2")]
     biblio = db.query(models.RegistroBibliografico).one()
-    # La cota del registro sale del primer 952 $o y se escribe como 092.
+    # La cota del registro sale del primer 952 $o; el MARC no gana un 092.
     assert biblio.cota == "001 S5"
-    [f092] = [c["092"] for c in biblio.marc_json["fields"] if "092" in c]
-    assert f092["subfields"] == [{"a": "001"}, {"b": "S5"}]
+    assert not any("092" in c for c in biblio.marc_json["fields"])
 
 
 def test_cota_desde_082(client, datos, db):
     from tests.datos import koha_muestra
     _importar(client, koha_muestra.iso2709())
     quimica = db.query(models.RegistroBibliografico).filter_by(titulo="Química general").one()
-    assert quimica.cota == "540"
-    assert [c["092"]["subfields"] for c in quimica.marc_json["fields"] if "092" in c] == [
-        [{"a": "540"}]]
+    assert quimica.cota == "540 C43"  # 082 $a + $b
+    assert not any("092" in c for c in quimica.marc_json["fields"])
     # Si hay 092, manda el 092; y los 952 y 999 de Koha no quedan en el MARC guardado.
     barbara = db.query(models.RegistroBibliografico).filter(
         models.RegistroBibliografico.titulo.like("Doña%")).one()
@@ -285,7 +293,8 @@ def test_cota_desde_082(client, datos, db):
     registro.add_field(Field(tag="050", indicators=Indicators(" ", "4"),
                              subfields=[Subfield("a", "QA76.73"), Subfield("b", "P98")]))
     _importar(client, registro.as_marc())
-    assert db.query(models.RegistroBibliografico).filter_by(titulo="Con 050").one().cota == "QA76.73"
+    assert db.query(models.RegistroBibliografico).filter_by(
+        titulo="Con 050").one().cota == "QA76.73 P98"
 
 
 def test_importa_sin_cota(client, datos, db):
@@ -404,3 +413,45 @@ def test_avisa_lo_que_se_ignora_del_952(client, datos):
 
     from tests.datos import koha_muestra  # $1 = 0 en todos: no se pierde nada
     assert _importar(client, koha_muestra.iso2709(), modo="vista").json()["mensajes"] == []
+
+
+def test_cota_del_952_se_conserva_al_editar(client, db):
+    """Sin 092, 082 ni 050, la cota del registro es la del 952 y editar no la pierde."""
+    _importar(client, _mrc(_libro("Solo 952", ejemplares=[[("o", "001 S5"), ("p", "S-1")]])))
+    biblio = db.query(models.RegistroBibliografico).one()
+    antes = biblio.marc_json
+    marc = client.get(f"{URL}/items/{biblio.id}/marc").json()
+    assert client.put(f"{URL}/items/{biblio.id}/marc",
+                      json={"marc": marc["marc"], "plantilla": marc["plantilla"]}).status_code == 200
+    db.refresh(biblio)
+    assert biblio.cota == "001 S5"
+
+    vista = client.get(f"/api/v1/books/{biblio.id}").json()
+    assert vista["ficha"]["cota"] == "001 S5"  # el formulario muestra la cota del registro
+    assert client.put(f"/api/v1/books/{biblio.id}", json=vista["ficha"]).status_code == 200
+    db.refresh(biblio)
+    assert biblio.cota == "001 S5" and biblio.marc_json == antes  # sin cambios, nada cambia
+
+
+def test_cota_del_952_manda_sobre_el_082_tambien_al_guardar_la_ficha(client, db):
+    registro = _libro("Con 952 y 082", ejemplares=[[("o", "001 S5"), ("p", "S-2")]])
+    registro.add_field(Field(tag="082", indicators=Indicators("0", "4"),
+                             subfields=[Subfield("a", "540")]))
+    _importar(client, registro.as_marc())
+    biblio = db.query(models.RegistroBibliografico).one()
+    assert biblio.cota == "001 S5"
+
+    vista = client.get(f"/api/v1/books/{biblio.id}").json()
+    assert vista["ficha"]["cota"] == "001 S5"
+    assert client.put(f"/api/v1/books/{biblio.id}", json=vista["ficha"]).status_code == 200
+    db.refresh(biblio)
+    assert biblio.cota == "001 S5"
+
+
+def test_duplicado_por_el_segundo_isbn_al_importar(client, datos, db):
+    r = client.post("/api/v1/books", json={"ficha": {
+        "cota": "1 A", "titulo": "Existente", "isbn": ["9780307474728", "9788497592208"]},
+        "ejemplares": 0})
+    assert r.status_code == 201, r.text
+    r = _importar(client, _mrc(_libro("Entrante", isbn="978-84-9759-220-8")), modo="vista").json()
+    assert r["omitidos"] == 1, r

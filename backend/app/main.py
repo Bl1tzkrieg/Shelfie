@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 
 from app import estaticos
-from app.config import comprobar_clave_de_firma, settings
+from app.config import Settings, comprobar_clave_de_firma, settings
 from app.core.errores import ErrorDeNegocio
 from app.routers import (
     auth,
@@ -21,10 +21,20 @@ from app.routers import (
 
 comprobar_clave_de_firma(settings)
 
+
+def opciones_de_documentacion(s: Settings) -> dict:
+    """En producción no se publican /docs, /redoc ni /openapi.json: el mapa de la API no
+    tiene por qué estar a la vista de cualquiera en la red de la biblioteca."""
+    if s.ENTORNO.strip().lower() == "produccion":
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {}
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="Backend transaccional modular para el sistema de automatización bibliotecaria Shelfie.",
     version="1.0.0",
+    **opciones_de_documentacion(settings),
 )
 
 app.add_middleware(

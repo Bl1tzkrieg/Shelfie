@@ -226,7 +226,8 @@ def test_encontrar_pg_dump_orden_de_busqueda(tmp_path, monkeypatch):
         exe = tmp_path / version / "bin" / "pg_dump.exe"
         exe.parent.mkdir(parents=True)
         exe.write_text("")
-    propio = tmp_path / "propio.exe"
+    propio = tmp_path / "propio" / "pg_dump.exe"
+    propio.parent.mkdir()
     propio.write_text("")
 
     # 1. la ruta configurada, si existe
@@ -351,3 +352,103 @@ def test_pg_dump_configurado_entre_comillas(tmp_path):
     exe.write_text("")
 
     assert respaldo.encontrar_pg_dump(f'"{exe}"', base_windows=str(tmp_path / "nada")) == str(exe)
+
+
+# --- Un campo que no cabe en ISO 2709 no tumba el respaldo ---------------------------
+
+def _con_resumen_largo(datos, titulo, largo):
+    b = datos.titulo(titulo, isbn=None)
+    b.marc_json = {"leader": "00000nam a22000007i 4500", "fields": [
+        {"245": {"ind1": "0", "ind2": "0", "subfields": [{"a": titulo}]}},
+        {"520": {"ind1": " ", "ind2": " ", "subfields": [{"a": "x" * largo}]}}]}
+    return b
+
+
+def test_campo_largo_deja_el_respaldo_ok_con_aviso(db, datos, tmp_path, monkeypatch):
+    _falso_pg_dump(monkeypatch)
+    largo = _con_resumen_largo(datos, "Resumen enorme", 12000)
+    corto = datos.titulo("Libro corto", isbn=None)
+    corto.marc_json = {"leader": "00000nam a22000007i 4500", "fields": [
+        {"245": {"ind1": "0", "ind2": "0", "subfields": [{"a": "Libro corto"}]}}]}
+    db.commit()
+
+    r = respaldo.ejecutar(db, carpeta=str(tmp_path), ahora=AHORA)
+
+    assert r["ok"] is True, r["mensaje"]
+    assert r["aviso"] and "Resumen enorme" in r["aviso"]
+    creada = tmp_path / CARPETA_DEL_AHORA
+    assert sorted(p.name for p in creada.iterdir()) == [
+        "LEEME.txt", "base.dump", "catalogo.csv", "catalogo.mrc", "catalogo.xml"]
+    assert (creada / "base.dump").read_bytes() == b"PGDMP"
+    assert "Resumen enorme" in (creada / "catalogo.xml").read_text(encoding="utf-8")
+    mrc = (creada / "catalogo.mrc").read_bytes()
+    assert b"Libro corto" in mrc and b"Resumen enorme" not in mrc
+    leeme = (creada / "LEEME.txt").read_text(encoding="utf-8")
+    assert "Resumen enorme" in leeme and f"registro {largo.id}" in leeme
+    assert "catalogo.xml" in leeme
+    e = respaldo.estado(db, ahora=AHORA)
+    assert e["ultimo"]["ok"] is True and e["ultimo_ok"] == e["ultimo"]["fecha"]
+    assert "Resumen enorme" in e["ultimo"]["aviso"]
+    assert e["alerta"] is False
+
+
+def test_respaldo_sin_avisos_no_trae_aviso(db, tmp_path, monkeypatch):
+    _falso_pg_dump(monkeypatch)
+
+    r = respaldo.ejecutar(db, carpeta=str(tmp_path), ahora=AHORA)
+
+    assert r["ok"] is True and r["aviso"] is None
+    assert respaldo.estado(db, ahora=AHORA)["ultimo"]["aviso"] is None
+
+
+# --- pg_dump: solo un pg_dump de verdad, nunca un programa cualquiera -------------------
+
+@pytest.mark.parametrize("ruta", [
+    r"C:\Windows\System32\cmd.exe",
+    r"C:\Program Files\PostgreSQL\16\bin\psql.exe",
+    r"\\servidor\compartida\pg_dump.exe",
+    "//servidor/compartida/pg_dump.exe",
+    r"C:\Users\ana\Downloads\pg_dump.exe",
+    r"c:\users\ana\pg_dump.exe",
+    "C:/Users/Public/pg_dump.exe",
+    r"C:\Program Files\PostgreSQL\16\bin\..\..\..\..\Users\ana\pg_dump.exe",
+    "pg_dump.exe.bat",
+])
+def test_pg_dump_no_valido_se_rechaza_al_guardar(client, ruta):
+    r = client.put("/api/v1/settings", json={"respaldo": {"pg_dump": ruta}})
+
+    assert r.status_code == 422, r.text
+    assert "pg_dump" in r.text
+    assert client.get("/api/v1/settings").json()["respaldo"].get("pg_dump") is None
+
+
+@pytest.mark.parametrize("ruta", [
+    r"C:\Program Files\PostgreSQL\16\bin\pg_dump.exe",
+    r'"C:\Program Files\PostgreSQL\16\bin\pg_dump.exe"',
+    "/usr/lib/postgresql/16/bin/pg_dump",
+    "",
+])
+def test_pg_dump_valido_se_guarda(client, ruta):
+    r = client.put("/api/v1/settings", json={"respaldo": {"pg_dump": ruta}})
+
+    assert r.status_code == 200, r.text
+
+
+def test_perfiles_segun_public(monkeypatch):
+    monkeypatch.setenv("PUBLIC", r"D:\Perfiles\Public")
+    assert respaldo.problema_pg_dump(r"D:\Perfiles\ana\pg_dump.exe")
+    assert respaldo.problema_pg_dump(r"D:\Programas\pg_dump.exe") is None
+
+
+def test_pg_dump_no_valido_se_rechaza_al_ejecutar(db, tmp_path, monkeypatch):
+    llamadas = []
+    monkeypatch.setattr(respaldo.subprocess, "run", lambda *a, **k: llamadas.append(a))
+    falso = tmp_path / "cmd.exe"
+    falso.write_text("")
+    _config(db, pg_dump=str(falso))  # guardado por fuera de la API (p. ej. a mano en la base)
+
+    r = respaldo.ejecutar(db, carpeta=str(tmp_path), ahora=AHORA)
+
+    assert r["ok"] is False and "pg_dump" in r["mensaje"]
+    assert llamadas == []
+    assert respaldo.encontrar_pg_dump(str(falso), base_windows=str(tmp_path / "nada")) != str(falso)

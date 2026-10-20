@@ -152,3 +152,28 @@ def test_ficha_publica_sin_codigos(anonimo, client, libros):
     assert len(cuerpo["ejemplares"]) == 3
     assert "marc" not in r.text.lower()
     assert anonimo.get(f"{URL}/999999").status_code == 404
+
+
+# --- Puntos de acceso repetidos: todas las materias, todos los autores, todos los ISBN ----
+
+@pytest.fixture()
+def repetidos(client):
+    return alta(client, "Bioquímica ilustrada", "572 M8", autor="Murray, Robert",
+                otros_autores=["Rodwell, Victor", "Bender, David"],
+                materias=["Bioquímica", "Medicina clínica"],
+                isbn=["978-0-07-176576-3", "607-15-0914-5"])
+
+
+@pytest.mark.parametrize("campo,q", [
+    ("materia", "medicina"), ("todo", "medicina"), ("materia", "bioquimica"),
+    ("autor", "rodwell"), ("todo", "rodwell"), ("autor", "bender"), ("autor", "murray"),
+    ("isbn", "607-15-0914-5"), ("isbn", "6071509145"), ("todo", "607-15-0914-5"),
+    ("todo", "6071509145"), ("isbn", "9780071765763"),
+])
+def test_encuentra_puntos_de_acceso_repetidos(anonimo, repetidos, campo, q):
+    assert _titulos(anonimo.get(URL, params={"q": q, "campo": campo})) == ["Bioquímica ilustrada"]
+
+
+def test_isbn_no_se_arma_cruzando_dos_isbn(anonimo, repetidos):
+    # El final de uno y el principio del otro no forman un ISBN.
+    assert _titulos(anonimo.get(URL, params={"q": "57636071", "campo": "isbn"})) == []

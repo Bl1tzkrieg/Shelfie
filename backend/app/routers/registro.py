@@ -21,12 +21,13 @@ CONSULTA = [Depends(requiere(Permiso.SUPERBIBLIOTECARIO))]
 
 def _filtros(modulo: Optional[str] = None, accion: Optional[str] = None,
              actor: Optional[str] = Query(None, description="Usuario (username) de quien actuó; «sistema»"),
-             lector: Optional[str] = Query(None, description="Usuario (username) afectado"),
+             usuario: Optional[str] = Query(
+                 None, description="Usuario (username) del personal afectado (alta, rol, clave)"),
              biblio_id: Optional[int] = None,
              codigo: Optional[str] = Query(None, description="Código de barras del ejemplar"),
              desde: Optional[date] = None, hasta: Optional[date] = None,
              q: Optional[str] = Query(None, description="Texto en la descripción")) -> dict:
-    return {"modulo": modulo, "accion": accion, "actor": actor, "lector": lector,
+    return {"modulo": modulo, "accion": accion, "actor": actor, "usuario": usuario,
             "biblio_id": biblio_id, "codigo": codigo, "desde": desde, "hasta": hasta, "q": q}
 
 

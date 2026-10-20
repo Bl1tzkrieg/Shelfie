@@ -101,13 +101,14 @@ def _id(objeto) -> Optional[int]:
 
 
 def anotar(db: Session, modulo: str, accion: str, descripcion: str, *,
-           lector=None, biblio=None, item=None,
+           usuario_afectado=None, biblio=None, item=None,
            objeto: Optional[Tuple[str, Optional[int]]] = None,
            datos: Optional[dict] = None, actor=None, forzar: bool = False) -> None:
     """Agrega una anotación a la sesión (sin commit: entra con el de la operación).
 
-    `lector` (el usuario del personal afectado), `biblio` e `item` aceptan el objeto o su id. `actor` solo hace falta cuando
-    no hay sesión abierta todavía (p. ej. al entrar).
+    `usuario_afectado` (el miembro del personal al que se refiere: alta, rol, clave), `biblio` e
+    `item` aceptan el objeto o su id. `actor` solo hace falta cuando no hay sesión abierta
+    todavía (p. ej. al entrar).
     """
     if modulo not in MODULOS:
         raise ValueError(f"Módulo de registro desconocido: {modulo}")
@@ -117,7 +118,7 @@ def anotar(db: Session, modulo: str, accion: str, descripcion: str, *,
     db.add(R(
         fecha=ahora(), usuario_id=actor_id,
         modulo=modulo, accion=accion, descripcion=descripcion[:2000],
-        lector_id=_id(lector), biblio_id=_id(biblio), item_id=_id(item),
+        usuario_afectado_id=_id(usuario_afectado), biblio_id=_id(biblio), item_id=_id(item),
         objeto_tipo=objeto[0] if objeto else None, objeto_id=objeto[1] if objeto else None,
         datos=_sin_secretos(datos) if datos else None,
         ip=db.info.get("ip"),
@@ -149,10 +150,10 @@ def nombre(u: Optional[models.Usuario]) -> str:
 # --- Consultar ------------------------------------------------------------------------
 
 def _filtrar(db: Session, filtros: dict):
-    Actor, Lector = aliased(models.Usuario), aliased(models.Usuario)
-    consulta = db.query(R, Actor, Lector, models.RegistroBibliografico, models.Item).outerjoin(
+    Actor, Afectado = aliased(models.Usuario), aliased(models.Usuario)
+    consulta = db.query(R, Actor, Afectado, models.RegistroBibliografico, models.Item).outerjoin(
         Actor, Actor.id == R.usuario_id).outerjoin(
-        Lector, Lector.id == R.lector_id).outerjoin(
+        Afectado, Afectado.id == R.usuario_afectado_id).outerjoin(
         models.RegistroBibliografico, models.RegistroBibliografico.id == R.biblio_id).outerjoin(
         models.Item, models.Item.id == R.item_id)
     if filtros.get("modulo"):
@@ -165,8 +166,9 @@ def _filtrar(db: Session, filtros: dict):
             consulta = consulta.filter(R.usuario_id.is_(None))
         else:
             consulta = consulta.filter(func.lower(Actor.username) == quien.lower())
-    if filtros.get("lector"):
-        consulta = consulta.filter(func.lower(Lector.username) == filtros["lector"].strip().lower())
+    if filtros.get("usuario"):
+        consulta = consulta.filter(
+            func.lower(Afectado.username) == filtros["usuario"].strip().lower())
     if filtros.get("biblio_id"):
         consulta = consulta.filter(R.biblio_id == filtros["biblio_id"])
     if filtros.get("codigo"):
@@ -181,7 +183,7 @@ def _filtrar(db: Session, filtros: dict):
     return consulta
 
 
-def _fila(r: models.RegistroAccion, actor, lector, biblio, item) -> dict:
+def _fila(r: models.RegistroAccion, actor, afectado, biblio, item) -> dict:
     return {
         "id": r.id,
         "fecha": formatear_fecha_hora(r.fecha),
@@ -192,8 +194,8 @@ def _fila(r: models.RegistroAccion, actor, lector, biblio, item) -> dict:
         "descripcion": r.descripcion,
         "actor": (f"{actor.nombre} {actor.apellido}" if actor else "Sistema"),
         "actor_username": actor.username if actor else None,
-        "lector": f"{lector.nombre} {lector.apellido}" if lector else None,
-        "lector_username": lector.username if lector else None,
+        "usuario_afectado": f"{afectado.nombre} {afectado.apellido}" if afectado else None,
+        "usuario_afectado_username": afectado.username if afectado else None,
         "biblio_id": r.biblio_id,
         "titulo": biblio.titulo if biblio else None,
         "codigo_barras": item.codigo_barras if item else None,
@@ -213,7 +215,7 @@ def consultar(db: Session, filtros: dict, pagina: int = 1, por_pagina: int = 50)
 
 
 COLUMNAS_EXPORTACION = ["fecha", "modulo", "accion_nombre", "descripcion", "actor",
-                        "actor_username", "lector", "lector_username", "titulo", "codigo_barras",
+                        "actor_username", "usuario_afectado", "usuario_afectado_username", "titulo", "codigo_barras",
                         "ip"]
 
 

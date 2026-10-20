@@ -27,10 +27,10 @@ class Usuario(Base):
 # Texto que indexa la búsqueda. `shelfie_es` = español sin acentos (migración 0001_lite).
 EXPRESION_BUSQUEDA = (
     "setweight(to_tsvector('shelfie_es'::regconfig, coalesce(titulo, '')), 'A') || "
-    "setweight(to_tsvector('shelfie_es'::regconfig, coalesce(autor, '')), 'B') || "
-    "setweight(to_tsvector('shelfie_es'::regconfig, coalesce(materia, '')), 'C') || "
+    "setweight(to_tsvector('shelfie_es'::regconfig, coalesce(autores, '')), 'B') || "
+    "setweight(to_tsvector('shelfie_es'::regconfig, coalesce(materias, '')), 'C') || "
     "setweight(to_tsvector('shelfie_es'::regconfig, coalesce(editorial, '')), 'C') || "
-    "setweight(to_tsvector('simple'::regconfig, coalesce(isbn, '')), 'D') || "
+    "setweight(to_tsvector('simple'::regconfig, coalesce(isbns, '')), 'D') || "
     "setweight(to_tsvector('simple'::regconfig, coalesce(cota, '')), 'D')"
 )
 
@@ -47,8 +47,15 @@ class RegistroBibliografico(Base):
     ano_publicacion = Column(Integer, nullable=True)
     materia = Column(String(100), nullable=True)
     editorial = Column(Text, nullable=True)
-    # Cota del título (092 $a + $b), normalizada con core.signaturas.normalizar_cota.
+    # Cota del título (092 $a + $b; si no hay, 082 o 050), normalizada con
+    # core.signaturas.normalizar_cota.
     cota = Column(String(100), nullable=True)
+    # Todos los puntos de acceso repetibles, para buscar (las columnas de arriba guardan solo
+    # el primero): materias (650 y 653 $a, unidas por « | »), autores (1XX y todos los
+    # 700/710 $a, unidos por « | ») e ISBN (todos los 020 $a normalizados, separados por espacio).
+    materias = Column(Text, nullable=True)
+    autores = Column(Text, nullable=True)
+    isbns = Column(Text, nullable=True)
     # Registro MARC21 (MARC-in-JSON). Es la fuente: las columnas de arriba se derivan
     # de él al guardar (app/services/marc.py).
     marc_json = Column(JSONB, nullable=False)
@@ -123,7 +130,7 @@ class RegistroAccion(Base):
     """Registro de acciones (action_logs de Koha): quién hizo qué, cuándo y sobre qué.
 
     `usuario_id` es quien actuó (NULL = el sistema, p. ej. una tarea programada).
-    `lector_id` es el usuario del personal afectado (alta, rol, clave), y `biblio_id` e
+    `usuario_afectado_id` es el usuario del personal afectado (alta, rol, clave), y `biblio_id` e
     `item_id` el registro y el ejemplar, para ver el historial de una ficha. `datos`
     guarda el detalle (antes/después).
     """
@@ -138,8 +145,8 @@ class RegistroAccion(Base):
     modulo = Column(String(20), nullable=False)
     accion = Column(String(30), nullable=False)
     descripcion = Column(Text, nullable=False)
-    lector_id = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True,
-                       index=True)
+    usuario_afectado_id = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"),
+                                 nullable=True, index=True)
     biblio_id = Column(Integer, ForeignKey("registros_bibliograficos.id", ondelete="SET NULL"),
                        nullable=True, index=True)
     item_id = Column(Integer, ForeignKey("items.id", ondelete="SET NULL"), nullable=True,

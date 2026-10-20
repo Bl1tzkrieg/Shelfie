@@ -187,11 +187,13 @@ class Datos:
         return u
 
     def titulo(self, titulo="Cien años de soledad", isbn="9780307474728", **extra):
+        autor = extra.pop("autor", "Gabriel García Márquez")
+        materia = extra.pop("materia", "Literatura")
         b = models.RegistroBibliografico(
-            titulo=titulo, isbn=isbn,
-            autor=extra.pop("autor", "Gabriel García Márquez"),
+            titulo=titulo, isbn=isbn, isbns=isbn,
+            autor=autor, autores=autor,
             ano_publicacion=extra.pop("ano", 1967),
-            materia=extra.pop("materia", "Literatura"),
+            materia=materia, materias=materia,
             marc_json={"leader": "", "fields": []},
             **extra,
         )

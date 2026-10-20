@@ -8,8 +8,9 @@ aquí.
 - Configuración de búsqueda `shelfie_es`: la de español de PostgreSQL con los acentos
   quitados antes de reducir a la raíz. Así "arbol" encuentra "Árboles" y "garcia"
   encuentra "García".
-- `registros_bibliograficos.busqueda`: tsvector generado (título A, autor B, materia y
-  editorial C, ISBN y cota D) con índice GIN. Lo mantiene PostgreSQL.
+- `registros_bibliograficos.busqueda`: tsvector generado (título A, autores B, materias y
+  editorial C, los ISBN y la cota D) con índice GIN. Lo mantiene PostgreSQL. `materias`,
+  `autores` e `isbns` guardan todos los puntos de acceso repetidos (650, 1XX/700/710, 020).
 - `items.codigo_barras` es opcional: el índice único es parcial (solo los no nulos).
 
 Revision ID: 0001_lite
@@ -29,10 +30,10 @@ depends_on: Union[str, Sequence[str], None] = None
 # Debe coincidir con models.EXPRESION_BUSQUEDA (el test de migraciones lo vigila).
 EXPRESION = (
     "setweight(to_tsvector('shelfie_es'::regconfig, coalesce(titulo, '')), 'A') || "
-    "setweight(to_tsvector('shelfie_es'::regconfig, coalesce(autor, '')), 'B') || "
-    "setweight(to_tsvector('shelfie_es'::regconfig, coalesce(materia, '')), 'C') || "
+    "setweight(to_tsvector('shelfie_es'::regconfig, coalesce(autores, '')), 'B') || "
+    "setweight(to_tsvector('shelfie_es'::regconfig, coalesce(materias, '')), 'C') || "
     "setweight(to_tsvector('shelfie_es'::regconfig, coalesce(editorial, '')), 'C') || "
-    "setweight(to_tsvector('simple'::regconfig, coalesce(isbn, '')), 'D') || "
+    "setweight(to_tsvector('simple'::regconfig, coalesce(isbns, '')), 'D') || "
     "setweight(to_tsvector('simple'::regconfig, coalesce(cota, '')), 'D')"
 )
 
@@ -83,6 +84,9 @@ def upgrade() -> None:
         sa.Column("materia", sa.String(100), nullable=True),
         sa.Column("editorial", sa.Text(), nullable=True),
         sa.Column("cota", sa.String(100), nullable=True),
+        sa.Column("materias", sa.Text(), nullable=True),
+        sa.Column("autores", sa.Text(), nullable=True),
+        sa.Column("isbns", sa.Text(), nullable=True),
         sa.Column("marc_json", postgresql.JSONB(), nullable=False),
         sa.Column("plantilla", sa.String(10), nullable=False, server_default="BKS"),
         sa.Column("busqueda", postgresql.TSVECTOR(),
@@ -162,7 +166,7 @@ def upgrade() -> None:
         sa.Column("modulo", sa.String(20), nullable=False),
         sa.Column("accion", sa.String(30), nullable=False),
         sa.Column("descripcion", sa.Text(), nullable=False),
-        sa.Column("lector_id", sa.Integer(),
+        sa.Column("usuario_afectado_id", sa.Integer(),
                   sa.ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True),
         sa.Column("biblio_id", sa.Integer(),
                   sa.ForeignKey("registros_bibliograficos.id", ondelete="SET NULL"),
@@ -174,7 +178,7 @@ def upgrade() -> None:
         sa.Column("datos", postgresql.JSONB(), nullable=True),
         sa.Column("ip", sa.String(64), nullable=True),
     )
-    for columna in ("fecha", "usuario_id", "lector_id", "biblio_id", "item_id"):
+    for columna in ("fecha", "usuario_id", "usuario_afectado_id", "biblio_id", "item_id"):
         op.create_index(f"ix_registro_acciones_{columna}", "registro_acciones", [columna])
     op.create_index("ix_registro_acciones_modulo_fecha", "registro_acciones",
                     ["modulo", "fecha"])

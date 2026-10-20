@@ -6,7 +6,9 @@ raíz. La última palabra se busca como prefijo, para que funcione mientras se e
 ("bioqui" ya encuentra "Bioquímica de Harper").
 
 En `todo` se suman tres vías: el texto, la cota por prefijo (en el registro o en alguno de sus
-ejemplares) y el ISBN con o sin guiones. En los demás campos solo vale esa vía.
+ejemplares) y el ISBN con o sin guiones. En los demás campos solo vale esa vía. Autor, materia e
+ISBN miran todos los puntos de acceso del registro (columnas `autores`, `materias` e `isbns`:
+todos los 1XX/700/710, 650 y 020), no solo el primero.
 
 Una consulta sin términos útiles ("de la", "¿?", "-") no llega a la base: da cero resultados.
 """
@@ -20,12 +22,13 @@ from app import models
 from app.core.errores import ReglaIncumplida
 from app.core.signaturas import clave_signatura_sql, escapar_like, normalizar_cota
 from app.services import ficha as ficha_svc
+from app.services.catalogo import isbn_parcial, tiene_isbn
 
 RB = models.RegistroBibliografico
 Item = models.Item
 CONFIG = "shelfie_es"
 CAMPOS = ("todo", "titulo", "autor", "materia", "cota", "isbn", "editorial")
-_COLUMNAS_DE_TEXTO = {"titulo": RB.titulo, "autor": RB.autor, "materia": RB.materia,
+_COLUMNAS_DE_TEXTO = {"titulo": RB.titulo, "autor": RB.autores, "materia": RB.materias,
                       "editorial": RB.editorial}
 
 _PALABRA = re.compile(r"\w+", re.UNICODE)
@@ -34,10 +37,6 @@ _ISBN = re.compile(r"^[0-9][0-9\- ]{8,16}[0-9Xx]$")
 
 def _digitos_isbn(texto: str) -> str:
     return re.sub(r"[^0-9Xx]", "", texto or "").upper()
-
-
-def _isbn_sin_signos():
-    return func.upper(func.regexp_replace(func.coalesce(RB.isbn, ""), "[^0-9Xx]", "", "g"))
 
 
 def _consulta_de_texto(db: Session, texto: str):
@@ -72,8 +71,8 @@ def _condicion_isbn(texto: str, *, exacto: bool):
     if not digitos:
         return None
     if exacto:
-        return _isbn_sin_signos() == digitos
-    return _isbn_sin_signos().like(f"%{digitos}%")
+        return tiene_isbn([digitos])
+    return isbn_parcial(digitos)
 
 
 def _condicion(db: Session, texto: str, campo: str):

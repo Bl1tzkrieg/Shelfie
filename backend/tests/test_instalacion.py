@@ -278,3 +278,15 @@ def test_empaquetar_restaura_sin_pisar_un_env_local_nuevo():
     assert "FALLO_AL_DEVOLVER" in script
     assert 'mv -n "$f" "$destino"' in script
     assert ".env*.apartado-*" in (RAIZ / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+
+def test_la_prueba_del_respaldo_espera_a_que_la_tarea_arranque():
+    """LastTaskResult se lee después de que la tarea pasó por Running (o del tope), no antes."""
+    instalar = _texto("instalar.ps1")
+    arranque = instalar.index("Start-ScheduledTask -TaskName $TareaRespaldo")
+    lectura = instalar.index("LastTaskResult", arranque)
+    tramo = instalar[arranque:lectura]
+    assert "$arranco" in tramo and "LastRunTime" in tramo
+    espera = tramo.index("$arranco")
+    assert tramo.index("-eq 'Running'") > espera  # primero espera el arranque, después el fin
+    assert "if (-not $arranco)" in instalar[arranque:]

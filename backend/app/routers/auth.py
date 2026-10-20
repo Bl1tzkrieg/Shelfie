@@ -22,6 +22,7 @@ def login(payload: schemas.LoginRequest, request: Request, response: Response,
 
 @router.post("/logout", status_code=204)
 def logout(response: Response, request: Request, db: Session = Depends(get_db)):
+    verificar_origen(request)  # otro sitio no puede cerrarle la sesión a nadie
     cerrar_sesion(response, request, db)
 
 

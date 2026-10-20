@@ -19,7 +19,8 @@ from app.schemas import FichaLibro
 from app.services import ficha as ficha_svc
 from app.services import marc as marc_svc
 from app.services import registro
-from app.services.catalogo import aplicar_marc, obtener_registro
+from app.services.catalogo import (aplicar_marc, mover_ejemplares_de_cota, obtener_registro,
+                                   tiene_isbn)
 
 RB = models.RegistroBibliografico
 Item = models.Item
@@ -80,13 +81,20 @@ def _vista_ejemplar(item: models.Item) -> dict:
             "nota": item.nota}
 
 
+def _ficha(biblio: models.RegistroBibliografico) -> dict:
+    """La ficha del formulario. Sin 092 (importado de Koha, con la cota del 952, el 082 o el
+    050) muestra la cota guardada del registro. Un registro sin cota ni 245 $a trae la ficha
+    sin validar (cota vacía): se muestra igual para poder completarla."""
+    datos = ficha_svc.desde_marc(biblio.marc_json).model_dump()
+    datos["cota"] = datos["cota"] or biblio.cota or ""
+    return datos
+
+
 def _vista(db: Session, biblio: models.RegistroBibliografico) -> dict:
     items = sorted(_ejemplares(db, biblio.id), key=_orden_de_copia)
     return {
         "id": biblio.id,
-        # Un registro importado sin 092 o sin 245 $a trae la ficha sin validar (cota vacía):
-        # se muestra igual para poder completarla.
-        "ficha": ficha_svc.desde_marc(biblio.marc_json).model_dump(),
+        "ficha": _ficha(biblio),
         "ejemplares": [_vista_ejemplar(i) for i in items],
         "creado_en": biblio.creado_en,
         "actualizado_en": biblio.actualizado_en,
@@ -98,7 +106,7 @@ def ficha_publica(db: Session, biblio_id: int) -> dict:
     biblio = obtener_registro(db, biblio_id)
     items = sorted(_ejemplares(db, biblio.id), key=_orden_de_copia)
     return {
-        "ficha": ficha_svc.desde_marc(biblio.marc_json).model_dump(),
+        "ficha": _ficha(biblio),
         "ejemplares": [{"cota": i.signatura_topografica, "numero_copia": i.numero_copia,
                         "nota": i.nota} for i in items],
     }
@@ -110,13 +118,9 @@ def sin_acentos(expresion):
 
 # --- Duplicados ----------------------------------------------------------------------
 
-def _digitos_isbn(texto: str) -> str:
-    return re.sub(r"[^0-9X]", "", (marc_svc.normalizar_isbn(texto) or "").upper())
-
-
 def posibles_duplicados(db: Session, ficha: FichaLibro,
                         propio_id: Optional[int] = None) -> List[dict]:
-    """Registros que pueden ser el mismo libro: el mismo ISBN (solo sus dígitos), o el mismo
+    """Registros que pueden ser el mismo libro: un ISBN en común (solo sus dígitos), o el mismo
     título y autor sin mayúsculas ni acentos. Título y autor se comparan como se derivan del
     MARC (título con subtítulo), igual que las columnas guardadas."""
     derivado = marc_svc.derivar(ficha_svc.a_marc(ficha))
@@ -124,10 +128,8 @@ def posibles_duplicados(db: Session, ficha: FichaLibro,
         sin_acentos(RB.titulo) == sin_acentos(literal(derivado["titulo"])),
         sin_acentos(func.coalesce(RB.autor, "")) == sin_acentos(literal(derivado["autor"] or "")),
     )
-    condiciones = [mismo_libro]
-    isbns = sorted({d for d in (_digitos_isbn(i) for i in ficha.isbn) if d})
-    if isbns:
-        condiciones.append(func.upper(func.regexp_replace(RB.isbn, "[^0-9Xx]", "", "g")).in_(isbns))
+    # Cualquiera de sus ISBN contra cualquiera de los 020 de cada registro.
+    condiciones = [mismo_libro, tiene_isbn(ficha.isbn)]
     consulta = db.query(RB.id, RB.titulo, RB.autor, RB.cota).filter(or_(*condiciones))
     if propio_id is not None:
         consulta = consulta.filter(RB.id != propio_id)
@@ -168,18 +170,17 @@ def actualizar(db: Session, biblio_id: int, ficha: FichaLibro) -> dict:
     """Guarda la ficha sobre el MARC actual. Los ejemplares que tenían la cota anterior del
     libro (la heredaban) pasan a la nueva; los que tienen una cota propia no cambian."""
     biblio = obtener_registro(db, biblio_id, bloquear=True)
-    cota_anterior = normalizar_cota(biblio.cota)
+    cota_anterior = biblio.cota
     antes = {c: getattr(biblio, c) for c in _CAMPOS_DERIVADOS}
     marc_antes = biblio.marc_json
-    marc, plantilla = marc_svc.preparar(ficha_svc.a_marc(ficha, marc_antes), biblio.plantilla)
+    nuevo = ficha_svc.a_marc(ficha, marc_antes, cota_actual=cota_anterior)
+    cota = normalizar_cota(ficha.cota)
+    if (ficha_svc.cota_de_clasificacion(nuevo) or cota_anterior) != cota:
+        # Sin 092, la cota saldría del 082 o del 050 y no sería la del formulario: se escribe.
+        nuevo = ficha_svc.con_cota(nuevo, cota)
+    marc, plantilla = marc_svc.preparar(nuevo, biblio.plantilla)
     aplicar_marc(biblio, marc, plantilla)
-
-    heredan = []
-    if biblio.cota != cota_anterior:
-        heredan = [i for i in _ejemplares(db, biblio.id)
-                   if normalizar_cota(i.signatura_topografica) == cota_anterior]
-        for item in heredan:
-            item.signatura_topografica = biblio.cota
+    heredan = mover_ejemplares_de_cota(db, biblio, cota_anterior)
 
     cambios = registro.diferencias(antes, {c: getattr(biblio, c) for c in _CAMPOS_DERIVADOS})
     if marc_antes != biblio.marc_json:

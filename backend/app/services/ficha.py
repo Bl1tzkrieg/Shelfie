@@ -86,6 +86,23 @@ def _todos(registro: dict, tag: str) -> List[str]:
     return [v for v in limpios if v]
 
 
+MAX_COTA = 100  # largo de registros_bibliograficos.cota
+# De dónde sale la cota de un registro, en orden: la del formulario y, si no hay, Dewey o LC.
+_CLASIFICACIONES = ("092", "082", "050")
+
+
+def cota_de_clasificacion(registro: dict) -> Optional[str]:
+    """La cota del 092 ($a + $b); si no hay, la del 082 o la del 050 ($a + $b), normalizada.
+    Una que no cabe en la columna se salta. None si el registro no trae ninguna."""
+    for tag in _CLASIFICACIONES:
+        for campo in marc.campos(registro, tag):
+            partes = [_sub(campo, "a"), _sub(campo, "b")]
+            cota = normalizar_cota(" ".join(p for p in partes if p))
+            if cota and len(cota) <= MAX_COTA:
+                return cota
+    return None
+
+
 def desde_marc(registro: dict) -> FichaLibro:
     """Ficha para el formulario a partir de un registro MARC (de cualquier origen)."""
     def sub(grupo: str, codigo: str) -> Optional[str]:
@@ -231,8 +248,13 @@ def _ajustar_008(campos: List[dict], ano: Optional[int], crear: bool) -> None:
         _insertar(campos, "008", marc.campo_008(ano))
 
 
-def a_marc(ficha: FichaLibro, marc_actual: Optional[dict] = None) -> dict:
-    """MARC con los cambios del formulario aplicados; lo que no cambió queda como estaba."""
+def a_marc(ficha: FichaLibro, marc_actual: Optional[dict] = None, *,
+           cota_actual: Optional[str] = None) -> dict:
+    """MARC con los cambios del formulario aplicados; lo que no cambió queda como estaba.
+
+    `cota_actual` es la cota guardada del registro: si el MARC no tiene 092 (un registro
+    importado cuya cota salió del 952), el formulario la muestra y, si no se cambia, no se
+    escribe un 092."""
     nuevo = marc_actual is None
     if nuevo:
         marc_actual = {"leader": marc_plantillas.obtener(None).lider, "fields": []}
@@ -241,6 +263,8 @@ def a_marc(ficha: FichaLibro, marc_actual: Optional[dict] = None) -> dict:
     campos: List[dict] = registro.setdefault("fields", [])
 
     previa = desde_marc(registro)
+    if not previa.cota and cota_actual:
+        previa = previa.model_copy(update={"cota": cota_actual})
     ahora, antes = _valores_unicos(ficha), _valores_unicos(previa)
     cambios = {g: {c: v for c, v in ahora[g].items() if v != antes[g][c]} for g in _UNICOS}
     if cambios["092"]:

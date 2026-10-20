@@ -20,6 +20,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.core import pg_dump as regla_pg_dump
 from app.core.csv import texto_csv
 from app.core.tiempo import a_local, a_utc, ahora as ahora_utc
 from app.services import configuracion, intercambio_marc, registro
@@ -47,6 +48,17 @@ Archivos de esta carpeta:
   LEEME.txt     Este archivo.
 
 Para restaurar: restaurar.ps1 <esta carpeta>; si base.dump no sirve, importar catalogo.mrc
+{avisos}"""
+
+AVISO_OMITIDOS = """
+ATENCIÓN: estos registros no caben en el formato ISO 2709 (un campo de más de 9999 bytes
+o el registro de más de 99999) y NO están en catalogo.mrc. Están completos en catalogo.xml
+y en base.dump:
+{lista}
+"""
+
+AVISO_ARCHIVO = """
+ATENCIÓN: no se pudo generar {archivo} ({motivo}). base.dump está completo.
 """
 
 
@@ -59,12 +71,17 @@ def _sin_comillas(ruta: Optional[str]) -> str:
     return (ruta or "").strip().strip('"').strip()
 
 
+def problema_pg_dump(ruta: Optional[str]) -> Optional[str]:
+    """Por qué esa ruta no se acepta como pg_dump (ver app/core/pg_dump.py), o None."""
+    return regla_pg_dump.problema(ruta)
+
+
 def encontrar_pg_dump(configurado: Optional[str] = None, *,
                       base_windows: str = BASE_PG_WINDOWS) -> Optional[str]:
-    """La ruta de pg_dump: la configurada si existe, luego el PATH y por último
-    `Program Files\\PostgreSQL\\<versión>\\bin`, con la versión más alta."""
+    """La ruta de pg_dump: la configurada si existe y es un pg_dump aceptable, luego el PATH
+    y por último `Program Files\\PostgreSQL\\<versión>\\bin`, con la versión más alta."""
     configurado = _sin_comillas(configurado)
-    if configurado and os.path.isfile(configurado):
+    if configurado and os.path.isfile(configurado) and not problema_pg_dump(configurado):
         return configurado
     en_el_path = shutil.which("pg_dump")
     if en_el_path:
@@ -139,17 +156,54 @@ def _escribir(ruta: str, contenido, modo: str = "wb", **opciones) -> None:
         archivo.write(contenido)
 
 
-def _armar(db: Session, temporal: str, pg_dump: str, momento: datetime) -> None:
-    _volcar_base(pg_dump, os.path.join(temporal, "base.dump"))
-    for formato, nombre in (("marc", "catalogo.mrc"), ("marcxml", "catalogo.xml")):
-        contenido, _, _ = intercambio_marc.exportar(db, formato=formato)
-        _escribir(os.path.join(temporal, nombre), contenido)
+def _xml(db: Session, ruta: str) -> None:
+    contenido, _, _ = intercambio_marc.exportar(db, formato="marcxml")
+    _escribir(ruta, contenido)
+
+
+def _csv(db: Session, ruta: str) -> None:
     csv = texto_csv(intercambio_marc.exportar_csv(db), columnas=intercambio_marc.COLUMNAS_CSV)
-    _escribir(os.path.join(temporal, "catalogo.csv"), csv, "w", encoding="utf-8", newline="")
+    _escribir(ruta, csv, "w", encoding="utf-8", newline="")
+
+
+def _armar(db: Session, temporal: str, pg_dump: str, momento: datetime) -> Optional[str]:
+    """Arma la carpeta y devuelve un aviso (o None). Sin base.dump no hay respaldo: su fallo
+    es un error. Un fallo en el catálogo (.mrc, .xml, .csv) no tira el base.dump bueno: el
+    respaldo queda «ok con aviso» y LEEME.txt lo cuenta."""
+    _volcar_base(pg_dump, os.path.join(temporal, "base.dump"))
+    avisos, detalle = [], []
+    for nombre, generar in (("catalogo.xml", _xml), ("catalogo.csv", _csv)):
+        try:
+            generar(db, os.path.join(temporal, nombre))
+        except Exception as error:  # noqa: BLE001 — el base.dump ya está hecho
+            log.exception("No se pudo generar %s", nombre)
+            db.rollback()
+            motivo = f"{type(error).__name__}: {error}"[:300]
+            avisos.append(f"no se pudo generar {nombre} ({motivo})")
+            detalle.append(AVISO_ARCHIVO.format(archivo=nombre, motivo=motivo))
+    try:
+        contenido, omitidos = intercambio_marc.exportar_iso2709_omitiendo(db)
+        _escribir(os.path.join(temporal, "catalogo.mrc"), contenido)
+    except Exception as error:  # noqa: BLE001
+        log.exception("No se pudo generar catalogo.mrc")
+        db.rollback()
+        omitidos, motivo = [], f"{type(error).__name__}: {error}"[:300]
+        avisos.append(f"no se pudo generar catalogo.mrc ({motivo})")
+        detalle.append(AVISO_ARCHIVO.format(archivo="catalogo.mrc", motivo=motivo))
+    if omitidos:
+        nombres = ", ".join(f"«{o['titulo']}» (registro {o['id']})" for o in omitidos[:5])
+        if len(omitidos) > 5:
+            nombres += f" y {len(omitidos) - 5} más"
+        avisos.append(f"{len(omitidos)} registro(s) no caben en ISO 2709 y quedaron solo en "
+                      f"catalogo.xml: {nombres}")
+        detalle.append(AVISO_OMITIDOS.format(lista="\n".join(
+            f"  - «{o['titulo']}» (registro {o['id']}): {o['motivo']}" for o in omitidos)))
     biblioteca = configuracion.leer(db, "biblioteca").get("nombre") or "Biblioteca"
     _escribir(os.path.join(temporal, "LEEME.txt"),
-              LEEME.format(biblioteca=biblioteca, fecha=f"{a_local(momento):%d/%m/%Y %H:%M}"),
+              LEEME.format(biblioteca=biblioteca, fecha=f"{a_local(momento):%d/%m/%Y %H:%M}",
+                           avisos="".join(detalle)),
               "w", encoding="utf-8", newline="\r\n")
+    return ("Atención: " + "; ".join(avisos))[:1000] if avisos else None
 
 
 def _ponerle_nombre(destino: str, temporal: str, momento: datetime) -> str:
@@ -210,6 +264,9 @@ def _crear(db: Session, carpeta: Optional[str], momento: datetime) -> dict:
         raise ErrorDeRespaldo(
             f"La carpeta de respaldo no existe o no está disponible: {destino}")
     _limpiar_temporales(destino)
+    motivo = problema_pg_dump(cfg.get("pg_dump"))
+    if motivo:  # guardado antes de esta regla, o a mano en la base: no se ejecuta
+        raise ErrorDeRespaldo(f"{motivo}. Corrígelo en Configuración → Respaldo.")
     pg_dump = encontrar_pg_dump(cfg.get("pg_dump"))
     if not pg_dump:
         raise ErrorDeRespaldo(
@@ -220,7 +277,7 @@ def _crear(db: Session, carpeta: Optional[str], momento: datetime) -> dict:
     except OSError as error:
         raise ErrorDeRespaldo(f"No se puede escribir en la carpeta de respaldo: {error}")
     try:
-        _armar(db, temporal, pg_dump, momento)
+        aviso = _armar(db, temporal, pg_dump, momento)
         final = _ponerle_nombre(destino, temporal, momento)
     except BaseException:
         shutil.rmtree(temporal, ignore_errors=True)
@@ -229,7 +286,7 @@ def _crear(db: Session, carpeta: Optional[str], momento: datetime) -> dict:
         _rotar(destino, final)
     except OSError:  # la copia ya está hecha: una rotación fallida no la invalida
         log.exception("No se pudo rotar los respaldos de %s", destino)
-    return {"carpeta_creada": final, "tamano": _tamano(final)}
+    return {"carpeta_creada": final, "tamano": _tamano(final), "aviso": aviso}
 
 
 def _tamano_legible(bytes_: int) -> str:
@@ -240,20 +297,22 @@ def ejecutar(db: Session, *, carpeta: Optional[str] = None,
              ahora: Optional[datetime] = None) -> dict:
     """Hace el respaldo y deja el resultado en la configuración y en el registro.
 
-    Nunca lanza: cualquier fallo queda en `ok=False` con su mensaje."""
+    Nunca lanza: cualquier fallo queda en `ok=False` con su mensaje. Un respaldo con el
+    base.dump bueno pero algo incompleto en el catálogo es `ok=True` con `aviso`."""
     momento = a_utc(ahora or ahora_utc())
     try:
         hecho = _crear(db, carpeta, momento)
         resultado = {"ok": True, "carpeta_creada": hecho["carpeta_creada"],
-                     "tamano": hecho["tamano"],
+                     "tamano": hecho["tamano"], "aviso": hecho["aviso"],
                      "mensaje": (f"Respaldo creado: {os.path.basename(hecho['carpeta_creada'])} "
                                  f"({_tamano_legible(hecho['tamano'])})")}
     except ErrorDeRespaldo as error:
-        resultado = {"ok": False, "carpeta_creada": None, "tamano": None, "mensaje": str(error)}
+        resultado = {"ok": False, "carpeta_creada": None, "tamano": None, "aviso": None,
+                     "mensaje": str(error)}
     except Exception as error:  # noqa: BLE001 — este proceso es el último recurso
         log.exception("El respaldo falló")
         db.rollback()  # por si el fallo dejó la sesión en un estado inválido
-        resultado = {"ok": False, "carpeta_creada": None, "tamano": None,
+        resultado = {"ok": False, "carpeta_creada": None, "tamano": None, "aviso": None,
                      "mensaje": f"Error inesperado: {type(error).__name__}: {error}"[:500]}
     _dejar_constancia(db, resultado, momento)
     return resultado
@@ -262,15 +321,19 @@ def ejecutar(db: Session, *, carpeta: Optional[str] = None,
 def _dejar_constancia(db: Session, resultado: dict, momento: datetime) -> None:
     fecha = momento.isoformat()
     cambios = {"ultimo": {"fecha": fecha, "ok": resultado["ok"],
-                          "mensaje": resultado["mensaje"], "tamano": resultado["tamano"]}}
+                          "mensaje": resultado["mensaje"], "tamano": resultado["tamano"],
+                          "aviso": resultado["aviso"]}}
     if resultado["ok"]:
         cambios["ultimo_ok"] = fecha  # si falló, el último correcto queda como estaba
     try:
-        registro.anotar(db, "respaldo", "respaldo",
-                        resultado["mensaje"] if resultado["ok"]
-                        else f"Respaldo fallido: {resultado['mensaje']}",
+        descripcion = (resultado["mensaje"] if resultado["ok"]
+                       else f"Respaldo fallido: {resultado['mensaje']}")
+        if resultado["aviso"]:
+            descripcion += f". {resultado['aviso']}"
+        registro.anotar(db, "respaldo", "respaldo", descripcion,
                         datos={"ok": resultado["ok"], "tamano": resultado["tamano"],
-                               "carpeta": resultado["carpeta_creada"]})
+                               "carpeta": resultado["carpeta_creada"],
+                               "aviso": resultado["aviso"]})
         configuracion.guardar(db, {"respaldo": cambios}, anotar=False)  # hace el commit
     except Exception:  # noqa: BLE001 — el respaldo ya se hizo (o falló): no se agrega otro error
         db.rollback()

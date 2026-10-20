@@ -14,7 +14,7 @@ import type { PaginaRegistro } from "@/lib/types"
  * Solo para el administrador; los demás no ven la sección.
  */
 export function HistorialFicha({ filtro, recarga = 0 }: {
-  filtro: { lector: string } | { biblio_id: number }
+  filtro: { usuario: string } | { biblio_id: number }
   /** Cambia cuando la ficha registró algo nuevo, para volver a pedir el historial. */
   recarga?: number
 }) {

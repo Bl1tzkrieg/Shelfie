@@ -11,9 +11,10 @@ importar se ignoran (también $1). Los ejemplares son la fuente de verdad: el 95
 guarda en el MARC del registro, se regenera al exportar.
 
 La cota del registro importado es la del 092; si no hay, la del primer 952 $o, la del
-082 $a o la del 050 $a, en ese orden, y se escribe como 092. Sin ninguna, queda vacía.
+082 ($a + $b) o la del 050 ($a + $b), en ese orden. No se escribe un 092: el MARC queda
+como vino, para que la ida y vuelta con Koha no agregue campos. Sin ninguna, queda vacía.
 
-Al importar, el duplicado se detecta por ISBN (solo dígitos). La política elige qué
+Al importar, el duplicado se detecta por ISBN (solo dígitos, cualquiera de los 020). La política elige qué
 hacer con él: omitirlo, reemplazar su MARC (conserva sus ejemplares y suma los
 nuevos) o agregar un registro aparte.
 """
@@ -34,7 +35,7 @@ from app.core.errores import ErroresDeValidacion, ReglaIncumplida
 from app.core.signaturas import clave_signatura_sql, normalizar_cota
 from app.core.tiempo import sello_archivo
 from app.services import configuracion, ficha, marc
-from app.services.catalogo import aplicar_marc
+from app.services.catalogo import aplicar_marc, buscar_por_isbn, digitos_isbn
 from app.services.libros import sin_acentos
 
 FORMATOS = {"marc": ("application/marc", "mrc"), "marcxml": ("application/marcxml+xml", "xml")}
@@ -43,13 +44,6 @@ MAX_EN_RESPUESTA = 200
 TAG_EJEMPLAR = "952"
 # Campos que identifican al registro en el sistema de origen: no se importan.
 TAGS_DE_OTRO_SISTEMA = {"999", TAG_EJEMPLAR}
-
-
-def _solo_digitos(isbn: Optional[str]) -> Optional[str]:
-    if not isbn:
-        return None
-    limpio = re.sub(r"[^0-9Xx]", "", isbn).upper()
-    return limpio or None
 
 
 # --- Exportación -------------------------------------------------------------------
@@ -113,13 +107,8 @@ def _items_por_titulo(db: Session, biblio_ids: List[int]) -> Dict[int, list]:
     return resultado
 
 
-def exportar(db: Session, *, formato: Literal["marc", "marcxml"],
-             ids: Optional[List[int]] = None) -> tuple:
-    """(contenido, tipo MIME, nombre de archivo) con todo el catálogo o con los `ids` pedidos.
-
-    Cada ejemplar sale como un 952; un registro sin ejemplares sale sin 952."""
-    if formato not in FORMATOS:
-        raise ReglaIncumplida("Formato no soportado: usa marc o marcxml")
+def _para_exportar_todos(db: Session, ids: Optional[List[int]]) -> List[tuple]:
+    """(registro, pymarc.Record) de todo el catálogo o de los `ids`, en orden de id."""
     consulta = db.query(models.RegistroBibliografico)
     if ids is not None:
         consulta = consulta.filter(models.RegistroBibliografico.id.in_(ids))
@@ -129,19 +118,42 @@ def exportar(db: Session, *, formato: Literal["marc", "marcxml"],
     # El ajuste se guarda como lo escribieron; Koha espera el código en mayúsculas.
     tipo_item = (datos.get("tipo_item_koha") or "LIB").strip().upper()
     items = _items_por_titulo(db, [b.id for b in registros])
+    return [(b, _para_exportar(b, biblioteca, tipo_item, items[b.id])) for b in registros]
 
+
+def exportar(db: Session, *, formato: Literal["marc", "marcxml"],
+             ids: Optional[List[int]] = None) -> tuple:
+    """(contenido, tipo MIME, nombre de archivo) con todo el catálogo o con los `ids` pedidos.
+
+    Cada ejemplar sale como un 952; un registro sin ejemplares sale sin 952. En ISO 2709,
+    un registro que no cabe en el formato es un error (400) que dice usar MARCXML."""
+    if formato not in FORMATOS:
+        raise ReglaIncumplida("Formato no soportado: usa marc o marcxml")
     salida = io.BytesIO()
     if formato == "marcxml":
         escritor = pymarc.XMLWriter(salida)
-        for b in registros:
-            escritor.write(_para_exportar(b, biblioteca, tipo_item, items[b.id]))
+        for _, registro in _para_exportar_todos(db, ids):
+            escritor.write(registro)
         escritor.close(close_fh=False)
     else:
-        for b in registros:
-            salida.write(_iso2709(_para_exportar(b, biblioteca, tipo_item, items[b.id]), b))
+        for biblio, registro in _para_exportar_todos(db, ids):
+            salida.write(_iso2709(registro, biblio))
 
     tipo_mime, extension = FORMATOS[formato]
     return salida.getvalue(), tipo_mime, f"catalogo-{sello_archivo()}.{extension}"
+
+
+def exportar_iso2709_omitiendo(db: Session) -> tuple:
+    """(contenido, omitidos) con todo el catálogo en ISO 2709 para el respaldo: un registro
+    que no cabe en el formato se deja afuera (MARCXML sí lo lleva) en lugar de hacer fallar
+    todo. `omitidos` es [{"id", "titulo", "motivo"}]."""
+    salida, omitidos = io.BytesIO(), []
+    for biblio, registro in _para_exportar_todos(db, None):
+        try:
+            salida.write(_iso2709(registro, biblio))
+        except ReglaIncumplida as error:
+            omitidos.append({"id": biblio.id, "titulo": biblio.titulo, "motivo": error.mensaje})
+    return salida.getvalue(), omitidos
 
 
 COLUMNAS_CSV = ("cota", "titulo", "autor", "editorial", "ano", "isbn", "materias", "ejemplares")
@@ -247,26 +259,16 @@ def _separar_ejemplares(registro: dict) -> tuple:
     return {"leader": registro.get("leader", ""), "fields": resto}, ejemplares
 
 
-MAX_COTA = 100  # largo de registros_bibliograficos.cota
-
-
-def _primer_valor(campos: List[object], codigo: str) -> Optional[str]:
-    """La primera cota que sirve; una que no cabe en la columna se salta."""
-    for campo in campos:
-        valor = normalizar_cota((marc.subcampos(campo, codigo) or [None])[0])
-        if valor and len(valor) <= MAX_COTA:
+def _cota_del_952(registro: dict, campos_952: List[dict]) -> Optional[str]:
+    """Sin 092, la cota del registro es la del primer 952 $o que sirve (antes que el 082 o
+    el 050, que `aplicar_marc` lee del MARC). Una que no cabe en la columna se salta."""
+    if marc.campos(registro, "092"):
+        return None
+    for campo in campos_952:
+        valor = normalizar_cota((marc.subcampos(campo, "o") or [None])[0])
+        if valor and len(valor) <= ficha.MAX_COTA:
             return valor
     return None
-
-
-def _con_cota(registro: dict, campos_952: List[dict]) -> dict:
-    """Si falta el 092, la cota sale del primer 952 $o, del 082 $a o del 050 $a (en ese
-    orden) y se escribe como 092, igual que desde el formulario. Sin ninguna, nada cambia."""
-    if marc.campos(registro, "092"):
-        return registro
-    cota = (_primer_valor(campos_952, "o") or _primer_valor(marc.campos(registro, "082"), "a")
-            or _primer_valor(marc.campos(registro, "050"), "a"))
-    return ficha.con_cota(registro, cota) if cota else registro
 
 
 def _completar_008(registro: dict) -> dict:
@@ -396,12 +398,6 @@ def _duplicado_sin_isbn(db: Session, campos_952: List[dict], derivado: dict) -> 
     return None, None
 
 
-def _duplicado(db: Session, isbn_digitos: Optional[str]):
-    if not isbn_digitos:
-        return None
-    return db.query(models.RegistroBibliografico).filter(
-        func.upper(func.regexp_replace(models.RegistroBibliografico.isbn, "[^0-9Xx]", "", "g"))
-        == isbn_digitos).order_by(models.RegistroBibliografico.id).first()
 
 
 def _importar_uno(db: Session, ctx: _Contexto, crudo, n: int, aplicar: bool, duplicados: str,
@@ -426,8 +422,7 @@ def _importar_uno(db: Session, ctx: _Contexto, crudo, n: int, aplicar: bool, dup
     codigo = _plantilla_para(sin_ejemplares, plantilla_pedida)
     plantilla = marc_plantillas.obtener(codigo)
     try:
-        canonico = _con_cota(_completar_008(marc.normalizar(sin_ejemplares, plantilla)),
-                             campos_952)
+        canonico = _completar_008(marc.normalizar(sin_ejemplares, plantilla))
     except ErroresDeValidacion as error:
         resultado.accion = "error"
         resultado.mensajes += [e["msg"] for e in error.errores]
@@ -443,17 +438,19 @@ def _importar_uno(db: Session, ctx: _Contexto, crudo, n: int, aplicar: bool, dup
     # Lo demás que la plantilla pediría no impide importar (Koha tampoco lo exige).
     resultado.mensajes += [e["msg"] for e in marc.validar(canonico, plantilla)]
 
-    digitos = _solo_digitos(derivado["isbn"])
+    isbns = (derivado["isbns"] or "").split()
+    digitos = [d for d in (digitos_isbn(i) for i in isbns) if d]
     existente = None
     if duplicados != "agregar":
         # Primero el archivo: al aplicar, el registro anterior ya está en la base y con
         # «reemplazar» este lo pisaría; en la vista previa se omitía. Igual en ambos modos.
-        if digitos and digitos in ctx.isbn_en_archivo:
+        repetido = next((d for d in digitos if d in ctx.isbn_en_archivo), None)
+        if repetido:
             resultado.accion = "omitir"
             resultado.mensajes.append(
-                f"El ISBN se repite en el registro #{ctx.isbn_en_archivo[digitos]} del archivo")
+                f"El ISBN se repite en el registro #{ctx.isbn_en_archivo[repetido]} del archivo")
             return resultado
-        existente = _duplicado(db, digitos)
+        existente = buscar_por_isbn(db, isbns)
         if existente is None and not digitos:
             existente, como = _duplicado_sin_isbn(db, campos_952, derivado)
             if existente is not None:
@@ -462,8 +459,8 @@ def _importar_uno(db: Session, ctx: _Contexto, crudo, n: int, aplicar: bool, dup
         resultado.accion, resultado.registro_id = "omitir", existente.id
         resultado.mensajes.append(f"Ya existe como «{existente.titulo}» (registro {existente.id})")
         return resultado
-    if digitos:
-        ctx.isbn_en_archivo.setdefault(digitos, n)
+    for d in digitos:
+        ctx.isbn_en_archivo.setdefault(d, n)
 
     resultado.accion = "reemplazar" if existente is not None else "nuevo"
     biblio = existente
@@ -474,6 +471,7 @@ def _importar_uno(db: Session, ctx: _Contexto, crudo, n: int, aplicar: bool, dup
                 biblio = models.RegistroBibliografico()
                 db.add(biblio)
             aplicar_marc(biblio, canonico, plantilla)
+            biblio.cota = _cota_del_952(canonico, campos_952) or biblio.cota
             db.flush()
             _ejemplares(db, ctx, campos_952, resultado, biblio, aplicar=True,
                         existente=existente)

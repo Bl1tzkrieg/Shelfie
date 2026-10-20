@@ -115,8 +115,10 @@ test("recorrido de Shelfie lite: ingreso, búsqueda pública y respaldo", async 
 
   await test.step("Editar sin cambiar nada y guardar deja el MARC idéntico, byte a byte", async () => {
     const { page } = cata
+    // El MARC crudo solo lo ve el administrador (§8: /marc); el catalogador edita la ficha.
     const url = `${baseURL}/api/v1/catalog/items/${id}/marc`
-    const antes = await page.request.get(url)
+    expect((await page.request.get(url)).status()).toBe(403)
+    const antes = await admin.page.request.get(url)
     expect(antes.ok()).toBeTruthy()
     const marcAntes = await antes.text()
 
@@ -126,7 +128,7 @@ test("recorrido de Shelfie lite: ingreso, búsqueda pública y respaldo", async 
     await expect(page).toHaveURL(new RegExp(`/libro/\\?id=${id}`))
     await expect(page.getByRole("heading", { level: 1, name: HARPER.titulo })).toBeVisible()
 
-    const despues = await page.request.get(url)
+    const despues = await admin.page.request.get(url)
     expect(await despues.text()).toBe(marcAntes)
   })
 

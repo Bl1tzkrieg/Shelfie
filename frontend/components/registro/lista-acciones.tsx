@@ -111,7 +111,7 @@ export function ListaAcciones({ filas, compacta = false }: { filas: AccionRegist
                   </td>
                   {!compacta && (
                     <td className="px-3 py-3 text-sm">
-                      {f.lector && <p className="text-foreground">{f.lector}</p>}
+                      {f.usuario_afectado && <p className="text-foreground">{f.usuario_afectado}</p>}
                       {f.biblio_id && f.titulo && (
                         <Link href={`/libro/?id=${f.biblio_id}`} onClick={(e) => e.stopPropagation()}
                               className="block truncate text-primary hover:underline">{f.titulo}</Link>

@@ -61,16 +61,21 @@ Importa y exporta ISO 2709 y MARCXML. Por cada ejemplar se escribe un campo **95
 | `$z` | Nota |
 
 Al importar se lee cada 952 como ejemplar. Si falta el 092, la cota sale del primer 952 `$o`
-o, en su defecto, de 082 o 050; un registro sin ninguna sale como "Sin cota" al final de la
-lista. Al editar con el formulario solo se tocan los campos del formulario: el resto del MARC
-se conserva tal cual.
+o, en su defecto, de 082 o 050 (`$a` + `$b`); un registro sin ninguna sale como "Sin cota" al
+final de la lista. La importación no agrega un 092: importar un `.mrc` de Koha y volver a
+exportarlo da los mismos campos. Al editar con el formulario solo se tocan los campos del
+formulario: el resto del MARC se conserva tal cual.
 
 ## Respaldo y restauración
 
 Cada día se crea `shelfie-AAAAMMDD-HHMM/` en la carpeta elegida, con `base.dump`,
 `catalogo.mrc`, `catalogo.xml`, `catalogo.csv` y `LEEME.txt`. Se conservan los 30 últimos. El
 administrador ve un aviso rojo si el último respaldo correcto tiene más de 7 días o si el
-último falló; también puede usar «Respaldar ahora» en Configuración. Cómo restaurar, con
+último falló; también puede usar «Respaldar ahora» en Configuración. Un registro que no cabe
+en ISO 2709 (un campo de más de 9999 bytes) no frena el respaldo: queda fuera de
+`catalogo.mrc`, está completo en `catalogo.xml` y en `base.dump`, y el respaldo se marca
+«correcto con aviso» (el aviso se ve en Configuración y en `LEEME.txt`). La ruta de `pg_dump`
+solo acepta un `pg_dump.exe` local, fuera de una carpeta de red y de `C:\Users`. Cómo restaurar, con
 `restaurar.ps1`, está en [`instalacion/LEEME.md`](instalacion/LEEME.md#restaurar-un-respaldo).
 
 ## Instalación

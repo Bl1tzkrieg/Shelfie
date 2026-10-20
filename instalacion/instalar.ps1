@@ -462,11 +462,29 @@ if (Esperar-Shelfie 90) {
     Escribir-Aviso "Shelfie-lite no respondió en 90 segundos. Revise el log en $ShelfieLogs"
 }
 Escribir-Info 'Probando el respaldo (como lo hará la tarea programada)…'
+$antes = (Get-ScheduledTaskInfo -TaskName $TareaRespaldo).LastRunTime
 Start-ScheduledTask -TaskName $TareaRespaldo
+# Start-ScheduledTask vuelve enseguida: hasta que la tarea arranca, el último resultado es el
+# de antes (o 267011, «nunca corrió»). Primero se espera a que arranque (pasa por Running o
+# cambia LastRunTime; tope de 60 s) y después a que termine (tope de 10 minutos).
+$arranco = $false
+$limiteArranque = (Get-Date).AddSeconds(60)
+do {
+    Start-Sleep -Seconds 1
+    $estado = (Get-ScheduledTask -TaskName $TareaRespaldo).State
+    $ultima = (Get-ScheduledTaskInfo -TaskName $TareaRespaldo).LastRunTime
+    $arranco = ($estado -eq 'Running') -or ($ultima -ne $antes)
+} while (-not $arranco -and (Get-Date) -lt $limiteArranque)
 $limite = (Get-Date).AddMinutes(10)
-do { Start-Sleep -Seconds 3 } while ((Get-ScheduledTask -TaskName $TareaRespaldo).State -eq 'Running' -and (Get-Date) -lt $limite)
+while ((Get-ScheduledTask -TaskName $TareaRespaldo).State -eq 'Running' -and (Get-Date) -lt $limite) {
+    Start-Sleep -Seconds 3
+}
 $resultado = (Get-ScheduledTaskInfo -TaskName $TareaRespaldo).LastTaskResult
-if ($resultado -eq 0) { Escribir-Ok 'respaldo de prueba correcto' }
+if (-not $arranco) {
+    Escribir-Aviso "La tarea de respaldo no arrancó en 60 segundos. Pruébela con 'Respaldar ahora' en Configuración."
+} elseif ((Get-ScheduledTask -TaskName $TareaRespaldo).State -eq 'Running') {
+    Escribir-Aviso "El respaldo de prueba sigue en curso después de 10 minutos. Revise el resultado en Configuración."
+} elseif ($resultado -eq 0) { Escribir-Ok 'respaldo de prueba correcto' }
 else { Escribir-Aviso "El respaldo de prueba falló (código $resultado). Detalle en Configuración y en $ShelfieLogs" }
 
 # --- Resumen -------------------------------------------------------------------------

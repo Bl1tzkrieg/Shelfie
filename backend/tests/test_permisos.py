@@ -50,7 +50,9 @@ def test_personal_sin_permisos_consulta_pero_no_modifica(como, datos):
 @pytest.mark.parametrize("permiso,metodo,ruta,cuerpo", [
     ("catalogo", "GET", "/api/v1/books", None),
     ("catalogo", "POST", "/api/v1/books", {"ficha": {"cota": "1 X", "titulo": "T"}}),
-    ("catalogo", "POST", "/api/v1/catalog/records", {"plantilla": "BKS", "marc": {}}),
+    ("superbibliotecario", "POST", "/api/v1/catalog/records", {"plantilla": "BKS", "marc": {}}),
+    ("superbibliotecario", "PUT", "/api/v1/catalog/items/1/marc", {"plantilla": "BKS", "marc": {}}),
+    ("superbibliotecario", "GET", "/api/v1/catalog/items/1/marc", None),
     ("superbibliotecario", "PUT", "/api/v1/settings", {}),
     ("superbibliotecario", "GET", "/api/v1/logs", None),
     ("superbibliotecario", "PUT", "/api/v1/logs/settings", {}),
@@ -95,6 +97,15 @@ def test_login_desde_origen_ajeno_es_rechazado(anonimo, datos):
     assert r.status_code == 403
 
 
+def test_salir_desde_origen_ajeno_es_rechazado(como):
+    cliente = como(["catalogo"])
+    r = cliente.post("/api/v1/auth/logout", headers={"Origin": "https://malicioso.example"})
+    assert r.status_code == 403
+    assert cliente.get("/api/v1/auth/me").status_code == 200  # la sesión sigue abierta
+    assert cliente.post("/api/v1/auth/logout",
+                        headers={"Origin": "http://localhost:3000"}).status_code == 204
+
+
 # --- Perfiles ------------------------------------------------------------------
 
 def test_perfiles_administrador_y_catalogador():
@@ -102,3 +113,18 @@ def test_perfiles_administrador_y_catalogador():
     assert {p.value for p in Permiso} == {"catalogo", "superbibliotecario"}
     assert {c: [p.value for p in perfil["permisos"]] for c, perfil in PERFILES.items()} == {
         "administrador": ["superbibliotecario"], "catalogador": ["catalogo"]}
+
+
+def test_el_editor_marc_es_solo_del_administrador(como, client):
+    """§8: /marc es del administrador; el catalogador usa el formulario."""
+    catalogador = como(["catalogo"])
+    libro = catalogador.post("/api/v1/books", json={"ficha": {"cota": "1 X", "titulo": "T"}})
+    assert libro.status_code == 201
+    biblio_id = libro.json()["id"]
+    marc = client.get(f"/api/v1/catalog/items/{biblio_id}/marc").json()
+    cuerpo = {"marc": marc["marc"], "plantilla": marc["plantilla"]}
+
+    assert catalogador.get(f"/api/v1/catalog/items/{biblio_id}/marc").status_code == 403
+    assert catalogador.put(f"/api/v1/catalog/items/{biblio_id}/marc", json=cuerpo).status_code == 403
+    assert catalogador.post("/api/v1/catalog/records", json=cuerpo).status_code == 403
+    assert client.put(f"/api/v1/catalog/items/{biblio_id}/marc", json=cuerpo).status_code == 200

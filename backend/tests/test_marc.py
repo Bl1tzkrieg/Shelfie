@@ -74,9 +74,10 @@ def test_editar_el_marc_actualiza_columnas_y_busqueda(client, datos, db):
     assert (d["autor"], d["materia"], d["ano_publicacion"], d["isbn"]) == (
         "Taiz, Lincoln", "Botánica", 2015, "978-1-111-11111-1")
     assert any("999" in c for c in d["marc"]["fields"])     # campos ajenos se conservan
-    # Editorial desde el 260 (sin la coma ISBD); el MARC nuevo no trae 092: sin cota.
+    # Editorial desde el 260 (sin la coma ISBD). El MARC nuevo no trae 092, 082 ni 050: el
+    # registro conserva la cota que tenía.
     biblio = db.get(models.RegistroBibliografico, biblio_id)
-    assert (biblio.editorial, biblio.cota) == ("Sinauer", None)
+    assert (biblio.editorial, biblio.cota) == ("Sinauer", "571.2 T13")
     hallados = client.get("/api/v1/buscar", params={"q": "ilustrado"}).json()["resultados"]
     assert [(h["id"], h["titulo"], h["subtitulo"]) for h in hallados] == [
         (biblio_id, "Fisiología vegetal", "texto ilustrado")]

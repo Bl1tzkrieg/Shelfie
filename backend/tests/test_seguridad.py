@@ -75,3 +75,26 @@ def test_usuario_inexistente_cuenta_como_intento(nuevo):
                   json={"username": "nadie", "password": "x"}).status_code == 429
 
 
+
+
+# --- Documentación de la API ----------------------------------------------------------
+
+def test_sin_documentacion_publica_en_produccion():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.config import Settings
+    from app.main import app, opciones_de_documentacion
+
+    produccion = Settings(DATABASE_URL="postgresql://x/y", ENTORNO="produccion")
+    apagada = opciones_de_documentacion(produccion)
+    assert apagada == {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    with TestClient(FastAPI(**apagada)) as c:
+        for ruta in ("/docs", "/redoc", "/openapi.json"):
+            assert c.get(ruta).status_code == 404, ruta
+
+    desarrollo = Settings(DATABASE_URL="postgresql://x/y", ENTORNO="desarrollo")
+    assert opciones_de_documentacion(desarrollo) == {}
+    assert opciones_de_documentacion(
+        Settings(DATABASE_URL="postgresql://x/y", ENTORNO=" Produccion ")) == apagada
+    assert app.openapi_url == "/openapi.json"  # la suite corre en desarrollo

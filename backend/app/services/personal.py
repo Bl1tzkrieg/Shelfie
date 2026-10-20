@@ -114,7 +114,7 @@ def crear(db: Session, *, username: str, nombre: str, apellido: str, rol: Rol,
     db.flush()
     registro.anotar(db, "configuracion", "alta",
                     f"Dio de alta a {registro.nombre(usuario)} como {rol}",
-                    lector=usuario, objeto=("usuario", usuario.id), datos={"rol": rol})
+                    usuario_afectado=usuario, objeto=("usuario", usuario.id), datos={"rol": rol})
     db.commit()
     db.refresh(usuario)
     return vista_de_usuario(db, usuario)
@@ -141,7 +141,7 @@ def cambiar_rol(db: Session, usuario_id: int, rol: Rol) -> dict:
             _cuidar_ultimo_administrador(db, usuario)
         usuario.permisos = permisos
         registro.anotar(db, "configuracion", "permisos",
-                        f"Rol de {registro.nombre(usuario)}: {rol}", lector=usuario,
+                        f"Rol de {registro.nombre(usuario)}: {rol}", usuario_afectado=usuario,
                         objeto=("usuario", usuario.id), datos={"cambios": {"rol": [antes, rol]}})
     db.commit()
     db.refresh(usuario)
@@ -157,7 +157,7 @@ def cambiar_estado(db: Session, usuario_id: int, activo: bool) -> dict:
         usuario.activo = activo
         registro.anotar(db, "configuracion", "edicion",
                         f"{'Activó' if activo else 'Desactivó'} a {registro.nombre(usuario)}",
-                        lector=usuario, objeto=("usuario", usuario.id),
+                        usuario_afectado=usuario, objeto=("usuario", usuario.id),
                         datos={"cambios": {"activo": [not activo, activo]}})
     db.commit()
     db.refresh(usuario)
@@ -173,7 +173,7 @@ def restablecer_clave(db: Session, usuario_id: int, clave_temporal: str) -> dict
     usuario.debe_cambiar_clave = True
     registro.anotar(db, "configuracion", "clave_restablecida",
                     f"Restableció la contraseña de {registro.nombre(usuario)}",
-                    lector=usuario, objeto=("usuario", usuario.id))
+                    usuario_afectado=usuario, objeto=("usuario", usuario.id))
     db.commit()
     db.refresh(usuario)
     return vista_de_usuario(db, usuario)

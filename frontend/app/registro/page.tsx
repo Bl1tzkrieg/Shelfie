@@ -17,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { apiDownload, apiGet, apiPut, mensajeDeError } from "@/lib/api"
 import type { AjustesRegistro, PaginaRegistro } from "@/lib/types"
 
-const FILTROS = ["modulo", "accion", "actor", "lector", "codigo", "biblio_id", "desde", "hasta", "q"] as const
+const FILTROS = ["modulo", "accion", "actor", "usuario", "codigo", "biblio_id", "desde", "hasta", "q"] as const
 type Filtro = (typeof FILTROS)[number]
 const TODOS = "todos"
 
@@ -171,8 +171,8 @@ function Acciones({ ajustes }: { ajustes: AjustesRegistro | null }) {
           <Input id="f-actor" value={borrador.actor} onChange={set("actor")} placeholder="maria.perez o «sistema»" />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="f-lector">Usuario afectado</Label>
-          <Input id="f-lector" value={borrador.lector} onChange={set("lector")} />
+          <Label htmlFor="f-usuario">Usuario afectado</Label>
+          <Input id="f-usuario" value={borrador.usuario} onChange={set("usuario")} />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="f-codigo">Código de barras</Label>

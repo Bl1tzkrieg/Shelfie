@@ -270,3 +270,57 @@ def test_registra_acciones(client, db):
     assert "Eliminó el ejemplar R-1" in eliminado.descripcion
     assert baja.datos["marc"] and len(baja.datos["ejemplares"]) == 2
     assert baja.objeto_tipo == "registro" and baja.objeto_id == libro["id"]
+
+
+# --- Revisión final -----------------------------------------------------------------
+
+def test_duplicado_por_el_segundo_isbn(client):
+    alta(client, isbn=["9780307474728", "9788497592208"])
+    r = client.post(URL, json={"ficha": ficha(titulo="Otro título", autor="Otro, Autor",
+                                              isbn=["978-84-9759-220-8"])})
+    assert r.status_code == 409
+    assert r.json()["detail"]["codigo"] == "POSIBLE_DUPLICADO"
+
+
+def test_editor_marc_cambia_la_cota_de_los_ejemplares_que_la_heredaban(client, db):
+    libro = alta(client, ejemplares=2)
+    propio = client.post(f"{URL}/{libro['id']}/copies", json={"cota": "863 G2 ref"}).json()
+    id_propio = next(e["id"] for e in propio["ejemplares"] if e["cota"] == "863 G2 REF")
+    marc = client.get(f"/api/v1/catalog/items/{libro['id']}/marc").json()
+    for campo in marc["marc"]["fields"]:
+        if "092" in campo:
+            campo["092"]["subfields"] = [{"a": "999"}, {"b": "Z9"}]
+
+    r = client.put(f"/api/v1/catalog/items/{libro['id']}/marc",
+                   json={"marc": marc["marc"], "plantilla": marc["plantilla"]})
+
+    assert r.status_code == 200, r.text
+    vista = client.get(f"{URL}/{libro['id']}").json()
+    assert vista["ficha"]["cota"] == "999 Z9"
+    cotas = {e["id"]: e["cota"] for e in vista["ejemplares"]}
+    assert cotas.pop(id_propio) == "863 G2 REF"
+    assert set(cotas.values()) == {"999 Z9"}
+    [edicion] = [a for a in _acciones(db, modulo="catalogo", accion="edicion")]
+    assert sorted(edicion.datos["ejemplares_con_la_cota_nueva"]) == sorted(cotas)
+
+
+def test_cota_de_mas_de_100_caracteres_da_422(client):
+    r = client.post(URL, json={"ficha": ficha(cota="1" * 101), "ejemplares": 1, "forzar": True})
+    assert r.status_code == 422, r.text
+    libro = alta(client)
+    assert client.put(f"{URL}/{libro['id']}", json=ficha(cota="A " * 51)).status_code == 422
+    assert client.post(f"{URL}/{libro['id']}/copies", json={"cota": "1" * 101}).status_code == 422
+    assert alta(client, forzar=True, cota="1" * 100)["ficha"]["cota"] == "1" * 100
+
+
+def test_descripcion_y_notas_con_tope_en_bytes(client):
+    for campo in ("descripcion", "notas"):
+        r = client.post(URL, json={"ficha": ficha(**{campo: "x" * 12000}), "forzar": True})
+        assert r.status_code == 422, r.text
+        assert "9000" in r.text
+        # 4600 letras con tilde son 9200 bytes en UTF-8: no caben.
+        r = client.post(URL, json={"ficha": ficha(**{campo: "á" * 4600}), "forzar": True})
+        assert r.status_code == 422, r.text
+    libro = alta(client, forzar=True, descripcion="x" * 9000, notas="é" * 4500)
+    assert len(libro["ficha"]["descripcion"]) == 9000
+    assert client.put(f"{URL}/{libro['id']}", json=ficha(descripcion="x" * 9001)).status_code == 422

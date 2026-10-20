@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { CheckCircle2, DatabaseBackup, Loader2, Save, Search, XCircle } from "lucide-react"
+import { AlertTriangle, CheckCircle2, DatabaseBackup, Loader2, Save, Search, XCircle } from "lucide-react"
 import { toast } from "sonner"
 
 import { useSesion } from "@/components/auth/sesion-provider"
@@ -19,6 +19,7 @@ type ResultadoRespaldo = {
   carpeta_creada: string | null
   mensaje: string
   tamano: number | null
+  aviso?: string | null
 }
 
 const FECHA_HORA: Intl.DateTimeFormatOptions = { dateStyle: "long", timeStyle: "short" }
@@ -217,10 +218,17 @@ function TarjetaRespaldo({ inicial }: { inicial: Configuracion["respaldo"] }) {
         <div className="space-y-1.5">
           <Label htmlFor="r-carpeta">Carpeta del respaldo</Label>
           <Input id="r-carpeta" value={f.carpeta} onChange={set("carpeta")}
-                 placeholder="D:\Respaldos\Shelfie" aria-describedby="r-reco" />
+                 placeholder="D:\Respaldos\Shelfie" aria-describedby="r-reco r-permisos" />
           <p id="r-reco" className="text-xs text-muted-foreground">
             Conviene que sea otro disco o una carpeta de Drive u OneDrive: si el equipo se daña,
             el respaldo no se pierde con él. Se guardan los 30 últimos.
+          </p>
+          <p id="r-permisos" className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span>
+              Si cambias la carpeta, vuelve a ejecutar instalar.ps1 para protegerla: los respaldos
+              contienen las claves cifradas del personal.
+            </span>
           </p>
         </div>
         <div className="space-y-1.5">
@@ -253,6 +261,9 @@ function TarjetaRespaldo({ inicial }: { inicial: Configuracion["respaldo"] }) {
               {ultimo.ok ? "Correcto" : "Falló"} · {fechaHora(ultimo.fecha)}
               {ultimo.ok && ultimo.tamano != null && ` · ${tamanoLegible(ultimo.tamano)}`}
               {!ultimo.ok && ultimo.mensaje && <><br /><span className="text-muted-foreground">{ultimo.mensaje}</span></>}
+              {ultimo.ok && ultimo.aviso && (
+                <><br /><span className="text-amber-700 dark:text-amber-400">{ultimo.aviso}</span></>
+              )}
             </span>
           </p>
         ) : (
@@ -274,6 +285,9 @@ function TarjetaRespaldo({ inicial }: { inicial: Configuracion["respaldo"] }) {
             <p className="rounded-md border border-green-600/30 bg-green-600/10 p-3 text-sm text-green-700 dark:text-green-400">
               Respaldo creado en {resultado.carpeta_creada}
               {resultado.tamano != null && ` (${tamanoLegible(resultado.tamano)})`}
+              {resultado.aviso && (
+                <span className="mt-1 block text-amber-700 dark:text-amber-400">{resultado.aviso}</span>
+              )}
             </p>
           ) : (
             <p className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">

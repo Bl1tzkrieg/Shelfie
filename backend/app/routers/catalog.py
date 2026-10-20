@@ -19,6 +19,8 @@ router = APIRouter(prefix="/api/v1/catalog", tags=["Catálogo"],
                    dependencies=[Depends(requiere_personal)])
 
 CATALOGA = [Depends(requiere(Permiso.CATALOGO))]
+# El editor MARC avanzado (/marc) es del administrador (§8): el catalogador usa el formulario.
+ADMINISTRA = [Depends(requiere(Permiso.SUPERBIBLIOTECARIO))]
 
 
 @router.get("/export", dependencies=CATALOGA)
@@ -99,13 +101,14 @@ def obtener_plantilla(codigo: str):
     return marc_plantillas.como_dict(marc_plantillas.PLANTILLAS[codigo])
 
 
-@router.get("/items/{biblio_id}/marc", response_model=schemas.RegistroMarcResponse)
+@router.get("/items/{biblio_id}/marc", response_model=schemas.RegistroMarcResponse,
+            dependencies=ADMINISTRA)
 def obtener_marc(biblio_id: int, db: Session = Depends(get_db)):
     return catalogo.obtener_marc(db, biblio_id)
 
 
 @router.put("/items/{biblio_id}/marc", response_model=schemas.RegistroMarcResponse,
-            dependencies=CATALOGA)
+            dependencies=ADMINISTRA)
 def guardar_marc(biblio_id: int, payload: schemas.RegistroMarcRequest,
                  db: Session = Depends(get_db)):
     """Guarda el registro MARC y deriva de él título, autor, materia, año e ISBN."""
@@ -113,7 +116,7 @@ def guardar_marc(biblio_id: int, payload: schemas.RegistroMarcRequest,
 
 
 @router.post("/records", response_model=schemas.RegistroMarcResponse, status_code=201,
-             dependencies=CATALOGA)
+             dependencies=ADMINISTRA)
 def crear_registro(payload: schemas.RegistroMarcRequest, db: Session = Depends(get_db)):
     """Catalogación completa con el editor MARC; los ejemplares se agregan después."""
     return catalogo.crear_registro(db, payload)

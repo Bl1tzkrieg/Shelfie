@@ -82,7 +82,7 @@ def autenticar_personal(db: Session, identificador: str, password: str,
         db.commit()
         raise
     registro.anotar(db, "sesion", "entrada", f"Entró a la intranet: {registro.nombre(usuario)}",
-                    actor=usuario, lector=usuario)
+                    actor=usuario, usuario_afectado=usuario)
     db.commit()
     return usuario
 
@@ -112,5 +112,5 @@ def cambiar_clave(db: Session, usuario: models.Usuario, actual: str, nueva: str)
     usuario.password_hash = hash_password(nueva)
     usuario.debe_cambiar_clave = False
     registro.anotar(db, "sesion", "clave_cambiada",
-                    f"{registro.nombre(usuario)} cambió su contraseña", lector=usuario)
+                    f"{registro.nombre(usuario)} cambió su contraseña", usuario_afectado=usuario)
     db.commit()

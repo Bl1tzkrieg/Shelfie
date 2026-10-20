@@ -113,8 +113,17 @@ Eso decide qué carpetas sirven:
 | `\\servidor\carpeta` | Solo si el recurso compartido deja escribir a la cuenta de este equipo (`NOMBRE-PC$`, en un dominio) o a Todos; en un grupo de trabajo, casi siempre no |
 | Letra de unidad de red (`Z:`) | No: es del usuario, SYSTEM no la ve |
 
-**Después de cambiar la carpeta**, pulse "Respaldar ahora" en Configuración y revise que el
-resultado sea correcto (ese botón corre en el servidor, como SYSTEM, igual que la tarea).
+**Después de cambiar la carpeta**, vuelva a ejecutar `instalar.ps1` para que la carpeta nueva
+quede solo para Administradores y SYSTEM (los respaldos traen las claves cifradas del personal;
+la pantalla lo recuerda junto al campo). Luego pulse "Respaldar ahora" en Configuración y revise
+que el resultado sea correcto (ese botón corre en el servidor, como SYSTEM, igual que la tarea).
+
+Si un libro tiene un campo demasiado largo para ISO 2709 (más de 9999 bytes), el respaldo no
+falla: ese registro queda fuera de `catalogo.mrc` (está completo en `catalogo.xml` y en
+`base.dump`), el resultado dice "Correcto" con un aviso y `LEEME.txt` lo nombra.
+
+La ruta de `pg_dump` en Configuración solo acepta un archivo llamado `pg_dump.exe` en este
+equipo, fuera de una carpeta de red y de `C:\Users` (la tarea lo ejecuta como SYSTEM).
 
 "Respaldar ahora" también sirve para respaldar en el momento, por ejemplo antes de una
 importación grande.

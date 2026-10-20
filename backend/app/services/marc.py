@@ -250,7 +250,30 @@ def derivar(marc: dict) -> dict:
         "materia": materia[:100] if materia else None,
         "ano_publicacion": ano_de(marc),
         "isbn": normalizar_isbn(primero(marc, "020", "a")),
+        # Todos los puntos de acceso repetidos, para la búsqueda y los duplicados.
+        "materias": _unidos(_todos_los_a(marc, ("650", "653"), _limpio), " | "),
+        "autores": _unidos(_todos_los_a(marc, ("100", "110", "111", "700", "710"), _limpio),
+                           " | "),
+        "isbns": _unidos(_todos_los_a(marc, ("020",), normalizar_isbn), " "),
     }
+
+
+def _todos_los_a(marc: dict, tags: Tuple[str, ...], limpiar) -> List[str]:
+    """El $a de cada campo con esas etiquetas (en el orden del registro), sin repetir."""
+    valores: List[str] = []
+    for campo in marc.get("fields", []):
+        tag = next(iter(campo))
+        if tag not in tags:
+            continue
+        for crudo in subcampos(campo[tag], "a")[:1]:
+            valor = limpiar(crudo)
+            if valor and valor not in valores:
+                valores.append(valor)
+    return valores
+
+
+def _unidos(valores: List[str], separador: str) -> Optional[str]:
+    return separador.join(valores) or None
 
 
 # --- Construcción -----------------------------------------------------------------

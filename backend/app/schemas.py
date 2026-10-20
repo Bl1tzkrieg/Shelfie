@@ -2,6 +2,8 @@ from typing import Annotated, Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
+from app.core import pg_dump
+
 
 # ==========================================
 # CATÁLOGO
@@ -117,6 +119,15 @@ class RespaldoRequest(BaseModel):
     carpeta: Optional[str] = None
     pg_dump: Optional[str] = None
 
+    @field_validator("pg_dump")
+    @classmethod
+    def _solo_pg_dump(cls, valor: Optional[str]) -> Optional[str]:
+        """Corre como SYSTEM: solo un pg_dump local, fuera de las carpetas de usuario."""
+        motivo = pg_dump.problema(valor)
+        if motivo:
+            raise ValueError(motivo)
+        return valor
+
 
 class ActualizarConfiguracionRequest(BaseModel):
     biblioteca: Optional[BibliotecaRequest] = None
@@ -127,10 +138,16 @@ class ActualizarConfiguracionRequest(BaseModel):
 # FICHA SIMPLE DEL LIBRO (formulario ↔ MARC 21)
 # ==========================================
 
+# Un campo MARC no puede pasar de 9999 bytes en ISO 2709 (el directorio guarda su largo en
+# 4 dígitos). 9000 deja lugar a indicadores, códigos y separadores. El formulario usa el mismo
+# número como tope de caracteres (aproximado: una letra con tilde ocupa 2 bytes).
+MAX_BYTES_TEXTO_LARGO = 9000
+
+
 class FichaLibro(BaseModel):
     """Los campos del formulario de catalogación simple. `services/ficha.py` la traduce a MARC."""
 
-    cota: str
+    cota: str = Field(max_length=100)  # registros_bibliograficos.cota
     titulo: str
     subtitulo: Optional[str] = None
     mencion: Optional[str] = None
@@ -165,6 +182,14 @@ class FichaLibro(BaseModel):
             return valor.strip() or None
         return valor
 
+    @field_validator("descripcion", "notas")
+    @classmethod
+    def _cabe_en_iso2709(cls, valor: Optional[str]) -> Optional[str]:
+        if valor is not None and len(valor.encode("utf-8")) > MAX_BYTES_TEXTO_LARGO:
+            raise ValueError(f"Es demasiado largo: hasta {MAX_BYTES_TEXTO_LARGO} bytes "
+                             "(unos 9000 caracteres; las letras con tilde cuentan doble)")
+        return valor
+
     @field_validator("otros_autores", "isbn", "materias", mode="before")
     @classmethod
     def _lista(cls, valores: Any) -> Any:
@@ -184,7 +209,7 @@ class NuevoLibroRequest(BaseModel):
     ficha: FichaLibro
     ejemplares: int = Field(default=1, ge=0, le=100)
     # La misma nota para todos los ejemplares creados (p. ej. «Donación»).
-    nota_ejemplares: Optional[str] = None
+    nota_ejemplares: Optional[str] = Field(default=None, max_length=MAX_BYTES_TEXTO_LARGO)
     # Guardar aunque haya posibles duplicados (otra edición, otro libro con el mismo título).
     forzar: bool = False
 
@@ -194,4 +219,4 @@ class EjemplarRequest(BaseModel):
     cota: Optional[str] = Field(default=None, max_length=100)
     codigo_barras: Optional[str] = Field(default=None, max_length=50)
     numero_copia: Optional[str] = Field(default=None, max_length=20)
-    nota: Optional[str] = None
+    nota: Optional[str] = Field(default=None, max_length=MAX_BYTES_TEXTO_LARGO)

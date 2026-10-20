@@ -36,7 +36,14 @@ export interface Sesion extends Personal {
 }
 
 export interface EstadoRespaldo {
-  ultimo: { fecha: string; ok: boolean; mensaje: string | null; tamano?: number | null } | null
+  ultimo: {
+    fecha: string
+    ok: boolean
+    mensaje: string | null
+    tamano?: number | null
+    /** Respaldo correcto (base.dump bueno) con algo incompleto en el catálogo. */
+    aviso?: string | null
+  } | null
   ultimo_ok: string | null
   alerta: boolean
   motivo: string | null
@@ -164,8 +171,8 @@ export interface AccionRegistrada {
   actor: string
   actor_username: string | null
   /** El miembro del personal afectado (p. ej. a quien se le restableció la clave). */
-  lector: string | null
-  lector_username: string | null
+  usuario_afectado: string | null
+  usuario_afectado_username: string | null
   biblio_id: number | null
   titulo: string | null
   codigo_barras: string | null

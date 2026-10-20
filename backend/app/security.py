@@ -98,7 +98,7 @@ def _anular_token(request: Optional[Request], db: Optional[Session]) -> None:
         usuario = db.get(models.Usuario, int(payload["sub"]))
         db.info["ip"] = ip_de(request)
         registro.anotar(db, "sesion", "salida", f"Salió de la intranet: {registro.nombre(usuario)}",
-                        actor=usuario, lector=usuario)
+                        actor=usuario, usuario_afectado=usuario)
         db.commit()
 
 
