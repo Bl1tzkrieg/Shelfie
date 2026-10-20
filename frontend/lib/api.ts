@@ -33,12 +33,16 @@ export class ApiError extends Error {
   status: number
   /** Errores con ubicación, para marcarlos junto a su campo en un formulario. */
   errores: ErrorValidacion[]
+  /** El `detail` cuando es un objeto con forma, p. ej. {codigo: "POSIBLE_DUPLICADO", …}. */
+  detalle: Record<string, unknown> | null
 
-  constructor(message: string, status: number, errores: ErrorValidacion[] = []) {
+  constructor(message: string, status: number, errores: ErrorValidacion[] = [],
+              detalle: Record<string, unknown> | null = null) {
     super(message)
     this.name = "ApiError"
     this.status = status
     this.errores = errores
+    this.detalle = detalle
   }
 }
 
@@ -56,6 +60,10 @@ async function errorDeRespuesta(response: Response): Promise<ApiError> {
         })
         .join(" · ")
       return new ApiError(mensaje, response.status, errores)
+    }
+    if (detail && typeof detail === "object") {
+      return new ApiError(`Error ${response.status}`, response.status, [],
+                          detail as Record<string, unknown>)
     }
   } catch {
     // respuesta sin cuerpo JSON

@@ -243,3 +243,59 @@ export interface FichaPublica {
   ficha: FichaLibro
   ejemplares: EjemplarPublico[]
 }
+
+// --- Libros (/books: ingreso, edición y lista del catalogador) ----------------------
+
+/** Un ejemplar como lo ve el catalogador: con su código de barras. */
+export interface EjemplarLibro {
+  id: number
+  cota: string | null
+  codigo_barras: string | null
+  numero_copia: string | null
+  nota: string | null
+}
+
+/** GET/PUT /books/{id}, y la respuesta del alta y de los cambios de ejemplares. */
+export interface LibroCatalogo {
+  id: number
+  /** En un registro importado sin 092 o sin 245 $a, la cota o el título llegan vacíos. */
+  ficha: FichaLibro
+  ejemplares: EjemplarLibro[]
+  creado_en: string | null
+  actualizado_en: string | null
+}
+
+/** POST /books. */
+export interface NuevoLibro {
+  ficha: FichaLibro
+  ejemplares: number
+  nota_ejemplares: string | null
+  forzar: boolean
+}
+
+/** Un libro que puede ser el mismo (409 POSIBLE_DUPLICADO). */
+export interface CoincidenciaDuplicado {
+  id: number
+  titulo: string
+  autor: string | null
+  cota: string | null
+}
+
+/** Una fila de GET /books, en el orden del estante. */
+export interface FilaLibro {
+  id: number
+  cota: string | null
+  titulo: string
+  autor: string | null
+  ano: number | null
+  editorial: string | null
+  ejemplares: number
+}
+
+export interface PaginaLibros {
+  total: number
+  pagina: number
+  por_pagina: number
+  paginas: number
+  resultados: FilaLibro[]
+}
