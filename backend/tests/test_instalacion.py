@@ -211,7 +211,7 @@ def test_empaquetar_no_hornea_la_url_de_desarrollo():
     assert "trap limpiar EXIT" in script
     assert "frontend/.env.local" in script and ".env.*.local" in script
     assert "env -u NEXT_PUBLIC_API_URL npm run build" in script
-    assert 'grep -rq "localhost:8000" frontend/out' in script
+    assert "verificar_sin_url_dev.sh" in script and "frontend/out" in script
     # Los apartados se apartan antes de compilar y se devuelven en el trap.
     assert script.index('mv "$f" "$APARTADOS/') < script.index("npm ci && env -u")
     assert "next-env.d.ts" in (RAIZ / ".gitignore").read_text(encoding="utf-8")
@@ -245,3 +245,29 @@ def test_esta_dentro_es_literal_y_sin_mayusculas():
                              capture_output=True, text=True, timeout=120, check=False)
     assert corrida.returncode == 0, corrida.stderr
     assert json.loads(corrida.stdout) == [esperado for _, _, esperado in casos]
+
+
+def _verificar(carpeta):
+    return subprocess.run(["bash", str(RAIZ / "scripts" / "verificar_sin_url_dev.sh"), str(carpeta)],
+                          capture_output=True, text=True)
+
+
+@pytest.mark.parametrize("url", ["http://localhost:8000", "http://localhost:3000/api",
+                                 "http://127.0.0.1:8080"])
+def test_guardia_del_empaquetado_aborta_con_url_de_desarrollo(tmp_path, url):
+    (tmp_path / "_next").mkdir()
+    (tmp_path / "_next" / "app.js").write_text(f'fetch("{url}/api/v1/x")', encoding="utf-8")
+    r = _verificar(tmp_path)
+    assert r.returncode == 1
+    assert "no se empaqueta" in r.stderr and "app.js" in r.stderr
+
+
+def test_guardia_del_empaquetado_deja_pasar_una_carpeta_limpia(tmp_path):
+    (tmp_path / "index.html").write_text('<a href="/api/v1/x">ok</a>', encoding="utf-8")
+    assert _verificar(tmp_path).returncode == 0
+
+
+def test_empaquetar_restaura_sin_pisar_un_env_local_nuevo():
+    script = (RAIZ / "scripts" / "empaquetar.sh").read_text(encoding="utf-8")
+    assert "apartado-" in script and 'if [ -e "$destino" ]' in script
+    assert "FALLO_AL_DEVOLVER" in script

@@ -17,15 +17,28 @@ TEMPORAL="$(mktemp -d)"
 # Esos archivos se apartan durante la compilación y, pase lo que pase, se devuelven al terminar.
 APARTADOS="$TEMPORAL/env-apartados"
 mkdir -p "$APARTADOS"
+FALLO_AL_DEVOLVER=0
 devolver_env() {
+    local f destino
     for f in "$APARTADOS"/.env*; do
-        [ -e "$f" ] && mv "$f" "$RAIZ/frontend/$(basename "$f")"
+        [ -e "$f" ] || continue
+        destino="$RAIZ/frontend/$(basename "$f")"
+        if [ -e "$destino" ]; then
+            # Apareció otro archivo con ese nombre durante la compilación: no se pisa.
+            destino="$destino.apartado-$(date +%Y%m%d-%H%M%S)"
+            echo "AVISO: ya existe $RAIZ/frontend/$(basename "$f"); su copia original quedó en $destino" >&2
+        fi
+        if ! mv "$f" "$destino"; then
+            echo "ERROR: no se pudo devolver $(basename "$f"); sigue en $f" >&2
+            FALLO_AL_DEVOLVER=1
+        fi
     done
-    return 0
 }
 limpiar() {
     devolver_env
-    rm -rf "$TEMPORAL"
+    # Si algo no volvió, se conserva la carpeta temporal para no perder el archivo.
+    [ "$FALLO_AL_DEVOLVER" -eq 0 ] && rm -rf "$TEMPORAL"
+    return 0
 }
 trap limpiar EXIT
 for f in "$RAIZ"/frontend/.env.local "$RAIZ"/frontend/.env.*.local; do
@@ -35,10 +48,7 @@ done
 echo "== Compilando el frontend (frontend/out)"
 (cd frontend && npm ci && env -u NEXT_PUBLIC_API_URL npm run build)
 test -f frontend/out/index.html || { echo "ERROR: next build no dejó frontend/out/index.html" >&2; exit 1; }
-if grep -rq "localhost:8000" frontend/out; then
-    echo "ERROR: frontend/out trae la URL de desarrollo (localhost:8000); no se empaqueta." >&2
-    exit 1
-fi
+"$RAIZ/scripts/verificar_sin_url_dev.sh" frontend/out
 
 echo "== Armando el paquete"
 PAQUETE="$TEMPORAL/paquete"
