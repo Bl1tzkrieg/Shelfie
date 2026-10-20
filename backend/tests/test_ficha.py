@@ -53,6 +53,13 @@ def test_articulo_inicial():
     assert (sin_autor["ind1"], sin_autor["ind2"]) == ("0", "0")
 
 
+def test_a_inicial_no_es_articulo():
+    campo = marc.campos(ficha.a_marc(FichaLibro(cota="1", titulo="A orillas del río"), None), "245")[0]
+    assert campo["ind2"] == "0"
+    campo = marc.campos(ficha.a_marc(FichaLibro(cota="1", titulo="The Road"), None), "245")[0]
+    assert campo["ind2"] == "4"
+
+
 def test_edita_260_en_su_lugar():
     base = {"leader": "00000nam a22000007i 4500", "fields": [
         {"008": "200101s1990    ve            000 0 spa d"},
@@ -65,7 +72,7 @@ def test_edita_260_en_su_lugar():
     registro = ficha.a_marc(nueva, base)
     assert marc.campos(registro, "264") == []
     (campo,) = marc.campos(registro, "260")
-    assert campo["subfields"] == [{"a": "Valencia"}, {"b": "Monte Ávila"}, {"c": "1991"}]
+    assert campo["subfields"] == [{"a": "Valencia :"}, {"b": "Monte Ávila"}, {"c": "1991"}]
     assert ficha.desde_marc(registro).editorial == "Monte Ávila"
 
 
@@ -74,8 +81,8 @@ def test_260_y_264_juntos_escribe_264():
         {"260": {"ind1": " ", "ind2": " ", "subfields": [{"a": "A"}]}},
         {"264": {"ind1": " ", "ind2": "1", "subfields": [{"a": "B"}]}}]}
     registro = ficha.a_marc(FichaLibro(cota="1 A", titulo="T", lugar="C"), base)
-    assert marc.campos(registro, "260") == []
-    assert marc.campos(registro, "264")[0]["ind2"] == "1"
+    assert marc.campos(registro, "260")[0]["subfields"] == [{"a": "A"}]  # solo se toca el que se leyó
+    assert marc.campos(registro, "264")[0]["subfields"] == [{"a": "C"}]
 
 
 def test_cota_se_normaliza():
@@ -112,3 +119,113 @@ def test_registro_sin_cota_se_puede_leer():
     r = ficha.desde_marc({"leader": "x", "fields": [
         {"245": {"ind1": "0", "ind2": "0", "subfields": [{"a": "Importado /"}]}}]})
     assert r.cota == "" and r.titulo == "Importado"
+
+
+def _koha() -> dict:
+    def c(tag, ind, *subs):
+        return {tag: {"ind1": ind[0], "ind2": ind[1], "subfields": [{k: v} for k, v in subs]}}
+    return {"leader": "00000nam a22000007i 4500", "fields": [
+        {"008": "200101s1929    ve            000 0 spa d"},
+        c("020", "  ", ("a", "9789800000001 :"), ("q", "(rústica)")),
+        c("020", "  ", ("z", "9789800000999")),
+        c("082", "04", ("a", "863")),
+        c("100", "1 ", ("a", "Gallegos, Rómulo,"), ("d", "1884-1969.")),
+        c("245", "10", ("a", "Doña Bárbara /"), ("n", "Primera parte"), ("p", "El lobo"),
+          ("c", "Rómulo Gallegos.")),
+        c("264", " 1", ("a", "Caracas :"), ("b", "Monte Ávila,"), ("c", "1929.")),
+        c("264", " 4", ("c", "©1929")),
+        c("500", "  ", ("a", "Primera nota.")),
+        c("500", "  ", ("a", "Segunda nota.")),
+        c("650", " 0", ("a", "Novela venezolana"), ("y", "Siglo XX"), ("2", "lcsh")),
+        c("650", " 0", ("a", "Llanos"), ("z", "Venezuela")),
+        c("700", "1 ", ("a", "Pérez, Ana,"), ("e", "ilustradora.")),
+        c("952", "  ", ("a", "B"), ("p", "001"))]}
+
+
+def _sin_092(registro: dict) -> list:
+    return [c for c in registro["fields"] if "092" not in c]
+
+
+def test_editar_solo_la_cota_de_un_registro_importado_no_pierde_nada():
+    original = _koha()
+    previa = ficha.desde_marc(original)
+    assert (previa.autor, previa.otros_autores, previa.lugar) == (
+        "Gallegos, Rómulo", ["Pérez, Ana"], "Caracas")
+    resultado = ficha.a_marc(previa.model_copy(update={"cota": "863 g3"}), original)
+    assert _sin_092(resultado) == original["fields"]
+    assert marc.campos(resultado, "092")[0]["subfields"] == [{"a": "863"}, {"b": "G3"}]
+
+
+def test_quitar_una_materia_conserva_las_otras_con_subdivisiones():
+    original = _koha()
+    previa = ficha.desde_marc(original)
+    resultado = ficha.a_marc(previa.model_copy(update={
+        "cota": "1 A", "materias": ["Llanos"]}), original)
+    assert marc.campos(resultado, "650") == [marc.campos(original, "650")[1]]
+    nuevo = ficha.a_marc(previa.model_copy(update={
+        "cota": "1 A", "materias": ["Novela venezolana", "Llanos", "Selva"]}), original)
+    assert marc.campos(nuevo, "650")[:2] == marc.campos(original, "650")
+    assert marc.campos(nuevo, "650")[2] == {
+        "ind1": " ", "ind2": "4", "subfields": [{"a": "Selva"}]}
+
+
+def test_cambiar_solo_el_titulo_conserva_n_p_y_el_indicador_con_110():
+    original = _koha()
+    original["fields"] = [c for c in original["fields"] if "100" not in c]
+    original["fields"].insert(3, {"110": {"ind1": "2", "ind2": " ",
+                                           "subfields": [{"a": "Editorial X."}]}})
+    previa = ficha.desde_marc(original)
+    resultado = ficha.a_marc(previa.model_copy(update={"cota": "1 A", "titulo": "La barbara"}),
+                             original)
+    campo = marc.campos(resultado, "245")[0]
+    assert (campo["ind1"], campo["ind2"]) == ("1", "3")
+    assert campo["subfields"] == [{"a": "La barbara"}, {"n": "Primera parte"},
+                                  {"p": "El lobo"}, {"c": "Rómulo Gallegos."}]
+    assert marc.campos(resultado, "110") == marc.campos(original, "110")
+
+
+def test_cambiar_el_autor_edita_el_a_y_conserva_el_d():
+    original = _koha()
+    previa = ficha.desde_marc(original)
+    resultado = ficha.a_marc(previa.model_copy(update={"cota": "1 A", "autor": "Otro, Autor"}),
+                             original)
+    assert marc.campos(resultado, "100")[0] == {
+        "ind1": "1", "ind2": " ", "subfields": [{"a": "Otro, Autor"}, {"d": "1884-1969."}]}
+
+
+def test_la_publicacion_solo_toca_el_264_de_publicacion():
+    original = _koha()
+    previa = ficha.desde_marc(original)
+    resultado = ficha.a_marc(previa.model_copy(update={"cota": "1 A", "editorial": "Otra"}),
+                             original)
+    p264 = marc.campos(resultado, "264")
+    assert p264[0]["subfields"] == [{"a": "Caracas :"}, {"b": "Otra"}, {"c": "1929."}]
+    assert p264[1] == marc.campos(original, "264")[1]
+
+
+def test_un_264_de_copyright_solo_no_es_la_publicacion():
+    base = {"leader": "x", "fields": [
+        {"264": {"ind1": " ", "ind2": "4", "subfields": [{"c": "©2001"}]}}]}
+    previa = ficha.desde_marc(base)
+    assert (previa.lugar, previa.editorial) == (None, None)
+    resultado = ficha.a_marc(previa.model_copy(update={"cota": "1", "titulo": "T", "lugar": "Lima"}),
+                             base)
+    assert marc.campos(resultado, "264")[0] == base["fields"][0]["264"]
+    assert marc.campos(resultado, "264")[1]["ind2"] == "1"
+
+
+def test_limpieza_uniforme_de_la_puntuacion_al_leer():
+    f = ficha.desde_marc(_koha())
+    assert (f.autor, f.otros_autores, f.titulo, f.editorial) == (
+        "Gallegos, Rómulo", ["Pérez, Ana"], "Doña Bárbara", "Monte Ávila")
+    assert f.isbn == ["9789800000001"]
+    assert f.notas == "Primera nota."
+
+
+def test_desde_marc_normaliza_la_cota():
+    base = {"leader": "x", "fields": [
+        {"092": {"ind1": " ", "ind2": " ", "subfields": [{"a": "616.39"}, {"b": "h37"}]}},
+        {"245": {"ind1": "0", "ind2": "0", "subfields": [{"a": "T"}]}}]}
+    assert ficha.desde_marc(base).cota == "616.39 H37"
+    resultado = ficha.a_marc(ficha.desde_marc(base), base)
+    assert resultado["fields"] == base["fields"]  # sin cambios: el 092 original no se toca
