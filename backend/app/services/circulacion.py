@@ -216,7 +216,7 @@ def devolver(db: Session, codigo_barras: str, personal_id: Optional[int] = None,
         + (f"; multa por atraso {_bs(multa)}" if multa > 0 else ""),
         lector=usuario, biblio=item.biblio_id, item=item, objeto=("prestamo", prestamo.id),
         datos={"multa": multa} if multa > 0 else None)
-    return _reincorporar(db, item, "Devolución registrada correctamente en el inventario",
+    return _reincorporar(db, item, "Devolución registrada",
                          sede_id, personal_id, multa=multa)
 
 
