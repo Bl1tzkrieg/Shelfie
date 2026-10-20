@@ -4,7 +4,6 @@ import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
-  AlertTriangle,
   BookMarked,
   BookPlus,
   History,
@@ -100,19 +99,6 @@ export function Sidebar({ enHoja = false, onNavegar }: {
           )
         })}
       </nav>
-
-      {usuario?.alerta_respaldo && (
-        <div className="px-3 pb-2">
-          <Link
-            href="/configuracion"
-            onClick={onNavegar}
-            className="flex items-center gap-3 rounded-lg bg-destructive/15 px-3 py-2 text-sm font-medium text-destructive"
-          >
-            <AlertTriangle className="h-4 w-4" />
-            Revisar el respaldo
-          </Link>
-        </div>
-      )}
 
       {/* User section */}
       {usuario && (

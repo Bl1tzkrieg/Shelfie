@@ -67,6 +67,13 @@ def estado_del_respaldo(usuario: models.Usuario = Depends(requiere(Permiso.SUPER
     return respaldo.estado(db)
 
 
+@router.get("/backup/pg_dump")
+def detectar_pg_dump(usuario: models.Usuario = Depends(requiere(Permiso.SUPERBIBLIOTECARIO))):
+    """Dónde está pg_dump en este equipo, ignorando lo configurado (el botón «Detectar»).
+    No hace ningún respaldo."""
+    return {"ruta": respaldo.encontrar_pg_dump(None)}
+
+
 @router.post("/backup")
 def respaldar_ahora(usuario: models.Usuario = Depends(requiere(Permiso.SUPERBIBLIOTECARIO)),
                     db: Session = Depends(get_db)):

@@ -250,6 +250,26 @@ def test_solo_admin(como, anonimo):
     assert anonimo.post("/api/v1/settings/backup").status_code == 401
 
 
+def test_detectar_pg_dump(como, monkeypatch):
+    admin, catalogador = como(["superbibliotecario"], username="ADM"), como(["catalogo"])
+    llamadas = []
+
+    def falso(configurado=None, **_):
+        llamadas.append(configurado)
+        return "/usr/bin/pg_dump"
+
+    monkeypatch.setattr(respaldo, "encontrar_pg_dump", falso)
+
+    r = admin.get("/api/v1/settings/backup/pg_dump")
+    assert r.status_code == 200
+    assert r.json() == {"ruta": "/usr/bin/pg_dump"}
+    assert llamadas == [None]  # ignora lo configurado
+    assert catalogador.get("/api/v1/settings/backup/pg_dump").status_code == 403
+
+    monkeypatch.setattr(respaldo, "encontrar_pg_dump", lambda *a, **k: None)
+    assert admin.get("/api/v1/settings/backup/pg_dump").json() == {"ruta": None}
+
+
 def test_me_avisa_solo_al_administrador(como, db, tmp_path):
     admin, catalogador = como(["superbibliotecario"], username="ADM"), como(["catalogo"])
 

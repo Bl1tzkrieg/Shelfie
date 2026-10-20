@@ -14,6 +14,8 @@ type EstadoSesion = {
   tienePermiso: (permiso: Permiso) => boolean
   iniciarSesion: (username: string, password: string) => Promise<void>
   cerrarSesion: () => Promise<void>
+  /** Vuelve a leer /auth/me (p. ej. tras un respaldo, que cambia `alerta_respaldo`). */
+  recargarSesion: () => Promise<void>
 }
 
 const SesionContext = createContext<EstadoSesion | null>(null)
@@ -83,6 +85,14 @@ export function SesionProvider({ children }: { children: React.ReactNode }) {
     }
   }, [router])
 
+  const recargarSesion = useCallback(async () => {
+    try {
+      setUsuario(await apiGet<Sesion>("/auth/me"))
+    } catch {
+      // Si falla, queda la sesión que ya había: un 401 lo atiende el evento de sesión expirada.
+    }
+  }, [])
+
   const tienePermiso = useCallback(
     (permiso: Permiso) =>
       !!usuario &&
@@ -91,8 +101,8 @@ export function SesionProvider({ children }: { children: React.ReactNode }) {
   )
 
   const valor = useMemo(
-    () => ({ usuario, cargando, tienePermiso, iniciarSesion, cerrarSesion }),
-    [usuario, cargando, tienePermiso, iniciarSesion, cerrarSesion],
+    () => ({ usuario, cargando, tienePermiso, iniciarSesion, cerrarSesion, recargarSesion }),
+    [usuario, cargando, tienePermiso, iniciarSesion, cerrarSesion, recargarSesion],
   )
 
   const esPublica = esRutaPublica(pathname)
