@@ -249,7 +249,10 @@ el archivo de un lector portátil, en tantas sesiones como haga falta. Cada lect
 su resultado y marca la fecha de último inventario del ejemplar. Los **faltantes** salen en
 orden de estante y se exportan a CSV; cerrar no los marca como perdidos, eso se decide
 ejemplar por ejemplar. Con "devolver los prestados que aparezcan", un prestado leído en el
-estante se devuelve solo (con la multa, si estaba vencido).
+estante se devuelve solo (con la multa, si estaba vencido). Releer un código ya leído no
+cuenta dos veces y recuerda qué salió; pero si lo pendiente se resolvió entretanto (se pasó
+por Devoluciones, apareció el perdido, se dio de alta el código desconocido), se clasifica de
+nuevo y la lectura anterior deja de contar.
 
 ## 🕵️ Registro de acciones
 

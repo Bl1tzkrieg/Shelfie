@@ -136,7 +136,7 @@ export default function InventarioPage() {
             <Faltantes inv={inv} />
           </TabsContent>
           <TabsContent value="problemas" className="mt-4">
-            <Lecturas filas={inv.ultimas_lecturas.filter((l) => PROBLEMAS.includes(l.resultado))}
+            <Lecturas filas={inv.ultimas_lecturas.filter((l) => l.vigente !== false && PROBLEMAS.includes(l.resultado))}
                       vacio="Nada para revisar." />
           </TabsContent>
           <TabsContent value="lecturas" className="mt-4">
@@ -338,12 +338,15 @@ function Lecturas({ filas, vacio, nota }: { filas: LecturaInventario[]; vacio: s
       {nota && <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground">{nota}</p>}
       <ul className="divide-y divide-border">
         {filas.map((l, n) => (
-          <li key={`${l.codigo_barras}-${n}`} className="flex flex-col gap-1 px-4 py-3 text-sm sm:flex-row sm:items-start sm:justify-between">
+          <li key={`${l.codigo_barras}-${n}`}
+              className={cn("flex flex-col gap-1 px-4 py-3 text-sm sm:flex-row sm:items-start sm:justify-between",
+                            l.vigente === false && "opacity-60")}>
             <div className="min-w-0">
               <p className="text-foreground"><span className="font-mono">{l.codigo_barras}</span>
                 {l.titulo && <> · {l.biblio_id ? <Link href={`/catalogo/${l.biblio_id}`} className="text-primary hover:underline">{l.titulo}</Link> : l.titulo}</>}
               </p>
               {l.detalle && <p className="text-xs text-muted-foreground">{l.detalle}</p>}
+              {l.vigente === false && <p className="text-xs text-muted-foreground">Se volvió a leer después y cambió: ya no cuenta.</p>}
             </div>
             <div className="flex shrink-0 items-center gap-3">
               <span className={cn("rounded-full border px-2 py-0.5 text-xs", CLASES_TONO[TONO_RESULTADO[l.resultado]])}>{l.resultado_nombre}</span>

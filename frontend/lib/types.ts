@@ -883,6 +883,8 @@ export interface LecturaInventario {
   biblio_id: number | null
   signatura: string | null
   fecha?: string
+  /** Falso si una lectura posterior del mismo código la reemplazó (p. ej., se devolvió y se releyó). */
+  vigente?: boolean
 }
 
 export interface FaltanteInventario {

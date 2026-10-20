@@ -156,5 +156,35 @@ def test_el_repetido_recuerda_lo_que_salio_la_primera_vez(client, datos, db):
 
     assert [l["resultado"] for l in lecturas] == ["repetido"] * 3
     assert "figura prestado" in lecturas[0]["detalle"] and "pásalo por Devoluciones" in lecturas[0]["detalle"]
-    assert lecturas[1]["detalle"] == "La primera vez: en su lugar"
+    assert lecturas[1]["detalle"] == "Antes: en su lugar"
     assert "código desconocido" in lecturas[2]["detalle"]
+
+
+def test_al_releer_lo_que_cambio_se_clasifica_de_nuevo(client, datos, db):
+    datos.sin_dias_cerrados()
+    libro = datos.titulo()
+    prestado = datos.ejemplar(libro, "C-1", estado="Prestado")
+    perdido = datos.ejemplar(libro, "C-2", estado="Perdido")
+    datos.prestamo(prestado, datos.lector("L-1"))
+    db.commit()
+    inv = client.post(INV, json={}).json()
+    client.post(f"{INV}/{inv['id']}/scan", json={"codigos": ["C-1", "C-2", "C-NUEVO"]})
+
+    # En el mostrador: se devuelve el prestado y se da de alta el código que no existía.
+    assert client.post("/api/v1/circulation/checkin", json={"codigo_barras": "C-1"}).status_code == 200
+    datos.ejemplar(libro, "C-NUEVO")
+    db.commit()
+
+    lecturas = client.post(f"{INV}/{inv['id']}/scan",
+                           json={"codigos": ["C-1", "C-2", "C-NUEVO", "C-1"]}).json()["lecturas"]
+
+    assert [l["resultado"] for l in lecturas] == ["ok", "repetido", "ok", "repetido"]
+    assert lecturas[0]["detalle"] == "Antes: figura prestado"
+    assert lecturas[3]["detalle"] == "Antes: en su lugar"
+    vista = client.get(f"{INV}/{inv['id']}").json()
+    # Lo resuelto ya no cuenta como prestado ni como desconocido; el perdido sigue pendiente.
+    assert (vista["conteos"]["prestado"], vista["conteos"]["desconocido"]) == (0, 0)
+    assert (vista["conteos"]["ok"], vista["conteos"]["perdido"]) == (2, 1)
+    viejas = [l for l in vista["ultimas_lecturas"] if not l["vigente"]]
+    assert {l["resultado"] for l in viejas} == {"prestado", "desconocido"}
+    assert client.get(f"{INV}/{inv['id']}", params={"resultado": "prestado"}).json()["ultimas_lecturas"] == []

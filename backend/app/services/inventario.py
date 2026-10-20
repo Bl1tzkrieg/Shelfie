@@ -217,11 +217,12 @@ def leer(db: Session, inventario_id: int, codigos: Iterable[str], actor_id: Opti
     if len(lista) > MAX_LECTURAS_POR_ENVIO:
         raise ReglaIncumplida(f"Se leen hasta {MAX_LECTURAS_POR_ENVIO} códigos por vez")
 
-    # Primera lectura de cada código: al repetirlo se recuerda qué fue, sin volver a clasificarlo.
+    # Lectura vigente de cada código (la última que no fue repetida): al releerlo se recuerda
+    # qué salió, salvo que el ejemplar haya cambiado desde entonces y toque clasificarlo de nuevo.
     vistos = {}
     for codigo_leido, res, det in db.query(L.codigo_barras, L.resultado, L.detalle).filter(
             L.inventario_id == inv.id, L.resultado != "repetido").order_by(L.id):
-        vistos.setdefault(codigo_leido.upper(), (res, det))
+        vistos[codigo_leido.upper()] = (res, det)
     por_codigo = {i.codigo_barras.upper(): i for i in db.query(models.Item).filter(
         func.upper(models.Item.codigo_barras).in_({c.upper() for c in lista}))}
     nombres = sedes.nombres(db)
@@ -229,14 +230,19 @@ def leer(db: Session, inventario_id: int, codigos: Iterable[str], actor_id: Opti
     resultados = []
     for codigo in lista:
         item = por_codigo.get(codigo.upper())
-        if codigo.upper() in vistos:
-            resultado, detalle = "repetido", _detalle_repetido(*vistos[codigo.upper()])
+        anterior = vistos.get(codigo.upper())
+        if anterior and not _cambio_desde(anterior[0], item):
+            resultado, detalle = "repetido", _detalle_repetido(*anterior)
         elif item is None:
             resultado, detalle = "desconocido", "No hay ningún ejemplar con este código"
         else:
             resultado, detalle = _clasificar(db, inv, item, nombres, actor_id, sede_trabajo)
             item.fecha_ultimo_inventario = momento
-        vistos.setdefault(codigo.upper(), (resultado, detalle))
+        if resultado != "repetido":
+            vistos[codigo.upper()] = (resultado, detalle)
+            if anterior:  # Se clasificó de nuevo: se cuenta qué había salido antes.
+                antes = f"Antes: {NOMBRE_RESULTADO[anterior[0]].lower()}"
+                detalle = f"{antes}. {detalle}" if detalle else antes
         db.add(L(inventario_id=inv.id, codigo_barras=(item.codigo_barras if item else codigo)[:50],
                  item_id=item.id if item else None, resultado=resultado, detalle=detalle,
                  usuario_id=actor_id, fecha=momento))
@@ -245,9 +251,23 @@ def leer(db: Session, inventario_id: int, codigos: Iterable[str], actor_id: Opti
     return {"lecturas": resultados, "conteos": dict(Counter(r["resultado"] for r in resultados))}
 
 
+# Estado en que estaba el ejemplar cuando se leyó con cada resultado pendiente.
+ESTADO_DEL_RESULTADO = {"prestado": "Prestado", "perdido": "Perdido", "retirado": "Retirado",
+                        "reservado": "Reservado", "en_transito": "EnTransito"}
+
+
+def _cambio_desde(resultado_anterior: str, item: Optional[models.Item]) -> bool:
+    """¿Hay que volver a clasificarlo? Sí si lo pendiente se resolvió: se devolvió el prestado,
+    se recuperó el perdido, llegó el que viajaba o se dio de alta el código desconocido."""
+    if resultado_anterior == "desconocido":
+        return item is not None
+    estado = ESTADO_DEL_RESULTADO.get(resultado_anterior)
+    return estado is not None and item is not None and item.estado != estado
+
+
 def _detalle_repetido(resultado_anterior: str, detalle_anterior: Optional[str]) -> str:
-    """Lo que salió la primera vez, para no perder el aviso al releerlo."""
-    texto = f"La primera vez: {NOMBRE_RESULTADO[resultado_anterior].lower()}"
+    """Lo que salió antes, para no perder el aviso al releerlo."""
+    texto = f"Antes: {NOMBRE_RESULTADO[resultado_anterior].lower()}"
     return f"{texto}. {detalle_anterior}" if detalle_anterior else texto
 
 
@@ -262,8 +282,19 @@ def _vista_lectura(db: Session, codigo: str, item: Optional[models.Item], result
 
 # --- Resultado --------------------------------------------------------------------------
 
+def _vigentes(lecturas) -> set:
+    """Ids de las lecturas que cuentan: las repetidas y, por código, la última que no lo fue
+    (si un prestado se devolvió y se releyó, ya no figura como prestado)."""
+    ultima = {}
+    for l in lecturas:
+        if l.resultado != "repetido":
+            ultima[l.codigo_barras.upper()] = l.id
+    return {l.id for l in lecturas if l.resultado == "repetido"} | set(ultima.values())
+
+
 def _resumen_vivo(db: Session, inv: models.Inventario) -> dict:
     lecturas = db.query(L).filter(L.inventario_id == inv.id).order_by(L.id).all()
+    vigentes = _vigentes(lecturas)
     leidos = {l.item_id for l in lecturas if l.item_id and l.resultado != "repetido"}
     lista_esperados = esperados(db, inv)
     titulos = {b.id: b.titulo for b in db.query(models.RegistroBibliografico).filter(
@@ -273,7 +304,7 @@ def _resumen_vivo(db: Session, inv: models.Inventario) -> dict:
                   "biblio_id": i.biblio_id, "signatura": i.signatura_topografica,
                   "ultimo_inventario": formatear_fecha(i.fecha_ultimo_inventario)}
                  for i in lista_esperados if i.id not in leidos]
-    conteos = Counter(l.resultado for l in lecturas)
+    conteos = Counter(l.resultado for l in lecturas if l.id in vigentes)
     esperados_leidos = sum(1 for i in lista_esperados if i.id in leidos)
     return {
         "esperados": len(lista_esperados),
@@ -290,11 +321,13 @@ def obtener(db: Session, inventario_id: int, resultado: Optional[str] = None,
     """El inventario con su resumen, los faltantes y las últimas lecturas (o las de un resultado)."""
     inv = _obtener(db, inventario_id)
     resumen = inv.resumen if inv.estado == CERRADO and inv.resumen else _resumen_vivo(db, inv)
+    vigentes = _vigentes(db.query(L.id, L.codigo_barras, L.resultado).filter(
+        L.inventario_id == inv.id).order_by(L.id).all())
     consulta = db.query(L).filter(L.inventario_id == inv.id)
     if resultado:
         if resultado not in NOMBRE_RESULTADO:
             raise ReglaIncumplida(f"Resultado desconocido: {resultado}")
-        consulta = consulta.filter(L.resultado == resultado)
+        consulta = consulta.filter(L.resultado == resultado, L.id.in_(vigentes or {0}))
     lecturas = consulta.order_by(L.id.desc()).limit(limite).all()
     items = {i.id: i for i in db.query(models.Item).filter(
         models.Item.id.in_({l.item_id for l in lecturas if l.item_id}))} if lecturas else {}
@@ -305,7 +338,7 @@ def obtener(db: Session, inventario_id: int, resultado: Optional[str] = None,
         "nombres_resultado": NOMBRE_RESULTADO,
         "ultimas_lecturas": [
             {**_vista_lectura(db, l.codigo_barras, items.get(l.item_id), l.resultado, l.detalle),
-             "fecha": formatear_fecha_hora(l.fecha)}
+             "fecha": formatear_fecha_hora(l.fecha), "vigente": l.id in vigentes}
             for l in lecturas],
     }
 
