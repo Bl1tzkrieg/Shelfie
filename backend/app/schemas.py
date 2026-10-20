@@ -47,6 +47,8 @@ class UserResponse(BaseModel):
 class SesionResponse(UserResponse):
     """Quién entró, con sus permisos (para mostrar u ocultar opciones)."""
     permisos: List[str] = []
+    # Solo para el administrador: el respaldo está atrasado o falló.
+    alerta_respaldo: bool = False
 
 
 class NuevoPersonalRequest(BaseModel):

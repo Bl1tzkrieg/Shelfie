@@ -55,8 +55,13 @@ def vista_de_usuario(db: Session, u: models.Usuario) -> dict:
 
 
 def vista_de_sesion(db: Session, u: models.Usuario) -> dict:
-    """La ficha de quien entró, con sus permisos."""
-    return {**vista_de_usuario(db, u), "permisos": list(u.permisos or [])}
+    """La ficha de quien entró, con sus permisos. Al administrador se le suma
+    `alerta_respaldo` (hay que mirar el respaldo); los demás no ven esa señal."""
+    from app.services import respaldo
+    ficha = {**vista_de_usuario(db, u), "permisos": list(u.permisos or [])}
+    if rol_de(u) == "administrador":
+        ficha["alerta_respaldo"] = respaldo.estado(db)["alerta"]
+    return ficha
 
 
 def buscar_para_entrar(db: Session, username: str) -> Optional[models.Usuario]:

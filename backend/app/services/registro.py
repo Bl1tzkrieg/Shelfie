@@ -34,7 +34,7 @@ NOMBRE_ACCION: Dict[str, str] = {
     "ejemplar": "Ejemplar",
     "clave_restablecida": "Contraseña restablecida", "clave_cambiada": "Contraseña cambiada",
     "permisos": "Permisos", "importacion": "Importación", "ajustes": "Ajustes",
-    "entrada": "Entrada", "entrada_fallida": "Entrada fallida", "salida": "Salida",
+    "respaldo": "Respaldo", "entrada": "Entrada", "entrada_fallida": "Entrada fallida", "salida": "Salida",
 }
 
 POR_DEFECTO = {"modulos": {m: True for m in MODULOS}, "dias_retencion": 730}

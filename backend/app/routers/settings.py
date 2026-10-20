@@ -7,7 +7,7 @@ from app import models, schemas
 from app.core.permisos import Permiso, tiene
 from app.database import get_db
 from app.security import _usuario_del_token, requiere, requiere_personal
-from app.services import configuracion
+from app.services import configuracion, respaldo
 
 router = APIRouter(prefix="/api/v1/settings", tags=["Configuración"])
 
@@ -58,3 +58,18 @@ def update_settings(payload: schemas.ActualizarConfiguracionRequest,
 def system_info(db: Session = Depends(get_db)):
     """Totales reales del catálogo para la tarjeta «Sistema» de la pantalla de ajustes."""
     return configuracion.info_sistema(db)
+
+
+@router.get("/backup")
+def estado_del_respaldo(usuario: models.Usuario = Depends(requiere(Permiso.SUPERBIBLIOTECARIO)),
+                        db: Session = Depends(get_db)):
+    """Último resultado y si hay que avisar (más de 7 días, o el último falló)."""
+    return respaldo.estado(db)
+
+
+@router.post("/backup")
+def respaldar_ahora(usuario: models.Usuario = Depends(requiere(Permiso.SUPERBIBLIOTECARIO)),
+                    db: Session = Depends(get_db)):
+    """Hace el respaldo ya. Un fallo (pendrive desconectado, sin pg_dump) no es un error de
+    la API: responde 200 con `ok: false` y el motivo."""
+    return {**respaldo.ejecutar(db), "estado": respaldo.estado(db)}
