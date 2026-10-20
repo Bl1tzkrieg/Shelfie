@@ -20,11 +20,16 @@
 
 .PARAMETER PuertoPg
     Puerto de PostgreSQL (5432 por defecto).
+
+.PARAMETER PermitirPythonDeUsuario
+    Acepta un Python instalado solo para un usuario (en C:\Users\...). No se recomienda:
+    ese usuario podría cambiar código que SYSTEM ejecuta al iniciar el equipo.
 #>
 [CmdletBinding()]
 param(
     [string]$SuperusuarioPg = 'postgres',
-    [int]$PuertoPg = 5432
+    [int]$PuertoPg = 5432,
+    [switch]$PermitirPythonDeUsuario
 )
 
 $ErrorActionPreference = 'Stop'
@@ -50,24 +55,39 @@ function Texto-DeClaveSegura([System.Security.SecureString]$Segura) {
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 }
 
+function Es-PythonDeUsuario([string]$BasePrefix) {
+    <# Instalado solo para un usuario (lo normal con "Install Now" de python.org va a
+       %LOCALAPPDATA%\Programs\Python): ese usuario puede modificar el intérprete y la
+       biblioteca estándar que usa el venv, es decir, código que SYSTEM corre al iniciar. #>
+    return Esta-Dentro $BasePrefix $CarpetaPerfiles
+}
+
 function Buscar-Python {
     <# El primer Python 3.12 o más reciente: el lanzador py (3.12, 3.13, el más nuevo) o python.
-       Se descarta el de la Microsoft Store (WindowsApps): es por usuario y SYSTEM no lo ve. #>
+       Se descarta el de la Microsoft Store (WindowsApps): es por usuario y SYSTEM no lo ve.
+       Uno instalado solo para un usuario se descarta salvo con -PermitirPythonDeUsuario. #>
+    $script:PythonDeUsuarioDescartado = $null
     foreach ($candidato in @('py -3.12', 'py -3.13', 'py -3', 'python')) {
         $partes = $candidato -split ' '
         $comando = Get-Command $partes[0] -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if (-not $comando -or $comando.Source -like '*\WindowsApps\*') { continue }
         $extra = @($partes | Select-Object -Skip 1)
-        $r = Ejecutar-Capturando $partes[0] ($extra + @('-c', 'import sys; print(sys.version_info[0], sys.version_info[1], sys.executable)'))
+        $r = Ejecutar-Capturando $partes[0] ($extra + @('-c', "import sys; print(sys.version_info[0], sys.version_info[1], sys.executable, sys.base_prefix, sep='|')"))
         if ($r.Codigo -ne 0) { continue }
-        $m = [regex]::Match($r.Salida, '(?m)^(\d+) (\d+) (.+)$')
+        $m = [regex]::Match($r.Salida, '(?m)^(\d+)\|(\d+)\|([^|]+)\|([^|\r\n]+)\s*$')
         if (-not $m.Success) { continue }
         $mayor = [int]$m.Groups[1].Value
         $menor = [int]$m.Groups[2].Value
-        if ($m.Groups[3].Value -like '*\WindowsApps\*') { continue }
-        if ($mayor -eq 3 -and $menor -ge 12) {
-            return [pscustomobject]@{ Ejecutable = $m.Groups[3].Value.Trim(); Version = "$mayor.$menor" }
+        $ejecutable = $m.Groups[3].Value.Trim()
+        $basePrefix = $m.Groups[4].Value.Trim()
+        if ($ejecutable -like '*\WindowsApps\*') { continue }
+        if (-not ($mayor -eq 3 -and $menor -ge 12)) { continue }
+        $encontrado = [pscustomobject]@{ Ejecutable = $ejecutable; Version = "$mayor.$menor"; BasePrefix = $basePrefix }
+        if ((Es-PythonDeUsuario $basePrefix) -and -not $PermitirPythonDeUsuario) {
+            if (-not $script:PythonDeUsuarioDescartado) { $script:PythonDeUsuarioDescartado = $encontrado }
+            continue
         }
+        return $encontrado
     }
     return $null
 }
@@ -113,8 +133,7 @@ function Proteger-CarpetaDeRespaldo([string]$Ruta) {
         Escribir-Aviso "$($unidad.Name) es una unidad de red de este usuario: SYSTEM no la ve y el respaldo fallará. Use una carpeta local o una ruta \\servidor\carpeta."
         return
     }
-    $perfiles = Split-Path -Parent $env:PUBLIC
-    if ($Ruta -like "$perfiles\*") {
+    if (Esta-Dentro $Ruta $CarpetaPerfiles) {
         Escribir-Info 'Está en el perfil de un usuario (p. ej. su OneDrive): la leen ese usuario, los administradores y SYSTEM. No se cambia, para que siga sincronizando.'
         return
     }
@@ -142,14 +161,30 @@ if (-not (Test-Path (Join-Path $ShelfieRaiz 'frontend\out\index.html'))) {
 }
 # Los archivos de un zip bajado de internet quedan "bloqueados"; se desbloquean los scripts.
 Get-ChildItem -Path $PSScriptRoot -Filter '*.ps1' | Unblock-File -ErrorAction SilentlyContinue
+# Dentro de C:\Users el dueño del perfil puede borrar o renombrar la carpeta protegida (tiene
+# "eliminar subcarpetas" sobre la carpeta de arriba) y poner otra en su lugar.
+if (Esta-Dentro $ShelfieRaiz $CarpetaPerfiles) {
+    Detener-ConError "Shelfie-lite está dentro de una carpeta de usuario ($ShelfieRaiz). Muévalo a una carpeta fija fuera de $CarpetaPerfiles, por ejemplo C:\Shelfie-lite, y vuelva a ejecutar."
+}
 
 # --- 1. Requisitos -----------------------------------------------------------------
 Escribir-Paso '1. Requisitos: Python 3.12 o más reciente y PostgreSQL 16 o más reciente'
 $PythonBase = Buscar-Python
+if (-not $PythonBase -and $script:PythonDeUsuarioDescartado) {
+    Detener-ConError ("Solo hay un Python instalado para un usuario: $($script:PythonDeUsuarioDescartado.BasePrefix). " +
+        'Ese usuario podría modificarlo, y Shelfie-lite lo ejecuta como SYSTEM al iniciar el equipo. ' +
+        'Reinstale Python desde https://www.python.org/downloads/windows/ con "Customize installation" y, en ' +
+        '"Advanced Options", marque "Install Python for all users" (queda en C:\Program Files\Python3xx). ' +
+        'Si acepta el riesgo, vuelva a ejecutar con -PermitirPythonDeUsuario.')
+}
 if (-not $PythonBase) {
-    Detener-ConError 'No se encontró Python 3.12 o más reciente. Instálelo desde https://www.python.org/downloads/windows/ (marque "Add python.exe to PATH") y vuelva a ejecutar.'
+    Detener-ConError 'No se encontró Python 3.12 o más reciente. Instálelo desde https://www.python.org/downloads/windows/ con "Customize installation" → "Install Python for all users" (y "Add python.exe to PATH") y vuelva a ejecutar.'
 }
 Escribir-Ok "Python $($PythonBase.Version): $($PythonBase.Ejecutable)"
+if (Es-PythonDeUsuario $PythonBase.BasePrefix) {
+    Escribir-Aviso "Python instalado solo para un usuario ($($PythonBase.BasePrefix)), aceptado por -PermitirPythonDeUsuario."
+    Escribir-Aviso 'Ese usuario puede modificar código que SYSTEM ejecuta al iniciar el equipo. Lo seguro es reinstalar Python "for all users" y volver a ejecutar instalar.ps1 sin esa opción.'
+}
 if ([version]$PythonBase.Version -gt [version]'3.13') {
     Escribir-Aviso 'Las dependencias están probadas con Python 3.12 y 3.13; con una versión más nueva podría faltar algún paquete.'
 }
@@ -182,6 +217,13 @@ if (Es-RaizDeUnidad $ShelfieRaiz) {
 $problema = Proteger-Carpeta $ShelfieRaiz -UsuariosLeen
 if ($problema) { Detener-ConError "No se pudieron fijar los permisos de $($ShelfieRaiz): $problema" }
 Escribir-Ok "$($ShelfieRaiz): Administradores y SYSTEM total, Usuarios solo lectura"
+# El /reset de la raíz le quitó al .env sus permisos propios: se restringen ya mismo, antes
+# de cualquier otro paso que pudiera fallar y dejarlo legible para los usuarios.
+if (Test-Path $ShelfieEnv) {
+    $problema = Proteger-Env
+    if ($problema) { Detener-ConError "No se pudieron restringir los permisos de backend\.env: $problema" }
+    Escribir-Ok 'backend\.env: solo Administradores y SYSTEM'
+}
 # Las copias que deja restaurar.ps1 tienen los datos y las claves cifradas de los usuarios.
 $respaldosPrevios = Join-Path $ShelfieRaiz 'respaldos-previos'
 New-Item -ItemType Directory -Force -Path $respaldosPrevios | Out-Null
@@ -208,7 +250,7 @@ if ($EnvNuevo) {
 } else {
     Escribir-Ok 'backend\.env ya existe: se conserva tal cual'
 }
-# Solo Administradores y SYSTEM (quien corre el servidor); se repite en cada instalación.
+# Un .env recién creado hereda "Usuarios: leer" de la raíz: se restringe enseguida.
 $problema = Proteger-Env
 if ($problema) { Detener-ConError "No se pudieron restringir los permisos de backend\.env: $problema" }
 Escribir-Ok 'backend\.env: solo lo leen los administradores y el sistema'
@@ -222,9 +264,13 @@ if (-not $Conexion) { Detener-ConError 'DATABASE_URL de backend\.env no tiene la
 Escribir-Paso '3. Entorno de Python y dependencias'
 Set-Location $ShelfieBackend
 if (Test-Path $ShelfiePython) {
-    $r = Ejecutar-Capturando $ShelfiePython @('-c', 'import sys')
+    $r = Ejecutar-Capturando $ShelfiePython @('-c', 'import sys; print(sys.base_prefix)')
+    $baseDelVenv = ($r.Salida -split "`n")[-1].Trim()
     if ($r.Codigo -ne 0) {
         Escribir-Aviso 'El entorno backend\.venv no funciona (¿se desinstaló Python?): se vuelve a crear.'
+        Remove-Item -Recurse -Force (Join-Path $ShelfieBackend '.venv')
+    } elseif ((Es-PythonDeUsuario $baseDelVenv) -and -not $PermitirPythonDeUsuario) {
+        Escribir-Aviso "backend\.venv usa un Python de usuario ($baseDelVenv): se vuelve a crear con $($PythonBase.Ejecutable)."
         Remove-Item -Recurse -Force (Join-Path $ShelfieBackend '.venv')
     }
 }

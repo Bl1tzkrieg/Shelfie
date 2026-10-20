@@ -162,12 +162,15 @@ def test_permisos_seguros():
                      "/reset", "icacls.exe", "$r.Codigo -ne 0"]:
         assert esperado in comun, esperado
     instalar = _texto("instalar.ps1")
-    # La raíz (usuarios solo leen), respaldos-previos y la carpeta de respaldo (solo admins),
-    # y el .env al final, porque /reset de la raíz le quita sus permisos propios.
+    # La raíz (usuarios solo leen) y enseguida el .env (el /reset de la raíz le quita sus
+    # permisos propios: no puede quedar legible si falla un paso posterior); después
+    # respaldos-previos y la carpeta de respaldo (solo admins).
     raiz = instalar.index("Proteger-Carpeta $ShelfieRaiz -UsuariosLeen")
-    previos = instalar.index("Proteger-Carpeta $respaldosPrevios\n")
     env = instalar.index("$problema = Proteger-Env")
-    assert raiz < previos < env
+    previos = instalar.index("Proteger-Carpeta $respaldosPrevios\n")
+    assert raiz < env < previos
+    # Un .env recién creado también se restringe enseguida.
+    assert instalar.index("[System.IO.File]::WriteAllText($ShelfieEnv") < instalar.rindex("Proteger-Env")
     assert "Proteger-CarpetaDeRespaldo $carpeta" in instalar
     assert "Proteger-CarpetaDeRespaldo $env:SHELFIE_CARPETA_RESPALDO" in instalar
     assert "Es-RaizDeUnidad $ShelfieRaiz" in instalar
@@ -206,3 +209,33 @@ def test_python_de_la_store_no_sirve():
 def test_empaquetar_deja_next_env_como_estaba():
     script = (RAIZ / "scripts" / "empaquetar.sh").read_text(encoding="utf-8")
     assert "next-env.d.ts" in script and "trap limpiar EXIT" in script
+
+
+def test_python_de_usuario_y_carpeta_en_perfiles_se_rechazan():
+    instalar = _texto("instalar.ps1")
+    assert "[switch]$PermitirPythonDeUsuario" in instalar
+    assert "sys.base_prefix" in instalar and "Es-PythonDeUsuario $basePrefix" in instalar
+    assert "Install Python for all users" in instalar
+    assert "Esta-Dentro $ShelfieRaiz $CarpetaPerfiles" in instalar
+    # Comparación literal: con -like, los [ ] de una ruta serían comodines.
+    assert '-like "$perfiles' not in instalar
+    assert "Esta-Dentro $Ruta $CarpetaPerfiles" in instalar
+    leeme = _texto("LEEME.md")
+    assert "Install Python for all users" in leeme and "-PermitirPythonDeUsuario" in leeme
+
+
+def test_esta_dentro_es_literal_y_sin_mayusculas():
+    pwsh = _pwsh()
+    casos = [("C:\\Users\\ana[1]\\OneDrive", "C:\\Users", True),
+             ("c:\\users", "C:\\Users\\", True),
+             ("C:\\Usersx\\a", "C:\\Users", False),
+             ("C:\\Shelfie-lite", "C:\\Users", False),
+             ("C:\\Users\\a", "C:\\Users\\[ab]", False)]
+    lista = ", ".join(f"@('{r}', '{c}')" for r, c, _ in casos)
+    comando = (f". '{INSTALACION / 'comun.ps1'}';"
+               f" @(foreach ($p in @({lista})) {{ [bool](Esta-Dentro $p[0] $p[1]) }})"
+               " | ConvertTo-Json -AsArray")
+    corrida = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-Command", comando],
+                             capture_output=True, text=True, timeout=120, check=False)
+    assert corrida.returncode == 0, corrida.stderr
+    assert json.loads(corrida.stdout) == [esperado for _, _, esperado in casos]

@@ -159,6 +159,20 @@ function Proteger-Env {
     return $null
 }
 
+# C:\Users (la carpeta de los perfiles); PUBLIC existe siempre en Windows.
+if ($env:PUBLIC) { $CarpetaPerfiles = Split-Path -Parent $env:PUBLIC }
+else { $CarpetaPerfiles = "$env:SystemDrive\Users" }
+
+function Esta-Dentro([string]$Ruta, [string]$Carpeta) {
+    <# ¿$Ruta es $Carpeta o algo dentro de ella? Comparación literal sin distinguir
+       mayúsculas (con -like, los [ ] de una ruta serían comodines). #>
+    if (-not $Ruta -or -not $Carpeta) { return $false }
+    $ruta = [System.IO.Path]::GetFullPath($Ruta).TrimEnd('\')
+    $base = [System.IO.Path]::GetFullPath($Carpeta).TrimEnd('\')
+    return $ruta.Equals($base, [StringComparison]::OrdinalIgnoreCase) -or
+        $ruta.StartsWith($base + '\', [StringComparison]::OrdinalIgnoreCase)
+}
+
 function Es-RaizDeUnidad([string]$Ruta) {
     $completa = [System.IO.Path]::GetFullPath($Ruta).TrimEnd('\')
     return ($completa -match '^[A-Za-z]:$') -or ($completa -match '^\\\\[^\\]+\\[^\\]+$')

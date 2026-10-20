@@ -9,15 +9,23 @@ solo necesita la sección [Uso diario](#uso-diario).
 - **PostgreSQL 16 o más reciente**, con el instalador oficial
   (<https://www.postgresql.org/download/windows/>). Anote la clave que elija para `postgres`:
   `instalar.ps1` la pide una vez y no la guarda.
-- **Python 3.12 o más reciente** (<https://www.python.org/downloads/windows/>), marcando
-  "Add python.exe to PATH". Se recomienda 3.12 o 3.13 (las dependencias están probadas con esas).
+- **Python 3.12 o más reciente** (<https://www.python.org/downloads/windows/>), **instalado para
+  todos los usuarios**: en el instalador elija "Customize installation" y, en "Advanced Options",
+  marque **"Install Python for all users"** (queda en `C:\Program Files\Python3xx`); marque
+  también "Add python.exe to PATH". Se recomienda 3.12 o 3.13 (las dependencias están probadas
+  con esas). El "Install Now" por defecto lo deja en `C:\Users\<usuario>\AppData\...`, donde
+  ese usuario puede modificarlo, y Shelfie-lite lo ejecuta como SYSTEM: `instalar.ps1` lo rechaza
+  (salvo con `-PermitirPythonDeUsuario`, que no se recomienda). El de la Microsoft Store tampoco
+  sirve.
 - Internet durante la instalación (se descargan los paquetes de Python).
 - La PC servidor y las de circulación en la misma red, marcada como **privada** en Windows.
 
 ## Instalar
 
-1. Descomprima `shelfie-lite-<versión>.zip` en una carpeta fija, por ejemplo `C:\Shelfie-lite`
-   (no en Descargas ni en el escritorio: las tareas programadas apuntan a esa ruta).
+1. Descomprima `shelfie-lite-<versión>.zip` en una carpeta fija, por ejemplo `C:\Shelfie-lite`.
+   No puede estar dentro de `C:\Users` (Descargas, escritorio, Documentos): las tareas apuntan a
+   esa ruta y, ahí, el dueño del perfil podría reemplazar la carpeta protegida. El instalador se
+   niega a seguir.
 2. Abra **PowerShell como administrador** y ejecute:
 
    ```powershell
@@ -31,7 +39,7 @@ solo necesita la sección [Uso diario](#uso-diario).
 `instalar.ps1` se puede volver a ejecutar cuando haga falta: respeta lo que ya está hecho.
 Lo que hace, en orden:
 
-1. Verifica Python (3.12+; no sirve el de la Microsoft Store, que es por usuario) y
+1. Verifica Python (3.12+, instalado para todos los usuarios; no sirve el de la Microsoft Store) y
    PostgreSQL (16+; busca `psql.exe` en el PATH y en
    `C:\Program Files\PostgreSQL\<versión>\bin`, la versión más alta). La versión del servidor
    se comprueba antes de crear nada.
