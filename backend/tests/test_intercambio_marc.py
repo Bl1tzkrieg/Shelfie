@@ -116,7 +116,9 @@ def test_isbn_repetido_dentro_del_archivo_y_registro_sin_titulo(client, datos):
 
 def test_codigo_de_barras_existente_se_omite(client, datos):
     datos.ejemplar(datos.titulo(), "YA-EXISTE")
-    r = _importar(client, _mrc(_libro("Nuevo", ejemplares=[[("p", "YA-EXISTE")]]))).json()
+    # Con ISBN propio no es el mismo registro; su código, de otro libro, se omite.
+    r = _importar(client, _mrc(_libro("Nuevo", "9789800000777",
+                                      ejemplares=[[("p", "YA-EXISTE")]]))).json()
     assert r["nuevos"] == 1 and r["ejemplares"] == 0
     assert any("YA-EXISTE" in m for m in r["registros"][0]["mensajes"])
 
@@ -153,9 +155,10 @@ def test_exportar_marc_con_ejemplares_y_volver_a_leerlo(client, datos):
     registros = pymarc.parse_xml_to_array(io.BytesIO(solo.content))
     assert [x["245"]["a"] for x in registros] == ["Cien años de soledad"]
 
-    # Lo exportado se puede volver a importar: con "omitir", el que tiene ISBN se detecta.
+    # Lo exportado se puede volver a importar: con "omitir", el que tiene ISBN se detecta por
+    # ISBN y el que no, por sus códigos.
     vuelta = _importar(client, r.content, modo="vista").json()
-    assert vuelta["omitidos"] == 1 and vuelta["nuevos"] == 1
+    assert vuelta["omitidos"] == 2 and vuelta["nuevos"] == 0
 
 
 def test_exportar_exige_permiso_de_catalogo(como):
@@ -345,3 +348,59 @@ def test_csv_materias_unidas(client, datos):
     assert barbara["materias"] == "Novela venezolana. | Llanos (Venezuela)"
     assert (barbara["cota"], barbara["editorial"], barbara["ano"], barbara["ejemplares"]) == (
         "863 G16", "Monte Ávila", 1985, 2)
+
+
+# --- Reimportar sin duplicar ---------------------------------------------------------
+
+def test_reimportar_koha_con_omitir_no_duplica(client, datos, db):
+    from tests.datos import koha_muestra
+    _importar(client, koha_muestra.iso2709())
+    r = _importar(client, koha_muestra.iso2709()).json()
+    assert (r["nuevos"], r["omitidos"]) == (0, 3), r
+    assert db.query(models.RegistroBibliografico).count() == 3
+    assert db.query(models.Item).count() == 4
+    cuentos = next(x for x in r["registros"] if x["titulo"].startswith("Cuentos"))
+    assert any("sin ISBN: duplicado detectado por códigos" in m for m in cuentos["mensajes"])
+
+
+def test_sin_isbn_ni_codigos_se_detecta_por_titulo_autor_y_ano(client, datos, db):
+    primero = _libro("Ña Catita", autor="Segura, Manuel", con_008=True)
+    _importar(client, _mrc(primero))
+    otra = _mrc(_libro("ña catita", autor="SEGURA, MANUEL", con_008=True,
+                       ejemplares=[[("o", "862 S4"), ("t", "c.1")]]))
+    r = _importar(client, otra).json()
+    assert (r["nuevos"], r["omitidos"]) == (0, 1), r
+    assert any("sin ISBN: duplicado detectado por título, autor y año" in m
+               for m in r["registros"][0]["mensajes"])
+    # Otro año no es el mismo libro.
+    distinto = _libro("Ña Catita", autor="Segura, Manuel")
+    distinto.add_field(Field(tag="008", data="200101s1999    pe            000 0 spa d"))
+    assert _importar(client, _mrc(distinto)).json()["nuevos"] == 1
+
+
+def test_reemplazar_no_repite_ejemplares_sin_codigo(client, datos, db):
+    from tests.datos import koha_muestra
+    _importar(client, koha_muestra.iso2709())
+    r = _importar(client, koha_muestra.iso2709(), duplicados="reemplazar").json()
+    assert (r["reemplazados"], r["ejemplares"]) == (3, 0), r
+    barbara = next(x for x in r["registros"] if x["titulo"].startswith("Doña"))
+    assert any("ejemplar sin código ya existe: omitido" in m for m in barbara["mensajes"])
+    assert db.query(models.Item).filter(models.Item.codigo_barras.is_(None)).count() == 1
+
+
+def test_avisa_lo_que_se_ignora_del_952(client, datos):
+    archivo = _mrc(
+        _libro("Con datos de Koha", ejemplares=[
+            [("p", "K-1"), ("c", "GEN"), ("d", "2020-01-01"), ("g", "25.00"), ("1", "1")],
+            [("p", "K-2"), ("8", "REF"), ("9", "77"), ("7", "1"), ("1", "0")]]),
+        _libro("Otro", ejemplares=[[("p", "K-3"), ("e", "Donación"), ("y", "BK")]]))
+    r = _importar(client, archivo, modo="vista").json()
+    assert r["mensajes"] == [
+        "Se ignoraron subcampos del 952 que Shelfie no guarda: c, d, e, g, 1, 7, 8, 9"]
+    mensajes = " | ".join(r["registros"][0]["mensajes"])
+    assert "el ejemplar K-1 figuraba perdido en Koha; en Shelfie queda como uno más" in mensajes
+    assert "el ejemplar K-2 figuraba no prestable en Koha; en Shelfie queda como uno más" in mensajes
+    assert not any("figuraba" in m for m in r["registros"][1]["mensajes"])
+
+    from tests.datos import koha_muestra  # $1 = 0 en todos: no se pierde nada
+    assert _importar(client, koha_muestra.iso2709(), modo="vista").json()["mensajes"] == []

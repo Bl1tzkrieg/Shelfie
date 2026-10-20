@@ -104,7 +104,7 @@ def ficha_publica(db: Session, biblio_id: int) -> dict:
     }
 
 
-def _sin_acentos(expresion):
+def sin_acentos(expresion):
     return func.lower(func.unaccent(expresion))
 
 
@@ -121,8 +121,8 @@ def posibles_duplicados(db: Session, ficha: FichaLibro,
     MARC (título con subtítulo), igual que las columnas guardadas."""
     derivado = marc_svc.derivar(ficha_svc.a_marc(ficha))
     mismo_libro = and_(
-        _sin_acentos(RB.titulo) == _sin_acentos(literal(derivado["titulo"])),
-        _sin_acentos(func.coalesce(RB.autor, "")) == _sin_acentos(literal(derivado["autor"] or "")),
+        sin_acentos(RB.titulo) == sin_acentos(literal(derivado["titulo"])),
+        sin_acentos(func.coalesce(RB.autor, "")) == sin_acentos(literal(derivado["autor"] or "")),
     )
     condiciones = [mismo_libro]
     isbns = sorted({d for d in (_digitos_isbn(i) for i in ficha.isbn) if d})

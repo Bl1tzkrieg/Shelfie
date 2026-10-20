@@ -99,3 +99,12 @@ def test_informacion_del_sistema_es_del_personal(client, anonimo, datos):
     assert info["total_registros"] == 1
     assert info["total_ejemplares"] == 1
     assert anonimo.get("/api/v1/settings/system-info").status_code == 401
+
+
+def test_codigos_de_koha_hasta_10_caracteres(client):
+    """Koha guarda branchcode e itemtype en varchar(10)."""
+    for campo in ("codigo", "tipo_item_koha"):
+        assert client.put("/api/v1/settings",
+                          json={"biblioteca": {campo: "X" * 11}}).status_code == 422
+        assert client.put("/api/v1/settings",
+                          json={"biblioteca": {campo: "X" * 10}}).status_code == 200

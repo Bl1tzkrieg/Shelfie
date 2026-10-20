@@ -104,7 +104,7 @@ TextoObligatorio = Annotated[str, StringConstraints(strip_whitespace=True, min_l
 
 class BibliotecaRequest(BaseModel):
     nombre: Optional[TextoObligatorio] = None
-    codigo: Optional[TextoObligatorio] = Field(default=None, max_length=16)
+    codigo: Optional[TextoObligatorio] = Field(default=None, max_length=10)  # Koha: varchar(10)
     tipo_item_koha: Optional[TextoObligatorio] = Field(default=None, max_length=10)
 
 

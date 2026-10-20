@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional, Set
 
 import pymarc
-from sqlalchemy import func
+from sqlalchemy import func, literal
 from sqlalchemy.orm import Session
 
 from app import models
@@ -35,6 +35,7 @@ from app.core.signaturas import clave_signatura_sql, normalizar_cota
 from app.core.tiempo import sello_archivo
 from app.services import configuracion, ficha, marc
 from app.services.catalogo import aplicar_marc
+from app.services.libros import sin_acentos
 
 FORMATOS = {"marc": ("application/marc", "mrc"), "marcxml": ("application/marcxml+xml", "xml")}
 DUPLICADOS = ("omitir", "reemplazar", "agregar")
@@ -124,7 +125,7 @@ def exportar(db: Session, *, formato: Literal["marc", "marcxml"],
         consulta = consulta.filter(models.RegistroBibliografico.id.in_(ids))
     registros = consulta.order_by(models.RegistroBibliografico.id).all()
     datos = configuracion.leer(db, "biblioteca")
-    biblioteca = (datos.get("codigo") or "BIB").strip()[:16]
+    biblioteca = (datos.get("codigo") or "BIB").strip()  # hasta 10, como en Koha
     # El ajuste se guarda como lo escribieron; Koha espera el código en mayúsculas.
     tipo_item = (datos.get("tipo_item_koha") or "LIB").strip().upper()
     items = _items_por_titulo(db, [b.id for b in registros])
@@ -282,14 +283,54 @@ class _Contexto:
     def __init__(self):
         self.barcodes_en_archivo: Set[str] = set()
         self.isbn_en_archivo: Dict[str, int] = {}
+        self.subcampos_ignorados: Set[str] = set()
+
+    def anotar_ignorados(self, campos_952: List[dict]) -> None:
+        """Subcampos del 952 con datos que Shelfie no guarda ($1 y $7 solo si no son 0)."""
+        for campo in campos_952:
+            for sub in campo.get("subfields", []):
+                codigo, valor = next(iter(sub.items()))
+                valor = (valor or "").strip()
+                if codigo in SUBCAMPOS_952_USADOS or not valor:
+                    continue
+                if codigo in ESTADOS_KOHA and valor == "0":
+                    continue
+                self.subcampos_ignorados.add(codigo)
+
+    def resumen(self) -> List[str]:
+        if not self.subcampos_ignorados:
+            return []
+        codigos = sorted(self.subcampos_ignorados, key=lambda c: (c.isdigit(), c))
+        return ["Se ignoraron subcampos del 952 que Shelfie no guarda: " + ", ".join(codigos)]
+
+
+# $o $p $t $z se guardan; $a, $b e $y se regeneran al exportar desde la configuración.
+SUBCAMPOS_952_USADOS = set("abyoptz")
+# Estados de Koha que Shelfie no maneja: $1 perdido y $7 no prestable (0 = normal).
+ESTADOS_KOHA = {"1": "perdido", "7": "no prestable"}
+
+
+def _sub_952(campo: dict, codigo: str) -> Optional[str]:
+    valor = (marc.subcampos(campo, codigo) or [None])[0]
+    return valor.strip() or None if isinstance(valor, str) else valor
+
+
+def _misma_copia(signatura: Optional[str], copia: Optional[str]) -> tuple:
+    return (normalizar_cota(signatura), normalizar_cota(copia))
 
 
 def _ejemplares(db: Session, ctx: _Contexto, campos_952: List[dict], resultado: Resultado,
-                biblio: Optional[models.RegistroBibliografico], aplicar: bool) -> None:
+                biblio: Optional[models.RegistroBibliografico], aplicar: bool,
+                existente: Optional[models.RegistroBibliografico] = None) -> None:
+    """Crea los ejemplares de los 952. Con `existente` (se reemplaza un registro), un
+    ejemplar sin código que ya tiene (misma signatura y copia) no se vuelve a agregar."""
+    ya_tiene = set()
+    if existente is not None:
+        ya_tiene = {_misma_copia(i.signatura_topografica, i.numero_copia)
+                    for i in db.query(models.Item).filter(models.Item.biblio_id == existente.id)}
     for campo in campos_952:
         def sub(codigo: str) -> Optional[str]:
-            valor = (marc.subcampos(campo, codigo) or [None])[0]
-            return valor.strip() or None if isinstance(valor, str) else valor
+            return _sub_952(campo, codigo)
 
         barcode = sub("p")  # opcional: Koha admite ejemplares sin código
         if barcode and (barcode in ctx.barcodes_en_archivo or db.query(models.Item.id).filter(
@@ -304,14 +345,55 @@ def _ejemplares(db: Session, ctx: _Contexto, campos_952: List[dict], resultado: 
             resultado.mensajes.append(
                 f"{quien}: el {largo[0]} supera los {largo[1]} caracteres; ejemplar omitido")
             continue
+        if not barcode and _misma_copia(sub("o"), sub("t")) in ya_tiene:
+            resultado.mensajes.append(
+                f"{_nombre_ejemplar(None, sub('o'), sub('t'))}: ejemplar sin código ya existe: omitido")
+            continue
         if barcode:
             ctx.barcodes_en_archivo.add(barcode)
+        for codigo, estado in ESTADOS_KOHA.items():
+            if (sub(codigo) or "0") != "0":
+                resultado.mensajes.append(
+                    f"el ejemplar {_nombre_ejemplar(barcode, sub('o'), sub('t'))} figuraba "
+                    f"{estado} en Koha; en Shelfie queda como uno más")
         resultado.ejemplares += 1
         if not aplicar:
             continue
         db.add(models.Item(biblio_id=biblio.id, codigo_barras=barcode,
                            signatura_topografica=sub("o"), numero_copia=sub("t"),
                            nota=sub("z")))
+
+
+def _nombre_ejemplar(barcode: Optional[str], signatura: Optional[str],
+                     copia: Optional[str]) -> str:
+    if barcode:
+        return barcode
+    detalle = " ".join(p for p in (signatura, copia) if p)
+    return f"sin código ({detalle})" if detalle else "sin código"
+
+
+def _duplicado_sin_isbn(db: Session, campos_952: List[dict], derivado: dict) -> tuple:
+    """(registro, cómo se detectó) para un registro entrante sin ISBN, o (None, None).
+
+    Primero por códigos: todos los $p del archivo ya son ejemplares de un mismo registro.
+    Si no, por título, autor y año (sin mayúsculas ni acentos, como en el alta de libros),
+    cuando coincide exactamente un registro."""
+    RB = models.RegistroBibliografico
+    codigos = {c for c in (_sub_952(campo, "p") for campo in campos_952) if c}
+    if codigos:
+        filas = db.query(models.Item.biblio_id, models.Item.codigo_barras).filter(
+            models.Item.codigo_barras.in_(codigos)).all()
+        propietarios = {f.biblio_id for f in filas}
+        if len({f.codigo_barras for f in filas}) == len(codigos) and len(propietarios) == 1:
+            return db.get(RB, propietarios.pop()), "por códigos"
+    iguales = db.query(RB).filter(
+        sin_acentos(RB.titulo) == sin_acentos(literal(derivado["titulo"])),
+        sin_acentos(func.coalesce(RB.autor, "")) == sin_acentos(literal(derivado["autor"] or "")),
+        RB.ano_publicacion.is_not_distinct_from(derivado["ano_publicacion"]),
+    ).order_by(RB.id).limit(2).all()
+    if len(iguales) == 1:
+        return iguales[0], "por título, autor y año"
+    return None, None
 
 
 def _duplicado(db: Session, isbn_digitos: Optional[str]):
@@ -331,6 +413,7 @@ def _importar_uno(db: Session, ctx: _Contexto, crudo, n: int, aplicar: bool, dup
         return resultado
 
     sin_ejemplares, campos_952 = _separar_ejemplares(marc.desde_pymarc(crudo))
+    ctx.anotar_ignorados(campos_952)
     # Etiquetas propias de otros sistemas (FMT, LDR de Aleph/Alma): se descarta el campo,
     # no el registro, como hace Koha.
     ajenas = sorted({next(iter(c)) for c in sin_ejemplares.get("fields", [])
@@ -371,6 +454,10 @@ def _importar_uno(db: Session, ctx: _Contexto, crudo, n: int, aplicar: bool, dup
                 f"El ISBN se repite en el registro #{ctx.isbn_en_archivo[digitos]} del archivo")
             return resultado
         existente = _duplicado(db, digitos)
+        if existente is None and not digitos:
+            existente, como = _duplicado_sin_isbn(db, campos_952, derivado)
+            if existente is not None:
+                resultado.mensajes.append(f"sin ISBN: duplicado detectado {como}")
     if existente is not None and duplicados == "omitir":
         resultado.accion, resultado.registro_id = "omitir", existente.id
         resultado.mensajes.append(f"Ya existe como «{existente.titulo}» (registro {existente.id})")
@@ -388,7 +475,8 @@ def _importar_uno(db: Session, ctx: _Contexto, crudo, n: int, aplicar: bool, dup
                 db.add(biblio)
             aplicar_marc(biblio, canonico, plantilla)
             db.flush()
-            _ejemplares(db, ctx, campos_952, resultado, biblio, aplicar=True)
+            _ejemplares(db, ctx, campos_952, resultado, biblio, aplicar=True,
+                        existente=existente)
             db.flush()
             punto.commit()
             resultado.registro_id = biblio.id
@@ -399,7 +487,7 @@ def _importar_uno(db: Session, ctx: _Contexto, crudo, n: int, aplicar: bool, dup
             resultado.mensajes.append(f"No se pudo guardar: {error.__class__.__name__}")
     else:
         resultado.registro_id = biblio.id if biblio else None
-        _ejemplares(db, ctx, campos_952, resultado, None, aplicar=False)
+        _ejemplares(db, ctx, campos_952, resultado, None, aplicar=False, existente=existente)
     return resultado
 
 
@@ -435,5 +523,6 @@ def importar(db: Session, contenido: bytes, *, aplicar: bool, duplicados: str = 
         "omitidos": contar("omitir"),
         "con_errores": contar("error"),
         "ejemplares": sum(r.ejemplares for r in resultados if r.accion != "error"),
+        "mensajes": ctx.resumen(),
         "registros": [r.__dict__ for r in resultados[:MAX_EN_RESPUESTA]],
     }
