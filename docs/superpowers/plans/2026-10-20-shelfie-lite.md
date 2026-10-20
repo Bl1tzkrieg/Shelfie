@@ -187,7 +187,15 @@
   - 008/07-10 = año. 092 se parte por el primer espacio en `$a` y `$b`.
 - Regla para 260/264: si `marc_actual` tiene 260 y no tiene 264, se reescribe el 260; en cualquier otro caso se escribe el 264.
 
-**Algoritmo de `a_marc`** (el que la firma no fija): partir de `marc_actual` o de la plantilla BKS de `marc_plantillas`. Quitar todos los campos de `CAMPOS_DEL_FORMULARIO`, excepto el 260 cuando le toca ser reescrito. Insertar los campos generados en orden numérico de etiqueta. El resto del registro (cabecera, 008 salvo 07-10, 040, 082, 090, 856, 952…) se conserva tal cual.
+**Algoritmo de `a_marc`** (corregido en la revisión de la Tarea 4, para cumplir la "Regla clave" del spec §6):
+
+- Sin `marc_actual`, se genera todo desde la plantilla BKS.
+- Con `marc_actual`, se trabaja **por grupo** del formulario y solo cambia lo que el usuario cambió:
+  - Si un grupo quedó igual a `desde_marc(marc_actual)`, sus campos originales no se tocan.
+  - Si cambió un grupo de valor único (092, 100, 245, 250, la publicación, 300, 500, 520), se editan solo los subcampos que controla el formulario en la primera aparición del campo. Se conservan los demás subcampos, los indicadores y las apariciones siguientes.
+  - Los grupos repetibles (020, 650, 700) se concilian por `$a`: los que siguen quedan intactos (con sus subdivisiones), los que se quitaron se borran y los nuevos se agregan.
+  - En la publicación solo se toca el campo que leyó `desde_marc`; nunca se borra un 264 con segundo indicador distinto de 1.
+- El resto del registro (cabecera, 008 salvo 07-10, 040, 082, 090, 856, 952…) se conserva tal cual.
 
 - [ ] **Paso 1: pruebas que fallan.** En `tests/test_ficha.py`:
   - `test_ida_y_vuelta`: una ficha completa da `desde_marc(a_marc(f, None)) == f`.
