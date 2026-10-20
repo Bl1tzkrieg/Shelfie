@@ -9,6 +9,7 @@ from alembic.config import Config
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from app import models
 from app.database import Base
@@ -42,9 +43,14 @@ def base_vacia():
     url = make_url(TEST_DATABASE_URL)
     nombre = f"{url.database}_mig"
     servidor = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
-    with servidor.connect() as c:
-        c.execute(text(f'DROP DATABASE IF EXISTS "{nombre}"'))
-        c.execute(text(f'CREATE DATABASE "{nombre}"'))
+    try:
+        with servidor.connect() as c:
+            c.execute(text(f'DROP DATABASE IF EXISTS "{nombre}"'))
+            c.execute(text(f'CREATE DATABASE "{nombre}"'))
+    except (ProgrammingError, OperationalError) as error:
+        # scripts/inicializar_bd.py crea el rol sin CREATEDB: ahí esta prueba no puede correr.
+        servidor.dispose()
+        pytest.skip(f"el rol de pruebas no puede crear bases (CREATEDB): {error.orig}")
     destino = url.set(database=nombre).render_as_string(hide_password=False)
     try:
         yield destino
