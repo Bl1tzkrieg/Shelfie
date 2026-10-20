@@ -188,3 +188,58 @@ export interface AjustesRegistro {
   /** Acción → nombre legible. */
   acciones: Record<string, string>
 }
+
+/** Una fila de GET /buscar: lo justo para reconocer el libro y llegar a su estante. */
+export interface ResultadoBusqueda {
+  id: number
+  /** Null si el registro no tiene cota todavía. */
+  cota: string | null
+  titulo: string
+  subtitulo: string | null
+  autor: string | null
+  edicion: string | null
+  editorial: string | null
+  ano: number | null
+  ejemplares: number
+}
+
+export interface PaginaBusqueda {
+  total: number
+  pagina: number
+  resultados: ResultadoBusqueda[]
+}
+
+export type CampoBusqueda = "todo" | "titulo" | "autor" | "materia" | "cota" | "isbn" | "editorial"
+
+/** Los campos de la ficha catalográfica simple (GET /buscar/{id}). */
+export interface FichaLibro {
+  cota: string
+  titulo: string
+  subtitulo: string | null
+  mencion: string | null
+  autor: string | null
+  otros_autores: string[]
+  edicion: string | null
+  lugar: string | null
+  editorial: string | null
+  ano: number | null
+  paginas: string | null
+  ilustraciones: string | null
+  dimensiones: string | null
+  isbn: string[]
+  materias: string[]
+  descripcion: string | null
+  notas: string | null
+}
+
+/** Un ejemplar tal como lo ve el público: sin código de barras. */
+export interface EjemplarPublico {
+  cota: string | null
+  numero_copia: string | null
+  nota: string | null
+}
+
+export interface FichaPublica {
+  ficha: FichaLibro
+  ejemplares: EjemplarPublico[]
+}
