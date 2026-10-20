@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
-import { ArrowLeft, CheckCircle2, Download, FileUp, Loader2, Lock, ScanBarcode, XCircle } from "lucide-react"
+import { AlertCircle, ArrowLeft, CheckCircle2, Download, FileUp, Loader2, Lock, Repeat, ScanBarcode, XCircle } from "lucide-react"
 import { toast } from "sonner"
 
 import { useSesion } from "@/components/auth/sesion-provider"
@@ -255,12 +255,11 @@ function Lector({ onLeer, recientes }: { onLeer: (codigos: string[]) => Promise<
             {recientes.map((l, n) => (
               <li key={`${l.codigo_barras}-${n}`}
                   className={cn("flex items-start gap-2 rounded-md border px-3 py-2 text-sm", CLASES_TONO[TONO_RESULTADO[l.resultado]])}>
-                {TONO_RESULTADO[l.resultado] === "problema" ? <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                  : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
+                <IconoResultado resultado={l.resultado} />
                 <div className="min-w-0">
                   <p><span className="font-mono">{l.codigo_barras}</span> · {l.resultado_nombre}</p>
                   {(l.titulo || l.detalle) && (
-                    <p className="truncate text-xs text-foreground/70">{[l.titulo, l.detalle].filter(Boolean).join(" — ")}</p>
+                    <p className="break-words text-xs text-foreground/70">{[l.titulo, l.detalle].filter(Boolean).join(" — ")}</p>
                   )}
                 </div>
               </li>
@@ -270,6 +269,15 @@ function Lector({ onLeer, recientes }: { onLeer: (codigos: string[]) => Promise<
       </div>
     </section>
   )
+}
+
+function IconoResultado({ resultado }: { resultado: ResultadoLectura }) {
+  const clase = "mt-0.5 h-4 w-4 shrink-0"
+  if (resultado === "repetido") return <Repeat className={clase} aria-hidden />
+  const tono = TONO_RESULTADO[resultado]
+  if (tono === "problema") return <XCircle className={clase} aria-hidden />
+  if (tono === "revisar") return <AlertCircle className={clase} aria-hidden />
+  return <CheckCircle2 className={clase} aria-hidden />
 }
 
 function Faltantes({ inv }: { inv: InventarioDetalle }) {

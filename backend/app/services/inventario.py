@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.core.errores import NoEncontrado, ReglaIncumplida
-from app.core.tiempo import ahora, formatear_fecha, formatear_fecha_hora
+from app.core.tiempo import ahora, fecha_local, formatear_fecha, formatear_fecha_hora, hoy
 from app.services import registro, sedes
 
 I, L = models.Inventario, models.LecturaInventario
@@ -33,7 +33,7 @@ NOMBRE_RESULTADO = {
     "reservado": "Apartado para una reserva",
     "en_transito": "Figura en tránsito",
     "desconocido": "Código desconocido",
-    "repetido": "Leído dos veces",
+    "repetido": "Ya leído",
 }
 
 
@@ -152,6 +152,17 @@ def listar(db: Session) -> List[dict]:
 
 # --- Leer -----------------------------------------------------------------------------
 
+def _detalle_prestado(prestamo, lector) -> str:
+    """A quién figura prestado y hasta cuándo; si ya venció, cuántos días de atraso lleva."""
+    if not (prestamo and lector):
+        return "Figura prestado: pásalo por Devoluciones"
+    fecha = formatear_fecha(prestamo.fecha_vencimiento)
+    atraso = (hoy() - fecha_local(prestamo.fecha_vencimiento)).days
+    plazo = (f"venció el {fecha} ({atraso} día{'' if atraso == 1 else 's'} de atraso)"
+             if atraso > 0 else f"vence el {fecha}")
+    return f"Prestado a {lector.nombre} {lector.apellido}, {plazo}: pásalo por Devoluciones"
+
+
 def _clasificar(db: Session, inv: models.Inventario, item: models.Item, nombres: dict,
                 actor_id: Optional[int], sede_trabajo: Optional[int]) -> tuple:
     if item.estado == "Prestado":
@@ -171,10 +182,7 @@ def _clasificar(db: Session, inv: models.Inventario, item: models.Item, nombres:
             except ErrorDeNegocio as error:
                 punto.rollback()
                 return "prestado", f"No se pudo devolver solo: {error.mensaje}"
-        detalle = (f"Prestado a {lector.nombre} {lector.apellido}, vence el "
-                   f"{formatear_fecha(prestamo.fecha_vencimiento)}: pásalo por Devoluciones"
-                   if lector and prestamo else "Figura prestado: pásalo por Devoluciones")
-        return "prestado", detalle
+        return "prestado", _detalle_prestado(prestamo, lector)
     if item.estado == "Perdido":
         return "perdido", "Figura perdido: pásalo por Devoluciones para recuperarlo"
     if item.estado == "Retirado":
@@ -209,8 +217,11 @@ def leer(db: Session, inventario_id: int, codigos: Iterable[str], actor_id: Opti
     if len(lista) > MAX_LECTURAS_POR_ENVIO:
         raise ReglaIncumplida(f"Se leen hasta {MAX_LECTURAS_POR_ENVIO} códigos por vez")
 
-    vistos = {c.upper() for (c,) in db.query(L.codigo_barras).filter(
-        L.inventario_id == inv.id, L.resultado != "repetido")}
+    # Primera lectura de cada código: al repetirlo se recuerda qué fue, sin volver a clasificarlo.
+    vistos = {}
+    for codigo_leido, res, det in db.query(L.codigo_barras, L.resultado, L.detalle).filter(
+            L.inventario_id == inv.id, L.resultado != "repetido").order_by(L.id):
+        vistos.setdefault(codigo_leido.upper(), (res, det))
     por_codigo = {i.codigo_barras.upper(): i for i in db.query(models.Item).filter(
         func.upper(models.Item.codigo_barras).in_({c.upper() for c in lista}))}
     nombres = sedes.nombres(db)
@@ -219,19 +230,25 @@ def leer(db: Session, inventario_id: int, codigos: Iterable[str], actor_id: Opti
     for codigo in lista:
         item = por_codigo.get(codigo.upper())
         if codigo.upper() in vistos:
-            resultado, detalle = "repetido", "Ya se había leído en este inventario"
+            resultado, detalle = "repetido", _detalle_repetido(*vistos[codigo.upper()])
         elif item is None:
             resultado, detalle = "desconocido", "No hay ningún ejemplar con este código"
         else:
             resultado, detalle = _clasificar(db, inv, item, nombres, actor_id, sede_trabajo)
             item.fecha_ultimo_inventario = momento
-        vistos.add(codigo.upper())
+        vistos.setdefault(codigo.upper(), (resultado, detalle))
         db.add(L(inventario_id=inv.id, codigo_barras=(item.codigo_barras if item else codigo)[:50],
                  item_id=item.id if item else None, resultado=resultado, detalle=detalle,
                  usuario_id=actor_id, fecha=momento))
         resultados.append(_vista_lectura(db, codigo, item, resultado, detalle))
     db.commit()
     return {"lecturas": resultados, "conteos": dict(Counter(r["resultado"] for r in resultados))}
+
+
+def _detalle_repetido(resultado_anterior: str, detalle_anterior: Optional[str]) -> str:
+    """Lo que salió la primera vez, para no perder el aviso al releerlo."""
+    texto = f"La primera vez: {NOMBRE_RESULTADO[resultado_anterior].lower()}"
+    return f"{texto}. {detalle_anterior}" if detalle_anterior else texto
 
 
 def _vista_lectura(db: Session, codigo: str, item: Optional[models.Item], resultado: str,

@@ -123,3 +123,38 @@ def test_la_ficha_muestra_cuando_se_vio(client, datos, db):
     client.post(f"{INV}/{inv['id']}/scan", json={"codigos": ["V-1"]})
     [ejemplar] = client.get(f"/api/v1/catalog/items/{libro.id}/ejemplares").json()
     assert ejemplar["lastSeen"]
+
+
+def test_el_prestado_vencido_dice_cuanto_atraso_lleva(client, datos, db):
+    libro = datos.titulo()
+    al_dia = datos.ejemplar(libro, "A-1", estado="Prestado")
+    vencido = datos.ejemplar(libro, "A-2", estado="Prestado")
+    lector = datos.lector("L-1")
+    datos.prestamo(al_dia, lector, dias_hasta=7)
+    datos.prestamo(vencido, lector, dias_desde=16, dias_hasta=7)
+    db.commit()
+    inv = client.post(INV, json={}).json()
+
+    lecturas = client.post(f"{INV}/{inv['id']}/scan", json={"codigos": ["A-1", "A-2"]}).json()["lecturas"]
+
+    assert "vence el" in lecturas[0]["detalle"] and "atraso" not in lecturas[0]["detalle"]
+    assert "venció el" in lecturas[1]["detalle"] and "(9 días de atraso)" in lecturas[1]["detalle"]
+
+
+def test_el_repetido_recuerda_lo_que_salio_la_primera_vez(client, datos, db):
+    libro = datos.titulo()
+    prestado = datos.ejemplar(libro, "R-1", estado="Prestado")
+    datos.ejemplar(libro, "R-2")
+    datos.prestamo(prestado, datos.lector("L-1"))
+    db.commit()
+    inv = client.post(INV, json={}).json()
+    client.post(f"{INV}/{inv['id']}/scan", json={"codigos": ["R-1", "R-2", "NADA"]})
+
+    # Otro envío: la primera lectura ya está guardada, no en el mismo lote.
+    lecturas = client.post(f"{INV}/{inv['id']}/scan",
+                           json={"codigos": ["R-1", "R-2", "NADA"]}).json()["lecturas"]
+
+    assert [l["resultado"] for l in lecturas] == ["repetido"] * 3
+    assert "figura prestado" in lecturas[0]["detalle"] and "pásalo por Devoluciones" in lecturas[0]["detalle"]
+    assert lecturas[1]["detalle"] == "La primera vez: en su lugar"
+    assert "código desconocido" in lecturas[2]["detalle"]
