@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -28,6 +29,7 @@ log = logging.getLogger("shelfie.respaldo")
 CONSERVAR = 30
 DIAS_PARA_ALERTA = 7
 TIEMPO_MAXIMO_PG_DUMP = 600  # segundos
+EDAD_DE_TEMPORAL_HUERFANO = 24 * 3600  # segundos
 BASE_PG_WINDOWS = r"C:\Program Files\PostgreSQL"
 # El sufijo -N aparece cuando dos respaldos caen en el mismo minuto.
 _NOMBRE_RESPALDO = re.compile(r"^shelfie-\d{8}-\d{4}(-\d+)?$")
@@ -52,10 +54,16 @@ class ErrorDeRespaldo(Exception):
     """Un fallo previsto, con un mensaje que se le puede mostrar a la persona."""
 
 
+def _sin_comillas(ruta: Optional[str]) -> str:
+    """Windows («Copiar como ruta») pega las rutas entre comillas: "D:\\Respaldos"."""
+    return (ruta or "").strip().strip('"').strip()
+
+
 def encontrar_pg_dump(configurado: Optional[str] = None, *,
                       base_windows: str = BASE_PG_WINDOWS) -> Optional[str]:
     """La ruta de pg_dump: la configurada si existe, luego el PATH y por último
     `Program Files\\PostgreSQL\\<versión>\\bin`, con la versión más alta."""
+    configurado = _sin_comillas(configurado)
     if configurado and os.path.isfile(configurado):
         return configurado
     en_el_path = shutil.which("pg_dump")
@@ -161,14 +169,31 @@ def _clave_de_orden(nombre: str) -> tuple:
     return sello, hora, int(n or 1)
 
 
-def _rotar(destino: str) -> None:
-    """Borra los respaldos más viejos y deja los últimos CONSERVAR. Solo toca carpetas
-    con el nombre de un respaldo; lo demás que haya en la carpeta no se toca."""
-    propios = sorted((n for n in os.listdir(destino)
-                      if _NOMBRE_RESPALDO.match(n) and os.path.isdir(os.path.join(destino, n))),
-                     key=_clave_de_orden)
-    for nombre in propios[:-CONSERVAR]:
+def _rotar(destino: str, final: str) -> None:
+    """Borra los respaldos más viejos y deja como máximo CONSERVAR, contando el recién
+    hecho (`final`), que nunca se borra aunque el reloj del equipo esté atrasado y su
+    nombre quede como el más viejo. Solo toca carpetas con nombre de respaldo."""
+    nuevo = os.path.basename(final)
+    otros = sorted((n for n in os.listdir(destino)
+                    if n != nuevo and _NOMBRE_RESPALDO.match(n)
+                    and os.path.isdir(os.path.join(destino, n))),
+                   key=_clave_de_orden)
+    sobran = len(otros) - (CONSERVAR - 1)
+    for nombre in otros[:max(sobran, 0)]:
         shutil.rmtree(os.path.join(destino, nombre), ignore_errors=True)
+
+
+def _limpiar_temporales(destino: str) -> None:
+    """Quita las carpetas `.respaldo-*` de más de un día: un proceso cancelado las deja."""
+    limite = time.time() - EDAD_DE_TEMPORAL_HUERFANO
+    try:
+        for nombre in os.listdir(destino):
+            ruta = os.path.join(destino, nombre)
+            if (nombre.startswith(".respaldo-") and os.path.isdir(ruta)
+                    and os.path.getmtime(ruta) < limite):
+                shutil.rmtree(ruta, ignore_errors=True)
+    except OSError:
+        log.exception("No se pudieron limpiar los temporales de %s", destino)
 
 
 def _tamano(carpeta: str) -> int:
@@ -178,12 +203,13 @@ def _tamano(carpeta: str) -> int:
 
 def _crear(db: Session, carpeta: Optional[str], momento: datetime) -> dict:
     cfg = configuracion.leer(db, "respaldo")
-    destino = (carpeta or cfg.get("carpeta") or "").strip()
+    destino = _sin_comillas(carpeta) or _sin_comillas(cfg.get("carpeta"))
     if not destino:
         raise ErrorDeRespaldo("No hay carpeta de respaldo configurada")
     if not os.path.isdir(destino):
         raise ErrorDeRespaldo(
             f"La carpeta de respaldo no existe o no está disponible: {destino}")
+    _limpiar_temporales(destino)
     pg_dump = encontrar_pg_dump(cfg.get("pg_dump"))
     if not pg_dump:
         raise ErrorDeRespaldo(
@@ -200,7 +226,7 @@ def _crear(db: Session, carpeta: Optional[str], momento: datetime) -> dict:
         shutil.rmtree(temporal, ignore_errors=True)
         raise
     try:
-        _rotar(destino)
+        _rotar(destino, final)
     except OSError:  # la copia ya está hecha: una rotación fallida no la invalida
         log.exception("No se pudo rotar los respaldos de %s", destino)
     return {"carpeta_creada": final, "tamano": _tamano(final)}

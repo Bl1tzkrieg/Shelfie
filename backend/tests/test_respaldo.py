@@ -1,6 +1,8 @@
 """Respaldo diario: base, MARC y CSV en una carpeta con sello, rotación y aviso."""
 
+import os
 import subprocess
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -281,3 +283,51 @@ def test_script_sale_con_codigo_segun_resultado(db, monkeypatch):
                                         "tamano": 1})
     assert respaldar.main([]) == 0
     assert llamadas == ["limpiar", "limpiar"]  # limpia aunque el respaldo falle
+
+
+def test_la_rotacion_no_borra_el_respaldo_nuevo_con_el_reloj_atrasado(db, tmp_path, monkeypatch):
+    _falso_pg_dump(monkeypatch)
+    for dia in range(1, 31):
+        (tmp_path / f"shelfie-202609{dia:02d}-0300").mkdir()
+    atrasado = datetime(2000, 1, 1, 4, 0, tzinfo=timezone.utc)  # BIOS sin pila
+
+    r = respaldo.ejecutar(db, carpeta=str(tmp_path), ahora=atrasado)
+
+    assert r["ok"] is True
+    carpetas = _carpetas(tmp_path)
+    assert "shelfie-20000101-0000" in carpetas and len(carpetas) == 30
+    assert "shelfie-20260901-0300" not in carpetas  # se fue la más vieja de las otras
+    assert os.path.isdir(r["carpeta_creada"])
+
+
+def test_quita_temporales_huerfanos_de_mas_de_un_dia(db, tmp_path, monkeypatch):
+    _falso_pg_dump(monkeypatch)
+    viejo, reciente = tmp_path / ".respaldo-viejo", tmp_path / ".respaldo-reciente"
+    ajeno = tmp_path / ".otra-cosa"
+    for carpeta in (viejo, reciente, ajeno):
+        carpeta.mkdir()
+    dos_dias = time.time() - 2 * 86400
+    os.utime(viejo, (dos_dias, dos_dias))
+    os.utime(ajeno, (dos_dias, dos_dias))
+
+    assert respaldo.ejecutar(db, carpeta=str(tmp_path), ahora=AHORA)["ok"] is True
+
+    assert _carpetas(tmp_path) == sorted([".otra-cosa", ".respaldo-reciente", CARPETA_DEL_AHORA])
+
+
+def test_acepta_rutas_entre_comillas(db, tmp_path, monkeypatch):
+    _falso_pg_dump(monkeypatch)
+
+    assert respaldo.ejecutar(db, carpeta=f'  "{tmp_path}" ', ahora=AHORA)["ok"] is True
+    assert _carpetas(tmp_path) == [CARPETA_DEL_AHORA]
+
+    _config(db, carpeta=f'"{tmp_path}"')
+    assert respaldo.ejecutar(db, ahora=AHORA)["ok"] is True
+    assert _carpetas(tmp_path) == [CARPETA_DEL_AHORA, CARPETA_DEL_AHORA + "-2"]
+
+
+def test_pg_dump_configurado_entre_comillas(tmp_path):
+    exe = tmp_path / "pg_dump.exe"
+    exe.write_text("")
+
+    assert respaldo.encontrar_pg_dump(f'"{exe}"', base_windows=str(tmp_path / "nada")) == str(exe)
