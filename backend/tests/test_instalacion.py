@@ -151,3 +151,58 @@ def test_funciones_comunes():
     assert datos["codigo"] == 3
     assert "hola" in datos["salida"] and "malo" in datos["salida"]
     assert datos["entrada"] == "por la entrada"
+
+
+def test_permisos_seguros():
+    """Lo que corre como SYSTEM y los volcados de la base no los puede tocar cualquier usuario:
+    Administradores y SYSTEM control total, Usuarios solo lectura (SID conocidos)."""
+    comun = _texto("comun.ps1")
+    for esperado in ["'*S-1-5-32-544'", "'*S-1-5-18'", "'*S-1-5-32-545'",
+                     ":(OI)(CI)F", ":(OI)(CI)RX", "/inheritance:r", "/grant:r", "/setowner",
+                     "/reset", "icacls.exe", "$r.Codigo -ne 0"]:
+        assert esperado in comun, esperado
+    instalar = _texto("instalar.ps1")
+    # La raíz (usuarios solo leen), respaldos-previos y la carpeta de respaldo (solo admins),
+    # y el .env al final, porque /reset de la raíz le quita sus permisos propios.
+    raiz = instalar.index("Proteger-Carpeta $ShelfieRaiz -UsuariosLeen")
+    previos = instalar.index("Proteger-Carpeta $respaldosPrevios\n")
+    env = instalar.index("$problema = Proteger-Env")
+    assert raiz < previos < env
+    assert "Proteger-CarpetaDeRespaldo $carpeta" in instalar
+    assert "Proteger-CarpetaDeRespaldo $env:SHELFIE_CARPETA_RESPALDO" in instalar
+    assert "Es-RaizDeUnidad $ShelfieRaiz" in instalar
+    restaurar = _texto("restaurar.ps1")
+    assert restaurar.index("Proteger-Carpeta $previos") < restaurar.index("$PgDump ($Comunes")
+    leeme = _texto("LEEME.md")
+    for esperado in ["*S-1-5-32-544", "*S-1-5-18", "*S-1-5-32-545", "Duplicar archivos",
+                     "sesión abierta", "Respaldar ahora"]:
+        assert esperado in leeme, esperado
+
+
+def test_postgres_16_se_exige_antes_de_crear_nada():
+    instalar = _texto("instalar.ps1")
+    assert instalar.index("Exigir-Pg16 (Version-Pg $r.Salida)") < instalar.index("ALTER ROLE")
+    assert instalar.index("ALTER ROLE") < instalar.index("'scripts.inicializar_bd'")
+
+
+def test_restaurar_detiene_todo_o_no_toca_nada():
+    restaurar = _texto("restaurar.ps1")
+    for esperado in ["Stop-ScheduledTask -TaskName $TareaRespaldo",
+                     "Disable-ScheduledTask -TaskName $TareaRespaldo",
+                     "Enable-ScheduledTask -TaskName $TareaRespaldo"]:
+        assert esperado in restaurar, esperado
+    detener = restaurar.index("if (-not (Detener-Shelfie)) {")
+    assert "Detener-ConError" in restaurar[detener:detener + 120]
+    # Se detiene antes de copiar y de restaurar.
+    assert detener < restaurar.index("$PgDump ($Comunes") < restaurar.index("$PgRestore ($Comunes")
+
+
+def test_python_de_la_store_no_sirve():
+    instalar = _texto("instalar.ps1")
+    assert instalar.count("WindowsApps") >= 2
+    assert instalar.index("'py -3.12'") < instalar.index("'python'")
+
+
+def test_empaquetar_deja_next_env_como_estaba():
+    script = (RAIZ / "scripts" / "empaquetar.sh").read_text(encoding="utf-8")
+    assert "next-env.d.ts" in script and "trap limpiar EXIT" in script

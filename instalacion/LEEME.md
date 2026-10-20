@@ -31,27 +31,48 @@ solo necesita la sección [Uso diario](#uso-diario).
 `instalar.ps1` se puede volver a ejecutar cuando haga falta: respeta lo que ya está hecho.
 Lo que hace, en orden:
 
-1. Verifica Python (3.12+) y PostgreSQL (16+; busca `psql.exe` en el PATH y en
-   `C:\Program Files\PostgreSQL\<versión>\bin`, la versión más alta).
-2. Crea `backend\.env` **solo si no existe**, con `ENTORNO=produccion`, una `SECRET_KEY` y una
+1. Verifica Python (3.12+; no sirve el de la Microsoft Store, que es por usuario) y
+   PostgreSQL (16+; busca `psql.exe` en el PATH y en
+   `C:\Program Files\PostgreSQL\<versión>\bin`, la versión más alta). La versión del servidor
+   se comprueba antes de crear nada.
+2. Fija los permisos (ver [Permisos](#permisos)).
+3. Crea `backend\.env` **solo si no existe**, con `ENTORNO=produccion`, una `SECRET_KEY` y una
    clave de base al azar. Deja el archivo legible solo por Administradores y SYSTEM (si lo
    quiere editar, abra el Bloc de notas como administrador).
-3. Crea `backend\.venv`, instala `requirements.txt`, crea el usuario y la base `shelfie_lite`
+4. Crea `backend\.venv`, instala `requirements.txt`, crea el usuario y la base `shelfie_lite`
    (con `scripts.inicializar_bd`) y corre `alembic upgrade head`.
-4. Si no hay administrador, crea el primero (`scripts.crear_admin`); si ya hay, ofrece crear
+5. Si no hay administrador, crea el primero (`scripts.crear_admin`); si ya hay, ofrece crear
    otro o cambiar una contraseña.
-5. Si no hay carpeta de respaldo configurada, la pide (por defecto `C:\Shelfie-respaldos`).
-6. Abre el puerto **8080** en el firewall solo para redes privadas (regla
+6. Si no hay carpeta de respaldo configurada, la pide (por defecto `C:\Shelfie-respaldos`).
+   Ver [Respaldos](#respaldos) para saber qué carpetas funcionan.
+7. Abre el puerto **8080** en el firewall solo para redes privadas (regla
    "Shelfie-lite (TCP 8080)") y avisa si alguna red está como pública.
-7. Registra dos tareas programadas que corren como SYSTEM (aunque nadie inicie sesión):
+8. Registra dos tareas programadas que corren como SYSTEM (aunque nadie inicie sesión):
    - **Shelfie-lite**: al iniciar el equipo, `iniciar.ps1` levanta uvicorn en `0.0.0.0:8080`
      y lo vuelve a levantar si se cae.
    - **Shelfie-lite respaldo**: todos los días a las 13:00 y 5 minutos después de encender
      (`python -m scripts.respaldar`, que también hace la limpieza diaria).
-8. Crea en el escritorio (de todos los usuarios) el acceso **Shelfie-lite** a
+9. Crea en el escritorio (de todos los usuarios) el acceso **Shelfie-lite** a
    `http://localhost:8080` y, en la carpeta de instalación, `Shelfie-lite (circulación).url`
    apuntando a `http://NOMBRE-PC:8080` para copiar a las PC de circulación.
-9. Arranca el servidor, prueba un respaldo y muestra las direcciones para la red.
+10. Arranca el servidor, prueba un respaldo y muestra las direcciones para la red.
+
+### Permisos
+
+Las tareas corren como SYSTEM, así que quien pueda modificar los archivos de la instalación
+podría ejecutar lo que quiera como SYSTEM. Una carpeta nueva en `C:\` hereda "Usuarios
+autenticados: Modificar", por eso `instalar.ps1` (cada vez que se corre) deja:
+
+| Qué | Permisos |
+|---|---|
+| La carpeta de instalación y todo su contenido (scripts, `backend`, `.venv`, `frontend\out`, `logs`) | Administradores y SYSTEM: control total. Usuarios: solo leer y ejecutar. Dueño: Administradores |
+| `backend\.env` (clave de la base y `SECRET_KEY`) | Solo Administradores y SYSTEM |
+| `respaldos-previos\` (copias que deja `restaurar.ps1`) | Solo Administradores y SYSTEM |
+| La carpeta de respaldo, si es local y no está en un perfil de usuario | Solo Administradores y SYSTEM (los volcados traen las claves cifradas de los usuarios, y un `base.dump` puesto ahí se podría restaurar) |
+
+Usa `icacls` con los SID conocidos (`*S-1-5-32-544` Administradores, `*S-1-5-18` SYSTEM,
+`*S-1-5-32-545` Usuarios), que valen en Windows en cualquier idioma. Si agrega archivos a mano
+a la carpeta, vuelva a correr `instalar.ps1`. La carpeta no puede ser la raíz de una unidad.
 
 ### En las PC de circulación
 
@@ -70,11 +91,25 @@ No hay que instalar nada. La búsqueda y la ficha del libro no piden usuario.
 
 Cada día queda en la carpeta configurada una carpeta `shelfie-AAAAMMDD-HHMM\` con
 `base.dump`, `catalogo.mrc`, `catalogo.xml`, `catalogo.csv` y `LEEME.txt`. Se conservan los 30
-últimos. La carpeta se cambia en **Configuración** (mejor otro disco, un pendrive que quede
-puesto o una carpeta sincronizada con OneDrive o Drive). No use letras de unidad de red
-(`Z:\`): la tarea corre como SYSTEM y no las ve; use la ruta `\\servidor\carpeta` si hace falta.
+últimos. La carpeta se cambia en **Configuración**.
 
-También se puede respaldar en el momento desde Configuración → "Respaldar ahora".
+La tarea de respaldo corre como **SYSTEM**, no como el usuario que tiene la sesión abierta.
+Eso decide qué carpetas sirven:
+
+| Destino | ¿Sirve? |
+|---|---|
+| Carpeta local o de un segundo disco (`D:\Shelfie-respaldos`) | Sí, lo mejor. `instalar.ps1` la deja solo para Administradores y SYSTEM |
+| Pendrive que queda puesto | Sí, pero si es FAT/exFAT no admite permisos: cualquiera que use la PC puede leerlo |
+| Google Drive para escritorio | Solo la carpeta en modo **"Duplicar archivos"** (queda dentro de `C:\Users\<usuario>\...`). La unidad `G:` es del usuario y SYSTEM no la ve |
+| OneDrive (`C:\Users\<usuario>\OneDrive\...`) | Se escribe bien, pero solo se sube a la nube mientras ese usuario tiene la sesión abierta |
+| `\\servidor\carpeta` | Solo si el recurso compartido deja escribir a la cuenta de este equipo (`NOMBRE-PC$`, en un dominio) o a Todos; en un grupo de trabajo, casi siempre no |
+| Letra de unidad de red (`Z:`) | No: es del usuario, SYSTEM no la ve |
+
+**Después de cambiar la carpeta**, pulse "Respaldar ahora" en Configuración y revise que el
+resultado sea correcto (ese botón corre en el servidor, como SYSTEM, igual que la tarea).
+
+"Respaldar ahora" también sirve para respaldar en el momento, por ejemplo antes de una
+importación grande.
 
 ## Restaurar un respaldo
 
@@ -86,8 +121,10 @@ powershell -ExecutionPolicy Bypass -File .\instalacion\restaurar.ps1 "C:\Shelfie
 ```
 
 `restaurar.ps1` comprueba que la carpeta tenga `base.dump`, pide escribir **RESTAURAR**,
-guarda una copia de la base actual en `respaldos-previos\antes-de-restaurar-...\` (se deshace
-pasándole esa carpeta al mismo script), detiene el servidor, hace
+detiene la tarea de respaldo (deja terminar uno en curso) y el servidor (si no puede liberar
+el puerto 8080, se detiene sin tocar nada), guarda una copia de la base actual en
+`respaldos-previos\antes-de-restaurar-...\` (se deshace pasándole esa carpeta al mismo
+script), hace
 `pg_restore --clean --if-exists --no-owner` en una sola transacción (si falla, la base queda
 como estaba), corre `alembic upgrade head` y vuelve a iniciar.
 

@@ -126,6 +126,44 @@ function Detener-Shelfie {
     return $false
 }
 
+# SID conocidos (iguales en Windows en cualquier idioma).
+$SidAdministradores = '*S-1-5-32-544'
+$SidSystem          = '*S-1-5-18'
+$SidUsuarios        = '*S-1-5-32-545'
+
+function Proteger-Carpeta {
+    <# Deja una carpeta (y todo lo que tiene) solo para Administradores y SYSTEM; con
+       -UsuariosLeen, los usuarios del equipo pueden leer y ejecutar pero no modificar.
+       Quita lo heredado (en C:\ cualquier usuario autenticado podría modificar) y pone a
+       Administradores como dueño (el dueño siempre puede cambiar los permisos).
+       Se puede repetir. Devuelve $null si salió bien o el mensaje de error. #>
+    param([string]$Ruta, [switch]$UsuariosLeen)
+    $permisos = @("${SidAdministradores}:(OI)(CI)F", "${SidSystem}:(OI)(CI)F")
+    if ($UsuariosLeen) { $permisos += "${SidUsuarios}:(OI)(CI)RX" }
+    $r = Ejecutar-Capturando 'icacls.exe' @($Ruta, '/setowner', $SidAdministradores, '/T', '/C', '/Q')
+    if ($r.Codigo -ne 0) { return "icacls /setowner: $($r.Salida)" }
+    $r = Ejecutar-Capturando 'icacls.exe' (@($Ruta, '/inheritance:r', '/grant:r') + $permisos)
+    if ($r.Codigo -ne 0) { return "icacls /inheritance:r: $($r.Salida)" }
+    # Lo de adentro vuelve a heredar solo de la carpeta (borra permisos sueltos que traiga).
+    if (Get-ChildItem -LiteralPath $Ruta -Force -ErrorAction SilentlyContinue | Select-Object -First 1) {
+        $r = Ejecutar-Capturando 'icacls.exe' @((Join-Path $Ruta '*'), '/reset', '/T', '/C', '/Q')
+        if ($r.Codigo -ne 0) { return "icacls /reset: $($r.Salida)" }
+    }
+    return $null
+}
+
+function Proteger-Env {
+    <# backend\.env (clave de la base y SECRET_KEY): solo Administradores y SYSTEM. #>
+    $r = Ejecutar-Capturando 'icacls.exe' @($ShelfieEnv, '/inheritance:r', '/grant:r', "${SidAdministradores}:(F)", "${SidSystem}:(F)")
+    if ($r.Codigo -ne 0) { return "icacls: $($r.Salida)" }
+    return $null
+}
+
+function Es-RaizDeUnidad([string]$Ruta) {
+    $completa = [System.IO.Path]::GetFullPath($Ruta).TrimEnd('\')
+    return ($completa -match '^[A-Za-z]:$') -or ($completa -match '^\\\\[^\\]+\\[^\\]+$')
+}
+
 function Esperar-Shelfie([int]$Segundos = 90) {
     <# Espera a que http://localhost:8080/ responda. #>
     $limite = (Get-Date).AddSeconds($Segundos)

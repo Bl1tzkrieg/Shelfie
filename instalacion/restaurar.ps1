@@ -10,9 +10,10 @@
         powershell -ExecutionPolicy Bypass -File .\instalacion\restaurar.ps1 "D:\Respaldos\shelfie-20261020-1300"
 
     1. Comprueba que la carpeta tenga base.dump y pide escribir RESTAURAR.
-    2. Guarda una copia de la base actual en respaldos-previos\antes-de-restaurar-...\base.dump
-       (para deshacer: restaurar.ps1 con esa carpeta).
-    3. Detiene el servidor, hace pg_restore --clean --if-exists (en una sola transacción:
+    2. Detiene el respaldo automático y el servidor (si no puede, se detiene sin tocar nada) y
+       guarda una copia de la base actual en respaldos-previos\antes-de-restaurar-...\base.dump
+       (solo Administradores y SYSTEM; para deshacer: restaurar.ps1 con esa carpeta).
+    3. Hace pg_restore --clean --if-exists (en una sola transacción:
        si algo falla, la base queda como estaba), pone el esquema al día y lo vuelve a iniciar.
 
     Si base.dump no sirve, el catálogo se puede recuperar importando catalogo.mrc
@@ -75,23 +76,52 @@ if ($confirmacion.Trim() -cne 'RESTAURAR') {
 }
 
 $env:PGPASSWORD = $Conexion.Clave   # nunca en la línea de comandos
+$respaldoPausado = $false
 try {
+    # --- Nadie más usa la base ------------------------------------------------------------
+    Escribir-Paso '1. Deteniendo el respaldo automático y Shelfie-lite'
+    if (Get-ScheduledTask -TaskName $TareaRespaldo -ErrorAction SilentlyContinue) {
+        # Un respaldo en curso se deja terminar (hasta 10 minutos); después se corta.
+        $limite = (Get-Date).AddMinutes(10)
+        $avisado = $false
+        while ((Get-ScheduledTask -TaskName $TareaRespaldo).State -eq 'Running' -and (Get-Date) -lt $limite) {
+            if (-not $avisado) { Escribir-Info 'Hay un respaldo en curso; se espera a que termine…'; $avisado = $true }
+            Start-Sleep -Seconds 5
+        }
+        Stop-ScheduledTask -TaskName $TareaRespaldo -ErrorAction SilentlyContinue
+        Disable-ScheduledTask -TaskName $TareaRespaldo | Out-Null
+        $respaldoPausado = $true
+    }
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and $_.CommandLine -like '*scripts.respaldar*' } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    if (-not (Detener-Shelfie)) {
+        Detener-ConError 'No se pudo detener Shelfie-lite: el puerto 8080 sigue ocupado. No se restauró nada; cierre el programa que lo usa (netstat -ano | findstr :8080) o reinicie el equipo y vuelva a intentar.'
+    }
+    Escribir-Ok 'detenidos'
+
     # --- Copia de lo que hay ahora ------------------------------------------------------
-    Escribir-Paso '1. Copia de seguridad de la base actual'
+    Escribir-Paso '2. Copia de seguridad de la base actual'
+    # Solo Administradores y SYSTEM: el volcado trae las claves cifradas de los usuarios.
+    $previos = Join-Path $ShelfieRaiz 'respaldos-previos'
+    New-Item -ItemType Directory -Force -Path $previos | Out-Null
+    $problema = Proteger-Carpeta $previos
+    if ($problema) {
+        Iniciar-DeNuevo
+        Detener-ConError "No se pudieron fijar los permisos de $($previos) (no se restauró nada): $problema"
+    }
     # Queda como una carpeta de respaldo más: se puede pasar a este mismo script para deshacer.
-    $previa = Join-Path $ShelfieRaiz ('respaldos-previos\antes-de-restaurar-{0:yyyyMMdd-HHmmss}' -f (Get-Date))
+    $previa = Join-Path $previos ('antes-de-restaurar-{0:yyyyMMdd-HHmmss}' -f (Get-Date))
     New-Item -ItemType Directory -Force -Path $previa | Out-Null
     $copia = Join-Path $previa 'base.dump'
     $r = Ejecutar-Capturando $PgDump ($Comunes + @('-Fc', '-f', $copia, $Conexion.Base))
     if ($r.Codigo -ne 0) {
+        Iniciar-DeNuevo
         Detener-ConError "No se pudo copiar la base actual (no se restauró nada): $($r.Salida)"
     }
     Escribir-Ok "copia guardada en $previa"
 
     # --- Restauración -------------------------------------------------------------------
-    Escribir-Paso '2. Deteniendo Shelfie-lite'
-    if (-not (Detener-Shelfie)) { Escribir-Aviso 'El puerto 8080 sigue ocupado; se intenta restaurar igual.' }
-    else { Escribir-Ok 'detenido' }
 
     Escribir-Paso '3. Restaurando base.dump'
     $r = Ejecutar-Capturando $PgRestore ($Comunes + @('--clean', '--if-exists', '--no-owner', '--no-acl',
@@ -116,6 +146,7 @@ try {
     }
 } finally {
     Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+    if ($respaldoPausado) { Enable-ScheduledTask -TaskName $TareaRespaldo | Out-Null }
 }
 
 Escribir-Paso '5. Iniciando Shelfie-lite'

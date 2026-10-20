@@ -51,10 +51,12 @@ function Texto-DeClaveSegura([System.Security.SecureString]$Segura) {
 }
 
 function Buscar-Python {
-    <# El primer Python 3.12 o más reciente: el lanzador py (3.13, 3.12, el más nuevo) o python. #>
-    foreach ($candidato in @('py -3.13', 'py -3.12', 'py -3', 'python')) {
+    <# El primer Python 3.12 o más reciente: el lanzador py (3.12, 3.13, el más nuevo) o python.
+       Se descarta el de la Microsoft Store (WindowsApps): es por usuario y SYSTEM no lo ve. #>
+    foreach ($candidato in @('py -3.12', 'py -3.13', 'py -3', 'python')) {
         $partes = $candidato -split ' '
-        if (-not (Get-Command $partes[0] -CommandType Application -ErrorAction SilentlyContinue)) { continue }
+        $comando = Get-Command $partes[0] -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $comando -or $comando.Source -like '*\WindowsApps\*') { continue }
         $extra = @($partes | Select-Object -Skip 1)
         $r = Ejecutar-Capturando $partes[0] ($extra + @('-c', 'import sys; print(sys.version_info[0], sys.version_info[1], sys.executable)'))
         if ($r.Codigo -ne 0) { continue }
@@ -62,6 +64,7 @@ function Buscar-Python {
         if (-not $m.Success) { continue }
         $mayor = [int]$m.Groups[1].Value
         $menor = [int]$m.Groups[2].Value
+        if ($m.Groups[3].Value -like '*\WindowsApps\*') { continue }
         if ($mayor -eq 3 -and $menor -ge 12) {
             return [pscustomobject]@{ Ejecutable = $m.Groups[3].Value.Trim(); Version = "$mayor.$menor" }
         }
@@ -78,6 +81,48 @@ function Consultar-Pg([string]$Usuario, [string]$Clave, [string]$Base, [string]$
             '-h', $Conexion.Servidor, '-p', "$($Conexion.Puerto)", '-U', $Usuario, '-d', $Base) $Sql
     } finally {
         Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+    }
+}
+
+function Version-Pg([string]$Salida) {
+    $numero = 0
+    [void][int]::TryParse(($Salida -split "`n")[-1].Trim(), [ref]$numero)
+    return $numero
+}
+
+function Exigir-Pg16([int]$Numero) {
+    if ($Numero -lt $VersionMinimaPg) {
+        Detener-ConError "El servidor PostgreSQL es la versión $Numero; se necesita PostgreSQL 16 o más reciente."
+    }
+}
+
+function Proteger-CarpetaDeRespaldo([string]$Ruta) {
+    <# Los respaldos traen toda la base (con las claves cifradas de los usuarios) y un
+       base.dump puesto ahí se podría restaurar: si la carpeta es local, solo
+       Administradores y SYSTEM. #>
+    if ($Ruta.StartsWith('\\')) {
+        Escribir-Info 'Carpeta de red: los permisos los da el recurso compartido (debe dejar escribir a la cuenta de este equipo o a Todos).'
+        return
+    }
+    if (Es-RaizDeUnidad $Ruta) {
+        Escribir-Aviso "Es la raíz de una unidad: no se cambian sus permisos. Mejor una subcarpeta, por ejemplo $($Ruta.TrimEnd('\'))\Shelfie-respaldos."
+        return
+    }
+    $unidad = New-Object System.IO.DriveInfo ([System.IO.Path]::GetPathRoot($Ruta))
+    if ($unidad.DriveType -eq 'Network') {
+        Escribir-Aviso "$($unidad.Name) es una unidad de red de este usuario: SYSTEM no la ve y el respaldo fallará. Use una carpeta local o una ruta \\servidor\carpeta."
+        return
+    }
+    $perfiles = Split-Path -Parent $env:PUBLIC
+    if ($Ruta -like "$perfiles\*") {
+        Escribir-Info 'Está en el perfil de un usuario (p. ej. su OneDrive): la leen ese usuario, los administradores y SYSTEM. No se cambia, para que siga sincronizando.'
+        return
+    }
+    $problema = Proteger-Carpeta $Ruta
+    if ($problema) {
+        Escribir-Aviso "No se pudieron restringir los permisos de $Ruta (¿pendrive FAT/exFAT, que no los admite?): $problema"
+    } else {
+        Escribir-Ok "$($Ruta): solo Administradores y SYSTEM"
     }
 }
 
@@ -125,6 +170,25 @@ if (-not (Detener-Shelfie)) {
     Detener-ConError "El puerto 8080 sigue ocupado por otro programa. Ciérrelo (netstat -ano | findstr :8080) y vuelva a ejecutar."
 }
 
+# --- Permisos de la carpeta --------------------------------------------------------
+# Lo que está aquí lo corre SYSTEM al iniciar el equipo. Una carpeta nueva en C:\ hereda
+# "Usuarios autenticados: Modificar": cualquier cuenta del personal podría cambiar un .ps1,
+# un .py o un paquete del venv y ejecutarlo como SYSTEM. Se deja: Administradores y SYSTEM
+# control total; Usuarios (S-1-5-32-545) solo leer y ejecutar.
+Escribir-Paso 'Permisos: la carpeta de instalación solo la modifican los administradores'
+if (Es-RaizDeUnidad $ShelfieRaiz) {
+    Detener-ConError "Shelfie-lite está en la raíz de una unidad ($ShelfieRaiz). Muévalo a una carpeta, por ejemplo C:\Shelfie-lite."
+}
+$problema = Proteger-Carpeta $ShelfieRaiz -UsuariosLeen
+if ($problema) { Detener-ConError "No se pudieron fijar los permisos de $($ShelfieRaiz): $problema" }
+Escribir-Ok "$($ShelfieRaiz): Administradores y SYSTEM total, Usuarios solo lectura"
+# Las copias que deja restaurar.ps1 tienen los datos y las claves cifradas de los usuarios.
+$respaldosPrevios = Join-Path $ShelfieRaiz 'respaldos-previos'
+New-Item -ItemType Directory -Force -Path $respaldosPrevios | Out-Null
+$problema = Proteger-Carpeta $respaldosPrevios
+if ($problema) { Detener-ConError "No se pudieron fijar los permisos de $($respaldosPrevios): $problema" }
+Escribir-Ok 'respaldos-previos: solo Administradores y SYSTEM'
+
 # --- 2. backend\.env -----------------------------------------------------------------
 Escribir-Paso '2. Configuración (backend\.env)'
 $EnvNuevo = -not (Test-Path $ShelfieEnv)
@@ -144,10 +208,10 @@ if ($EnvNuevo) {
 } else {
     Escribir-Ok 'backend\.env ya existe: se conserva tal cual'
 }
-# Solo Administradores (S-1-5-32-544) y SYSTEM (S-1-5-18), que es quien corre el servidor.
-$r = Ejecutar-Capturando 'icacls.exe' @($ShelfieEnv, '/inheritance:r', '/grant:r', '*S-1-5-32-544:(F)', '*S-1-5-18:(F)')
-if ($r.Codigo -eq 0) { Escribir-Ok 'backend\.env: solo lo leen los administradores y el sistema' }
-else { Escribir-Aviso "No se pudieron restringir los permisos de backend\.env: $($r.Salida)" }
+# Solo Administradores y SYSTEM (quien corre el servidor); se repite en cada instalación.
+$problema = Proteger-Env
+if ($problema) { Detener-ConError "No se pudieron restringir los permisos de backend\.env: $problema" }
+Escribir-Ok 'backend\.env: solo lo leen los administradores y el sistema'
 
 $Variables = Leer-Env
 if (-not $Variables['DATABASE_URL']) { Detener-ConError 'backend\.env no tiene DATABASE_URL.' }
@@ -188,6 +252,8 @@ if ($r.Codigo -eq 0 -and -not $EnvNuevo) {
         if ($r.Codigo -ne 0) {
             Detener-ConError "No se pudo entrar a PostgreSQL como '$SuperusuarioPg' (¿clave incorrecta? ¿servicio detenido?): $($r.Salida)"
         }
+        # Antes de crear nada: con un PostgreSQL viejo no se toca el servidor.
+        Exigir-Pg16 (Version-Pg $r.Salida)
         # Si el usuario de Shelfie ya existía (p. ej. se borró el .env), se le pone la clave
         # del .env; si no existe, inicializar_bd lo crea con esa misma clave.
         $sql = @'
@@ -210,11 +276,8 @@ END $$;
     $r = Consultar-Pg $Conexion.Usuario $Conexion.Clave $Conexion.Base 'SHOW server_version_num;'
     if ($r.Codigo -ne 0) { Detener-ConError "Shelfie no puede conectarse a la base con su usuario: $($r.Salida)" }
 }
-$versionPg = 0
-[void][int]::TryParse(($r.Salida -split "`n")[-1].Trim(), [ref]$versionPg)
-if ($versionPg -lt $VersionMinimaPg) {
-    Detener-ConError "El servidor PostgreSQL es la versión $versionPg; se necesita PostgreSQL 16 o más reciente."
-}
+$versionPg = Version-Pg $r.Salida
+Exigir-Pg16 $versionPg
 Escribir-Ok "PostgreSQL $([math]::Floor($versionPg / 10000))"
 Correr-Python @('-m', 'alembic', 'upgrade', 'head') 'Actualizar el esquema (alembic upgrade head)'
 Escribir-Ok 'esquema al día (alembic upgrade head)'
@@ -254,10 +317,17 @@ $carpeta = ''
 if ($r.Codigo -eq 0 -and $r.Salida) { $carpeta = ($r.Salida -split "`n")[-1].Trim() }
 if ($carpeta) {
     Escribir-Ok "configurada: $carpeta (se cambia en Configuración)"
+    if (Test-Path -LiteralPath $carpeta -PathType Container) { Proteger-CarpetaDeRespaldo $carpeta }
+    else { Escribir-Aviso "La carpeta configurada no existe o no está disponible: $carpeta" }
 } else {
     $sugerida = Join-Path $env:SystemDrive 'Shelfie-respaldos'
-    Escribir-Info 'Mejor en otro disco o en una carpeta sincronizada (OneDrive, Drive). Sin letras de unidad'
-    Escribir-Info 'de red: el respaldo corre como SYSTEM y no las ve. Se puede cambiar luego en Configuración.'
+    Escribir-Info 'El respaldo corre como SYSTEM, no como un usuario. Funciona:'
+    Escribir-Info '  - una carpeta local o de un segundo disco (lo mejor), por ejemplo D:\Shelfie-respaldos;'
+    Escribir-Info '  - la carpeta de Google Drive en modo "Duplicar archivos" (dentro de C:\Users\...), no la unidad G:;'
+    Escribir-Info '  - la carpeta de OneDrive, que solo sincroniza mientras su usuario tiene la sesión abierta;'
+    Escribir-Info '  - \\servidor\carpeta solo si el recurso deja escribir a la cuenta de este equipo o a Todos.'
+    Escribir-Info 'Letras de unidad de red (Z:) o G: de Drive no: SYSTEM no las ve.'
+    Escribir-Info 'Si la cambia luego en Configuración, pulse "Respaldar ahora" y revise que el resultado sea correcto.'
     $carpeta = (Read-Host "   Carpeta de respaldo [Enter = $sugerida]").Trim().Trim('"')
     if (-not $carpeta) { $carpeta = $sugerida }
     try {
@@ -272,8 +342,10 @@ configuracion.guardar(db, {'respaldo': {'carpeta': os.environ['SHELFIE_CARPETA_R
 db.close()
 '@
         $r = Ejecutar-Capturando $ShelfiePython @('-') $guardarCarpeta
-        if ($r.Codigo -eq 0) { Escribir-Ok "carpeta de respaldo: $($env:SHELFIE_CARPETA_RESPALDO)" }
-        else { Escribir-Aviso "No se pudo guardar la carpeta; configúrela en Configuración. $($r.Salida)" }
+        if ($r.Codigo -eq 0) {
+            Escribir-Ok "carpeta de respaldo: $($env:SHELFIE_CARPETA_RESPALDO)"
+            Proteger-CarpetaDeRespaldo $env:SHELFIE_CARPETA_RESPALDO
+        } else { Escribir-Aviso "No se pudo guardar la carpeta; configúrela en Configuración. $($r.Salida)" }
     } catch {
         Escribir-Aviso "No se pudo crear la carpeta '$carpeta': $_. Configúrela luego en Configuración."
     } finally {
