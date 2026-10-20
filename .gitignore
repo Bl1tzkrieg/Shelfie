@@ -43,3 +43,6 @@ playwright-report/
 
 # Next lo regenera en cada dev/build
 frontend/next-env.d.ts
+
+# Copias de .env.local que deja scripts/empaquetar.sh
+.env*.apartado-*

@@ -6,6 +6,7 @@ necesita Windows PowerShell 5.1: UTF-8 con BOM (si no, los acentos se leen mal) 
 """
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -248,6 +249,10 @@ def test_esta_dentro_es_literal_y_sin_mayusculas():
 
 
 def _verificar(carpeta):
+    # empaquetar.sh y su guardia son de Bash (se arman en Linux/macOS/Git Bash). En Windows se
+    # saltan: un `bash` de WSL no entiende las rutas temporales de Windows.
+    if os.name == "nt" or not shutil.which("bash"):
+        pytest.skip("requiere bash (Linux/macOS); no corre en Windows")
     return subprocess.run(["bash", str(RAIZ / "scripts" / "verificar_sin_url_dev.sh"), str(carpeta)],
                           capture_output=True, text=True)
 
@@ -271,3 +276,5 @@ def test_empaquetar_restaura_sin_pisar_un_env_local_nuevo():
     script = (RAIZ / "scripts" / "empaquetar.sh").read_text(encoding="utf-8")
     assert "apartado-" in script and 'if [ -e "$destino" ]' in script
     assert "FALLO_AL_DEVOLVER" in script
+    assert 'mv -n "$f" "$destino"' in script
+    assert ".env*.apartado-*" in (RAIZ / ".gitignore").read_text(encoding="utf-8").splitlines()

@@ -28,7 +28,9 @@ devolver_env() {
             destino="$destino.apartado-$(date +%Y%m%d-%H%M%S)"
             echo "AVISO: ya existe $RAIZ/frontend/$(basename "$f"); su copia original quedó en $destino" >&2
         fi
-        if ! mv "$f" "$destino"; then
+        # -n: nunca pisa; si en el mismo segundo ya hay una copia con ese nombre, usa otro.
+        [ -e "$destino" ] && destino="$destino.$$"
+        if ! mv -n "$f" "$destino"; then
             echo "ERROR: no se pudo devolver $(basename "$f"); sigue en $f" >&2
             FALLO_AL_DEVOLVER=1
         fi
