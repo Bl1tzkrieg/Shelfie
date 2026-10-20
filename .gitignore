@@ -33,3 +33,6 @@ Thumbs.db
 
 # Correos de prueba (CORREO_MODO=archivo)
 backend/correo_saliente/
+
+# Paquetes de scripts/empaquetar.sh
+dist/

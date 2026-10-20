@@ -1,0 +1,2 @@
+# Windows PowerShell 5.1 necesita los .ps1 en UTF-8 con BOM y CRLF: git no los toca.
+*.ps1 -text

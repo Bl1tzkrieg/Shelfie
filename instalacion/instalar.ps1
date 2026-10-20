@@ -1,0 +1,364 @@
+﻿#Requires -Version 5.1
+#Requires -RunAsAdministrator
+<#
+.SYNOPSIS
+    Instala (o actualiza) Shelfie-lite en esta PC: base de datos, entorno de Python,
+    primer administrador, firewall, tareas programadas y acceso directo.
+
+.DESCRIPTION
+    Se ejecuta como administrador desde la carpeta descomprimida:
+
+        powershell -ExecutionPolicy Bypass -File .\instalacion\instalar.ps1
+
+    Se puede volver a correr sin riesgo: lo que ya está hecho se respeta. En particular,
+    backend\.env se crea solo la primera vez (se conservan la clave de la base y la
+    SECRET_KEY) y la clave del superusuario de PostgreSQL se pide solo si hace falta,
+    nunca se guarda en ningún archivo.
+
+.PARAMETER SuperusuarioPg
+    Cuenta administradora de PostgreSQL (la del instalador oficial es postgres).
+
+.PARAMETER PuertoPg
+    Puerto de PostgreSQL (5432 por defecto).
+#>
+[CmdletBinding()]
+param(
+    [string]$SuperusuarioPg = 'postgres',
+    [int]$PuertoPg = 5432
+)
+
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'comun.ps1')
+
+$BaseShelfie = 'shelfie_lite'
+$UsuarioShelfie = 'shelfie_lite'
+$VersionMinimaPg = 160000          # server_version_num de PostgreSQL 16
+$IniciarPs1 = Join-Path $PSScriptRoot 'iniciar.ps1'
+
+function Clave-AlAzar([int]$Bytes) {
+    <# Hexadecimal de bytes criptográficamente aleatorios (sin símbolos: no hay que
+       escaparla ni en la URL ni en SQL). #>
+    $buffer = New-Object byte[] $Bytes
+    $generador = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $generador.GetBytes($buffer) } finally { $generador.Dispose() }
+    return ([System.BitConverter]::ToString($buffer) -replace '-', '').ToLowerInvariant()
+}
+
+function Texto-DeClaveSegura([System.Security.SecureString]$Segura) {
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Segura)
+    try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+}
+
+function Buscar-Python {
+    <# El primer Python 3.12 o más reciente: el lanzador py (3.13, 3.12, el más nuevo) o python. #>
+    foreach ($candidato in @('py -3.13', 'py -3.12', 'py -3', 'python')) {
+        $partes = $candidato -split ' '
+        if (-not (Get-Command $partes[0] -CommandType Application -ErrorAction SilentlyContinue)) { continue }
+        $extra = @($partes | Select-Object -Skip 1)
+        $r = Ejecutar-Capturando $partes[0] ($extra + @('-c', 'import sys; print(sys.version_info[0], sys.version_info[1], sys.executable)'))
+        if ($r.Codigo -ne 0) { continue }
+        $m = [regex]::Match($r.Salida, '(?m)^(\d+) (\d+) (.+)$')
+        if (-not $m.Success) { continue }
+        $mayor = [int]$m.Groups[1].Value
+        $menor = [int]$m.Groups[2].Value
+        if ($mayor -eq 3 -and $menor -ge 12) {
+            return [pscustomobject]@{ Ejecutable = $m.Groups[3].Value.Trim(); Version = "$mayor.$menor" }
+        }
+    }
+    return $null
+}
+
+function Consultar-Pg([string]$Usuario, [string]$Clave, [string]$Base, [string]$Sql) {
+    <# Corre SQL con psql; la clave viaja en PGPASSWORD y el SQL por la entrada estándar
+       (nada de eso aparece en la lista de procesos). #>
+    $env:PGPASSWORD = $Clave
+    try {
+        return Ejecutar-Capturando $Psql @('-X', '-w', '-q', '-t', '-A', '-v', 'ON_ERROR_STOP=1',
+            '-h', $Conexion.Servidor, '-p', "$($Conexion.Puerto)", '-U', $Usuario, '-d', $Base) $Sql
+    } finally {
+        Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+    }
+}
+
+function Correr-Python([string[]]$Argumentos, [string]$QueHace) {
+    & $ShelfiePython @Argumentos
+    if ($LASTEXITCODE -ne 0) { Detener-ConError "$QueHace falló (código $LASTEXITCODE). Revise los mensajes de arriba." }
+}
+
+Write-Host ''
+Write-Host 'Instalación de Shelfie-lite' -ForegroundColor Cyan
+Write-Host "Carpeta: $ShelfieRaiz"
+if (-not (Test-Path (Join-Path $ShelfieBackend 'app\main.py'))) {
+    Detener-ConError "No se encontró backend\app\main.py en $ShelfieRaiz. Ejecute el script desde la carpeta descomprimida."
+}
+if (-not (Test-Path (Join-Path $ShelfieRaiz 'frontend\out\index.html'))) {
+    Escribir-Aviso 'No está frontend\out\index.html: el sistema solo respondería la API. Use el zip de empaquetar.sh.'
+}
+# Los archivos de un zip bajado de internet quedan "bloqueados"; se desbloquean los scripts.
+Get-ChildItem -Path $PSScriptRoot -Filter '*.ps1' | Unblock-File -ErrorAction SilentlyContinue
+
+# --- 1. Requisitos -----------------------------------------------------------------
+Escribir-Paso '1. Requisitos: Python 3.12 o más reciente y PostgreSQL 16 o más reciente'
+$PythonBase = Buscar-Python
+if (-not $PythonBase) {
+    Detener-ConError 'No se encontró Python 3.12 o más reciente. Instálelo desde https://www.python.org/downloads/windows/ (marque "Add python.exe to PATH") y vuelva a ejecutar.'
+}
+Escribir-Ok "Python $($PythonBase.Version): $($PythonBase.Ejecutable)"
+if ([version]$PythonBase.Version -gt [version]'3.13') {
+    Escribir-Aviso 'Las dependencias están probadas con Python 3.12 y 3.13; con una versión más nueva podría faltar algún paquete.'
+}
+$Psql = Buscar-ProgramaPg 'psql'
+if (-not $Psql) {
+    Detener-ConError 'No se encontró PostgreSQL (psql.exe). Instale PostgreSQL 16 o más reciente con el instalador oficial (https://www.postgresql.org/download/windows/) y vuelva a ejecutar.'
+}
+Escribir-Ok "psql: $Psql"
+foreach ($herramienta in @('pg_dump', 'pg_restore')) {
+    if (-not (Test-Path (Join-Path (Split-Path $Psql) "$herramienta.exe"))) {
+        Escribir-Aviso "No está $herramienta.exe junto a psql.exe: el respaldo o la restauración no funcionarán."
+    }
+}
+
+# Antes de tocar el entorno de Python, se detiene el servidor si ya estaba instalado
+# (Windows no deja reemplazar archivos que un proceso tiene abiertos).
+if (-not (Detener-Shelfie)) {
+    Detener-ConError "El puerto 8080 sigue ocupado por otro programa. Ciérrelo (netstat -ano | findstr :8080) y vuelva a ejecutar."
+}
+
+# --- 2. backend\.env -----------------------------------------------------------------
+Escribir-Paso '2. Configuración (backend\.env)'
+$EnvNuevo = -not (Test-Path $ShelfieEnv)
+if ($EnvNuevo) {
+    $claveBase = Clave-AlAzar 24
+    $contenido = @(
+        '# Generado por instalar.ps1. Contiene la clave de la base: no lo comparta.',
+        "DATABASE_URL=postgresql://${UsuarioShelfie}:$claveBase@localhost:$PuertoPg/$BaseShelfie",
+        "SECRET_KEY=$(Clave-AlAzar 48)",
+        'ENTORNO=produccion',
+        'CORS_ORIGINS=http://localhost:8080',
+        'ZONA_HORARIA=America/Caracas',
+        ''
+    ) -join "`r`n"
+    [System.IO.File]::WriteAllText($ShelfieEnv, $contenido, $Utf8SinBom)
+    Escribir-Ok 'backend\.env creado (clave de la base y SECRET_KEY al azar)'
+} else {
+    Escribir-Ok 'backend\.env ya existe: se conserva tal cual'
+}
+# Solo Administradores (S-1-5-32-544) y SYSTEM (S-1-5-18), que es quien corre el servidor.
+$r = Ejecutar-Capturando 'icacls.exe' @($ShelfieEnv, '/inheritance:r', '/grant:r', '*S-1-5-32-544:(F)', '*S-1-5-18:(F)')
+if ($r.Codigo -eq 0) { Escribir-Ok 'backend\.env: solo lo leen los administradores y el sistema' }
+else { Escribir-Aviso "No se pudieron restringir los permisos de backend\.env: $($r.Salida)" }
+
+$Variables = Leer-Env
+if (-not $Variables['DATABASE_URL']) { Detener-ConError 'backend\.env no tiene DATABASE_URL.' }
+$Conexion = Leer-Conexion $Variables['DATABASE_URL']
+if (-not $Conexion) { Detener-ConError 'DATABASE_URL de backend\.env no tiene la forma postgresql://usuario:clave@servidor:puerto/base' }
+
+# --- 3. Entorno de Python ------------------------------------------------------------
+Escribir-Paso '3. Entorno de Python y dependencias'
+Set-Location $ShelfieBackend
+if (Test-Path $ShelfiePython) {
+    $r = Ejecutar-Capturando $ShelfiePython @('-c', 'import sys')
+    if ($r.Codigo -ne 0) {
+        Escribir-Aviso 'El entorno backend\.venv no funciona (¿se desinstaló Python?): se vuelve a crear.'
+        Remove-Item -Recurse -Force (Join-Path $ShelfieBackend '.venv')
+    }
+}
+if (-not (Test-Path $ShelfiePython)) {
+    & $PythonBase.Ejecutable -m venv (Join-Path $ShelfieBackend '.venv')
+    if ($LASTEXITCODE -ne 0) { Detener-ConError 'No se pudo crear el entorno de Python (backend\.venv).' }
+    Escribir-Ok 'backend\.venv creado'
+}
+Correr-Python @('-m', 'pip', 'install', '--disable-pip-version-check', '--quiet', '--upgrade', 'pip') 'Actualizar pip'
+Correr-Python @('-m', 'pip', 'install', '--disable-pip-version-check', '--quiet', '-r', 'requirements.txt') 'Instalar las dependencias (requiere internet)'
+Escribir-Ok 'dependencias instaladas'
+
+# --- 4. Base de datos ----------------------------------------------------------------
+Escribir-Paso "4. Base de datos '$($Conexion.Base)'"
+$r = Consultar-Pg $Conexion.Usuario $Conexion.Clave $Conexion.Base 'SHOW server_version_num;'
+if ($r.Codigo -eq 0 -and -not $EnvNuevo) {
+    Escribir-Ok "la base ya existe y Shelfie se conecta con su propio usuario ($($Conexion.Usuario))"
+} else {
+    Escribir-Info "Para crear el usuario y la base se necesita la clave de '$SuperusuarioPg' de PostgreSQL"
+    Escribir-Info '(la que se eligió al instalar PostgreSQL). Se usa solo ahora y no se guarda.'
+    $segura = Read-Host "Clave de '$SuperusuarioPg'" -AsSecureString
+    $claveSuper = Texto-DeClaveSegura $segura
+    try {
+        $r = Consultar-Pg $SuperusuarioPg $claveSuper 'postgres' 'SHOW server_version_num;'
+        if ($r.Codigo -ne 0) {
+            Detener-ConError "No se pudo entrar a PostgreSQL como '$SuperusuarioPg' (¿clave incorrecta? ¿servicio detenido?): $($r.Salida)"
+        }
+        # Si el usuario de Shelfie ya existía (p. ej. se borró el .env), se le pone la clave
+        # del .env; si no existe, inicializar_bd lo crea con esa misma clave.
+        $sql = @'
+DO $$ BEGIN
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname = '__USUARIO__') THEN
+    ALTER ROLE "__USUARIO__" LOGIN PASSWORD '__CLAVE__';
+  END IF;
+END $$;
+'@
+        $sql = $sql.Replace('__USUARIO__', $Conexion.Usuario.Replace("'", "''").Replace('"', '""')).Replace('__CLAVE__', $Conexion.Clave.Replace("'", "''"))
+        if ($Conexion.Usuario -ne $SuperusuarioPg) { $r = Consultar-Pg $SuperusuarioPg $claveSuper 'postgres' $sql }
+        if ($r.Codigo -ne 0) { Detener-ConError "No se pudo actualizar la clave del usuario '$($Conexion.Usuario)': $($r.Salida)" }
+        # scripts.inicializar_bd crea el usuario y la base (si faltan) y migra; lee PGPASSWORD.
+        $env:PGPASSWORD = $claveSuper
+        Correr-Python @('-m', 'scripts.inicializar_bd', '--admin-user', $SuperusuarioPg, '--sin-test') 'Crear el usuario y la base'
+    } finally {
+        Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+        $claveSuper = $null
+    }
+    $r = Consultar-Pg $Conexion.Usuario $Conexion.Clave $Conexion.Base 'SHOW server_version_num;'
+    if ($r.Codigo -ne 0) { Detener-ConError "Shelfie no puede conectarse a la base con su usuario: $($r.Salida)" }
+}
+$versionPg = 0
+[void][int]::TryParse(($r.Salida -split "`n")[-1].Trim(), [ref]$versionPg)
+if ($versionPg -lt $VersionMinimaPg) {
+    Detener-ConError "El servidor PostgreSQL es la versión $versionPg; se necesita PostgreSQL 16 o más reciente."
+}
+Escribir-Ok "PostgreSQL $([math]::Floor($versionPg / 10000))"
+Correr-Python @('-m', 'alembic', 'upgrade', 'head') 'Actualizar el esquema (alembic upgrade head)'
+Escribir-Ok 'esquema al día (alembic upgrade head)'
+
+# --- 5. Administrador ----------------------------------------------------------------
+Escribir-Paso '5. Administrador'
+$contarAdmins = @'
+from app.database import SessionLocal
+from app import models
+db = SessionLocal()
+print(sum(1 for u in db.query(models.Usuario).all() if u.activo and 'superbibliotecario' in (u.permisos or [])))
+db.close()
+'@
+$r = Ejecutar-Capturando $ShelfiePython @('-') $contarAdmins
+$admins = 0
+[void][int]::TryParse(($r.Salida -split "`n")[-1].Trim(), [ref]$admins)
+if ($admins -eq 0) {
+    Escribir-Info 'Todavía no hay administrador. Cree el primero (usuario y contraseña para entrar):'
+    Correr-Python @('-m', 'scripts.crear_admin') 'Crear el administrador'
+} else {
+    Escribir-Ok "ya hay $admins administrador(es)"
+    $respuesta = Read-Host '   ¿Crear otro administrador o cambiar una contraseña? [s/N]'
+    if ($respuesta.Trim().ToLower() -eq 's') { Correr-Python @('-m', 'scripts.crear_admin') 'Crear el administrador' }
+}
+
+# --- 6. Carpeta de respaldo ----------------------------------------------------------
+Escribir-Paso '6. Carpeta de respaldo'
+$leerCarpeta = @'
+from app.database import SessionLocal
+from app.services import configuracion
+db = SessionLocal()
+print(configuracion.leer(db, 'respaldo').get('carpeta') or '')
+db.close()
+'@
+$r = Ejecutar-Capturando $ShelfiePython @('-') $leerCarpeta
+$carpeta = ''
+if ($r.Codigo -eq 0 -and $r.Salida) { $carpeta = ($r.Salida -split "`n")[-1].Trim() }
+if ($carpeta) {
+    Escribir-Ok "configurada: $carpeta (se cambia en Configuración)"
+} else {
+    $sugerida = Join-Path $env:SystemDrive 'Shelfie-respaldos'
+    Escribir-Info 'Mejor en otro disco o en una carpeta sincronizada (OneDrive, Drive). Sin letras de unidad'
+    Escribir-Info 'de red: el respaldo corre como SYSTEM y no las ve. Se puede cambiar luego en Configuración.'
+    $carpeta = (Read-Host "   Carpeta de respaldo [Enter = $sugerida]").Trim().Trim('"')
+    if (-not $carpeta) { $carpeta = $sugerida }
+    try {
+        New-Item -ItemType Directory -Force -Path $carpeta | Out-Null
+        $env:SHELFIE_CARPETA_RESPALDO = (Resolve-Path $carpeta).Path
+        $guardarCarpeta = @'
+import os
+from app.database import SessionLocal
+from app.services import configuracion
+db = SessionLocal()
+configuracion.guardar(db, {'respaldo': {'carpeta': os.environ['SHELFIE_CARPETA_RESPALDO']}}, anotar=False)
+db.close()
+'@
+        $r = Ejecutar-Capturando $ShelfiePython @('-') $guardarCarpeta
+        if ($r.Codigo -eq 0) { Escribir-Ok "carpeta de respaldo: $($env:SHELFIE_CARPETA_RESPALDO)" }
+        else { Escribir-Aviso "No se pudo guardar la carpeta; configúrela en Configuración. $($r.Salida)" }
+    } catch {
+        Escribir-Aviso "No se pudo crear la carpeta '$carpeta': $_. Configúrela luego en Configuración."
+    } finally {
+        Remove-Item Env:SHELFIE_CARPETA_RESPALDO -ErrorAction SilentlyContinue
+    }
+}
+
+# --- 7. Firewall ---------------------------------------------------------------------
+Escribir-Paso '7. Firewall: puerto 8080 solo para la red privada'
+$nombreRegla = 'Shelfie-lite (TCP 8080)'
+if (Get-NetFirewallRule -DisplayName $nombreRegla -ErrorAction SilentlyContinue) {
+    Set-NetFirewallRule -DisplayName $nombreRegla -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -Profile Private -Enabled True
+    Escribir-Ok 'la regla ya existía: se dejó al día'
+} else {
+    New-NetFirewallRule -DisplayName $nombreRegla -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -Profile Private | Out-Null
+    Escribir-Ok 'regla creada'
+}
+$publicas = @(Get-NetConnectionProfile -ErrorAction SilentlyContinue | Where-Object { $_.NetworkCategory -eq 'Public' })
+foreach ($red in $publicas) {
+    Escribir-Aviso "La red '$($red.Name)' está como Pública: las PC de circulación no podrán entrar."
+    Escribir-Info  "Si es la red de la biblioteca: Set-NetConnectionProfile -InterfaceIndex $($red.InterfaceIndex) -NetworkCategory Private"
+}
+
+# --- 8. Tareas programadas -----------------------------------------------------------
+Escribir-Paso '8. Tareas programadas de Windows'
+# Corren como SYSTEM: arrancan con el equipo aunque nadie inicie sesión.
+$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+$argumentos = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$IniciarPs1`""
+
+$accion = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argumentos -WorkingDirectory $ShelfieBackend
+$disparador = New-ScheduledTaskTrigger -AtStartup
+# ExecutionTimeLimit cero = sin límite (por defecto Windows la cortaría a los 3 días).
+$ajustes = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew `
+    -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+Register-ScheduledTask -TaskName $TareaServidor -Action $accion -Trigger $disparador -Principal $principal `
+    -Settings $ajustes -Description 'Servidor de Shelfie-lite en http://localhost:8080 (uvicorn).' -Force | Out-Null
+Escribir-Ok "'$TareaServidor': al iniciar el equipo"
+
+# Respaldo: python -m scripts.respaldar (vía iniciar.ps1 -Respaldo, que deja el log).
+$accion = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "$argumentos -Respaldo" -WorkingDirectory $ShelfieBackend
+$diario = New-ScheduledTaskTrigger -Daily -At '13:00'
+$alIniciar = New-ScheduledTaskTrigger -AtStartup
+$alIniciar.Delay = 'PT5M'   # 5 minutos después de encender, con PostgreSQL ya arriba
+$ajustes = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 2) -MultipleInstances IgnoreNew `
+    -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+Register-ScheduledTask -TaskName $TareaRespaldo -Action $accion -Trigger @($diario, $alIniciar) -Principal $principal `
+    -Settings $ajustes -Description 'Respaldo diario de Shelfie-lite (python -m scripts.respaldar).' -Force | Out-Null
+Escribir-Ok "'$TareaRespaldo': todos los días a las 13:00 y 5 minutos después de iniciar el equipo"
+
+# --- 9. Accesos directos -------------------------------------------------------------
+Escribir-Paso '9. Accesos directos'
+$escritorio = [Environment]::GetFolderPath('CommonDesktopDirectory')
+$acceso = "[InternetShortcut]`r`nURL=http://localhost:8080/`r`n"
+[System.IO.File]::WriteAllText((Join-Path $escritorio 'Shelfie-lite.url'), $acceso, $Utf8SinBom)
+Escribir-Ok "escritorio: Shelfie-lite (http://localhost:8080)"
+$equipo = $env:COMPUTERNAME
+$accesoCirculacion = "[InternetShortcut]`r`nURL=http://${equipo}:8080/`r`n"
+$archivoCirculacion = Join-Path $ShelfieRaiz 'Shelfie-lite (circulación).url'
+[System.IO.File]::WriteAllText($archivoCirculacion, $accesoCirculacion, $Utf8SinBom)
+Escribir-Ok "para las PC de circulación: copie '$archivoCirculacion' a su escritorio"
+
+# --- 10. Arranque y comprobación -----------------------------------------------------
+Escribir-Paso '10. Arranque'
+Start-ScheduledTask -TaskName $TareaServidor
+if (Esperar-Shelfie 90) {
+    Escribir-Ok 'Shelfie-lite responde en http://localhost:8080'
+} else {
+    Escribir-Aviso "Shelfie-lite no respondió en 90 segundos. Revise el log en $ShelfieLogs"
+}
+Escribir-Info 'Probando el respaldo (como lo hará la tarea programada)…'
+Start-ScheduledTask -TaskName $TareaRespaldo
+$limite = (Get-Date).AddMinutes(10)
+do { Start-Sleep -Seconds 3 } while ((Get-ScheduledTask -TaskName $TareaRespaldo).State -eq 'Running' -and (Get-Date) -lt $limite)
+$resultado = (Get-ScheduledTaskInfo -TaskName $TareaRespaldo).LastTaskResult
+if ($resultado -eq 0) { Escribir-Ok 'respaldo de prueba correcto' }
+else { Escribir-Aviso "El respaldo de prueba falló (código $resultado). Detalle en Configuración y en $ShelfieLogs" }
+
+# --- Resumen -------------------------------------------------------------------------
+$ips = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
+    ForEach-Object { "http://$($_.IPAddress):8080" })
+Write-Host ''
+Write-Host 'Listo.' -ForegroundColor Green
+Write-Host "  En esta PC:          http://localhost:8080"
+Write-Host "  Desde circulación:   http://${equipo}:8080"
+if ($ips) { Write-Host "  (o por IP:           $($ips -join '  '))" }
+Write-Host "  Logs:                $ShelfieLogs"
+Write-Host '  Esta PC debe quedar encendida en el horario de atención.'
