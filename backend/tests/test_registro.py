@@ -65,10 +65,10 @@ def test_editar_un_ejemplar(client, datos, db):
 
 
 def test_ajustes_con_antes_y_despues(client, db):
-    client.put("/api/v1/settings", json={"circulacion": {"umbral_bloqueo": 12}})
+    client.put("/api/v1/settings", json={"biblioteca": {"codigo": "UNA"}})
     [cambio] = _acciones(db, modulo="configuracion")
-    assert cambio.datos["seccion"] == "circulacion"
-    assert cambio.datos["cambios"]["umbral_bloqueo"] == [5.0, 12]
+    assert cambio.datos["seccion"] == "biblioteca"
+    assert cambio.datos["cambios"]["codigo"] == ["BIB", "UNA"]
 
 
 def test_apagar_un_modulo_deja_de_registrarlo_pero_el_cambio_queda(client, datos, db):

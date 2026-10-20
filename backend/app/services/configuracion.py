@@ -8,33 +8,19 @@ from app.core.tiempo import ahora, formatear_fecha_hora
 
 # Valores usados cuando la tabla `configuraciones` todavía no tiene la clave.
 DEFAULTS = {
-    "institucion": {
-        "nombre": "Biblioteca Central UNAGRO",
-        "codigo": "BIB-UNAGRO-001",
-        "direccion": "Campus Universitario, Edificio A, Piso 1",
-        "telefono": "+58 212 555 0123",
-        "email": "biblioteca@unagro.edu",
+    "biblioteca": {
+        "nombre": "Biblioteca",
+        # Va en el 952 $a/$b de la exportación a Koha y como organización del MARC exportado.
+        "codigo": "BIB",
+        # 952 $y: tipo de ítem que Koha asigna a cada ejemplar.
+        "tipo_item_koha": "LIB",
     },
-    "notificaciones": {
-        "recordatorio_dias_antes": 3,
-        "canal": "email",
-    },
-    "circulacion": {
-        # Deuda a partir de la cual se bloquean préstamos, renovaciones y reservas.
-        "umbral_bloqueo": 5.0,
-        # Días hábiles que tiene un lector para retirar una reserva en espera.
-        "dias_retiro_reserva": 3,
-        # Cobro por pérdida cuando el ejemplar no tiene precio de reposición propio.
-        "precio_reposicion": 20.0,
-        # Un ejemplar devuelto en otra sede viaja de vuelta a la suya (si no lo espera
-        # una reserva). Apagado, se queda donde lo devolvieron (Koha: "floating").
-        "retorno_a_sede_propia": True,
-        # Al declarar perdido un préstamo atrasado, se cobra la mora hasta ese día (como Koha
-        # con WhenLostForgiveFine = no). En true, solo se cobra la reposición.
-        "perdonar_mora_al_perder": False,
-    },
-    "calendario": {
-        "dias_cerrados": [6],  # 0 = lunes … 6 = domingo
+    # Solo se guarda y se devuelve aquí; `ultimo` y `ultimo_ok` los escribe el respaldo.
+    "respaldo": {
+        "carpeta": None,
+        "pg_dump": None,
+        "ultimo": None,       # {fecha, ok, mensaje, tamano}
+        "ultimo_ok": None,    # fecha del último respaldo correcto
     },
     "seguridad": {
         # Quien entra con su usuario como contraseña, o con una que le puso el administrador,
@@ -46,7 +32,7 @@ DEFAULTS = {
     },
 }
 
-SECCIONES = ("institucion", "notificaciones", "circulacion", "calendario")
+SECCIONES = ("biblioteca", "respaldo")
 
 def leer(db: Session, clave: str) -> dict:
     fila = db.query(models.Configuracion).filter(
@@ -62,9 +48,8 @@ def leer_todo(db: Session) -> dict:
 
 
 NOMBRE_SECCION = {
-    "institucion": "datos de la institución",
-    "notificaciones": "avisos", "circulacion": "ajustes de circulación",
-    "calendario": "días cerrados", "seguridad": "seguridad", "registro": "registro de acciones",
+    "biblioteca": "datos de la biblioteca", "respaldo": "respaldo",
+    "seguridad": "seguridad", "registro": "registro de acciones",
 }
 
 

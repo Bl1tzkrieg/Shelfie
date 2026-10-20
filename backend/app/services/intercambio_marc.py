@@ -99,7 +99,7 @@ def exportar(db: Session, filtros: busqueda.Filtros, formato: str,
     if formato not in FORMATOS:
         raise ReglaIncumplida("Formato no soportado: usa marc o marcxml")
     registros = busqueda.todos_los_que_cumplen(db, filtros).all()
-    organizacion = (configuracion.leer(db, "institucion").get("codigo") or "SHELFIE")[:16]
+    organizacion = (configuracion.leer(db, "biblioteca").get("codigo") or "BIB")[:16]
     items = busqueda.items_por_titulo(db, [b.id for b in registros]) if con_ejemplares else {}
 
     salida = io.BytesIO()

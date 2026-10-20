@@ -1,6 +1,6 @@
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 
 # ==========================================
@@ -155,22 +155,29 @@ class LoginResponse(BaseModel):
 # ==========================================
 
 class ConfiguracionResponse(BaseModel):
-    institucion: Dict[str, Any]
-    notificaciones: Dict[str, Any]
-    circulacion: Dict[str, Any] = {}
-    calendario: Dict[str, Any] = {}
+    """Lo que se devuelve depende de quién pregunta: sin sesión solo `biblioteca.nombre`;
+    el catalogador ve `biblioteca`; el administrador, además, `respaldo`."""
+    biblioteca: Dict[str, Any]
+    respaldo: Optional[Dict[str, Any]] = None
 
 
-class AjustesCirculacionRequest(BaseModel):
-    """Valores comunes a todas las reglas; los omitidos no cambian."""
-    umbral_bloqueo: Optional[float] = Field(default=None, ge=0)
-    dias_retiro_reserva: Optional[int] = Field(default=None, ge=1)
-    precio_reposicion: Optional[float] = Field(default=None, ge=0)
-    retorno_a_sede_propia: Optional[bool] = None
-    perdonar_mora_al_perder: Optional[bool] = None
+TextoObligatorio = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class BibliotecaRequest(BaseModel):
+    nombre: Optional[TextoObligatorio] = None
+    codigo: Optional[TextoObligatorio] = Field(default=None, max_length=16)
+    tipo_item_koha: Optional[TextoObligatorio] = Field(default=None, max_length=10)
+
+
+class RespaldoRequest(BaseModel):
+    """Solo lo editable: `ultimo` y `ultimo_ok` los escribe el respaldo, no el cliente.
+    Un texto vacío borra el valor."""
+    model_config = ConfigDict(extra="ignore")
+    carpeta: Optional[str] = None
+    pg_dump: Optional[str] = None
 
 
 class ActualizarConfiguracionRequest(BaseModel):
-    institucion: Optional[Dict[str, Any]] = None
-    notificaciones: Optional[Dict[str, Any]] = None
-    circulacion: Optional[AjustesCirculacionRequest] = None
+    biblioteca: Optional[BibliotecaRequest] = None
+    respaldo: Optional[RespaldoRequest] = None

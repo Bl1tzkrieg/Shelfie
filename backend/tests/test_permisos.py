@@ -8,8 +8,8 @@ RUTAS_INTRANET = [
     ("POST", "/api/v1/catalog/items"),
     ("GET", "/api/v1/catalog/search"),
     ("POST", "/api/v1/catalog/records"),
-    ("GET", "/api/v1/settings"),
     ("PUT", "/api/v1/settings"),
+    ("GET", "/api/v1/settings/system-info"),
     ("GET", "/api/v1/staff"),
     ("POST", "/api/v1/staff"),
     ("PUT", "/api/v1/staff/1/role"),
@@ -23,6 +23,10 @@ RUTAS_INTRANET = [
 @pytest.mark.parametrize("metodo,ruta", RUTAS_INTRANET)
 def test_intranet_exige_sesion(anonimo, metodo, ruta):
     assert anonimo.request(metodo, ruta, json={}).status_code == 401
+
+
+def test_nombre_de_la_biblioteca_es_publico(anonimo):
+    assert anonimo.get("/api/v1/settings").status_code == 200
 
 
 def test_raiz_es_publica(anonimo):

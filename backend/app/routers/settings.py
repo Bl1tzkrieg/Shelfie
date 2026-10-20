@@ -1,35 +1,60 @@
-from fastapi import APIRouter, Depends
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from app import schemas
-from app.core.permisos import Permiso
+from app import models, schemas
+from app.core.permisos import Permiso, tiene
 from app.database import get_db
-from app.security import requiere, requiere_personal
+from app.security import _usuario_del_token, requiere, requiere_personal
 from app.services import configuracion
 
-router = APIRouter(prefix="/api/v1/settings", tags=["Configuración"],
-                   dependencies=[Depends(requiere_personal)])
+router = APIRouter(prefix="/api/v1/settings", tags=["Configuración"])
 
 
-@router.get("", response_model=schemas.ConfiguracionResponse)
-def get_settings(db: Session = Depends(get_db)):
-    return configuracion.leer_todo(db)
+def usuario_opcional(request: Request, db: Session = Depends(get_db)) -> Optional[models.Usuario]:
+    """El personal con sesión válida, o None: sirve a los endpoints que también son públicos."""
+    try:
+        return _usuario_del_token(request, db)
+    except HTTPException:
+        return None
 
 
-@router.put("", response_model=schemas.ConfiguracionResponse,
-            dependencies=[Depends(requiere(Permiso.SUPERBIBLIOTECARIO))])
+def _segun_quien_pregunta(db: Session, usuario: Optional[models.Usuario]) -> dict:
+    """Sin sesión solo el nombre de la biblioteca (el encabezado público); el personal ve la
+    biblioteca completa; el respaldo, solo quien puede editarlo (el administrador)."""
+    todo = configuracion.leer_todo(db)
+    if usuario is None:
+        return {"biblioteca": {"nombre": todo["biblioteca"]["nombre"]}}
+    if tiene(usuario.permisos, Permiso.SUPERBIBLIOTECARIO):
+        return todo
+    return {"biblioteca": todo["biblioteca"]}
+
+
+@router.get("", response_model=schemas.ConfiguracionResponse, response_model_exclude_unset=True)
+def get_settings(usuario: Optional[models.Usuario] = Depends(usuario_opcional),
+                 db: Session = Depends(get_db)):
+    return _segun_quien_pregunta(db, usuario)
+
+
+@router.put("", response_model=schemas.ConfiguracionResponse, response_model_exclude_unset=True)
 def update_settings(payload: schemas.ActualizarConfiguracionRequest,
+                    usuario: models.Usuario = Depends(requiere(Permiso.SUPERBIBLIOTECARIO)),
                     db: Session = Depends(get_db)):
     """Guarda solo las secciones enviadas; las omitidas quedan intactas."""
-    return configuracion.guardar(db, {
-        "institucion": payload.institucion,
-        "notificaciones": payload.notificaciones,
-        "circulacion": (payload.circulacion.model_dump(exclude_none=True) or None
-                        if payload.circulacion else None),
-    })
+    biblioteca = (payload.biblioteca.model_dump(exclude_none=True) or None
+                  if payload.biblioteca else None)
+    respaldo = None
+    if payload.respaldo:
+        # Un texto vacío borra el valor; lo omitido no cambia.
+        respaldo = {k: (v.strip() or None)
+                    for k, v in payload.respaldo.model_dump(exclude_unset=True).items()
+                    if v is not None} or None
+    configuracion.guardar(db, {"biblioteca": biblioteca, "respaldo": respaldo})
+    return _segun_quien_pregunta(db, usuario)
 
 
-@router.get("/system-info")
+@router.get("/system-info", dependencies=[Depends(requiere_personal)])
 def system_info(db: Session = Depends(get_db)):
-    """Datos técnicos reales para la tarjeta 'Sistema' de la pantalla de ajustes."""
+    """Totales reales del catálogo para la tarjeta «Sistema» de la pantalla de ajustes."""
     return configuracion.info_sistema(db)
