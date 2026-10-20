@@ -36,3 +36,7 @@ backend/correo_saliente/
 
 # Paquetes de scripts/empaquetar.sh
 dist/
+
+# Playwright
+test-results/
+playwright-report/
