@@ -10,8 +10,8 @@ import { apiGet } from "@/lib/api"
 import type { PaginaRegistro } from "@/lib/types"
 
 /**
- * Las últimas acciones sobre un lector o un registro del catálogo, dentro de su ficha.
- * Solo para quien tiene el permiso del registro; los demás no ven la sección.
+ * Las últimas acciones sobre un miembro del personal o un libro, dentro de su ficha.
+ * Solo para el administrador; los demás no ven la sección.
  */
 export function HistorialFicha({ filtro, recarga = 0 }: {
   filtro: { lector: string } | { biblio_id: number }
@@ -19,7 +19,7 @@ export function HistorialFicha({ filtro, recarga = 0 }: {
   recarga?: number
 }) {
   const { tienePermiso } = useSesion()
-  const permitido = tienePermiso("registro")
+  const permitido = tienePermiso("superbibliotecario")
   const [pagina, setPagina] = useState<PaginaRegistro | null>(null)
   const consulta = new URLSearchParams(
     Object.entries(filtro).map(([k, v]) => [k, String(v)])).toString()
@@ -43,7 +43,7 @@ export function HistorialFicha({ filtro, recarga = 0 }: {
           <History className="h-4 w-4" aria-hidden />Historial de cambios
         </h3>
         {pagina && pagina.total > pagina.filas.length && (
-          <Link href={`/registro?${consulta}`} className="text-sm text-primary hover:underline">
+          <Link href={`/registro/?${consulta}`} className="text-sm text-primary hover:underline">
             Ver las {pagina.total} acciones
           </Link>
         )}

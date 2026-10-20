@@ -51,7 +51,7 @@ function SinPermiso({ permiso }: { permiso: Permiso }) {
       <ShieldOff className="h-10 w-10 text-muted-foreground" />
       <h1 className="text-lg font-semibold text-foreground">No tienes acceso a esta sección</h1>
       <p className="max-w-sm text-sm text-muted-foreground">
-        Necesitas el permiso{" "}
+        Es para el rol{" "}
         <span className="font-medium text-foreground">{NOMBRE_PERMISO[permiso]}</span>. Pídeselo a
         un administrador de la biblioteca.
       </p>

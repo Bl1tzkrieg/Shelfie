@@ -1,251 +1,60 @@
-/** Contratos que devuelve el backend, compartidos por las pantallas. */
+/** Contratos que devuelve el backend (backend/app/schemas.py), compartidos por las pantallas. */
 
-import { fechaDeBiblioteca } from "@/lib/fechas"
+/** Permisos del personal (espejo de app/core/permisos.py). */
+export type Permiso = "catalogo" | "superbibliotecario"
 
-export interface Categoria {
-  codigo: string
-  descripcion: string
+/** El rol es la forma simple de asignar permisos: cada uno equivale a un permiso. */
+export type Rol = "administrador" | "catalogador"
+
+export const NOMBRE_ROL: Record<Rol, string> = {
+  administrador: "Administrador",
+  catalogador: "Catalogador",
 }
 
-/** Permisos por módulo del personal (espejo de app/core/permisos.py). */
-export type Permiso =
-  | "circulacion"
-  | "catalogo"
-  | "lectores"
-  | "reportes"
-  | "configuracion"
-  | "adquisiciones"
-  | "seriadas"
-  | "registro"
-  | "superbibliotecario"
-
-/** Nombre legible de cada permiso, para la interfaz. */
+/** Nombre legible de cada permiso: el del rol que lo da. */
 export const NOMBRE_PERMISO: Record<Permiso, string> = {
-  circulacion: "Circulación",
-  catalogo: "Catalogación",
-  lectores: "Lectores",
-  reportes: "Reportes",
-  configuracion: "Configuración",
-  adquisiciones: "Adquisiciones",
-  seriadas: "Publicaciones seriadas",
-  registro: "Registro de acciones",
-  superbibliotecario: "Superbibliotecario (acceso total)",
+  catalogo: NOMBRE_ROL.catalogador,
+  superbibliotecario: NOMBRE_ROL.administrador,
 }
 
-export interface CatalogoPermisos {
-  permisos: { codigo: Permiso; descripcion: string }[]
-  perfiles: { codigo: string; nombre: string; permisos: Permiso[] }[]
-}
-
-export interface ApiUser {
-  nro_carnet: string
+/** Un miembro del personal (GET /staff). */
+export interface Personal {
+  id: number
+  username: string
   nombre: string
   apellido: string
-  email: string
+  rol: Rol
   activo: boolean
-  saldo_multas: number
-  departamento: string | null
-  fecha_creacion: string | null
-  categoria: Categoria | null
-  prestamos_activos_count: number
-  total_prestamos_count: number
-  es_personal: boolean
+  debe_cambiar_clave: boolean
+}
+
+/** Quien inició sesión (GET /auth/me). */
+export interface Sesion extends Personal {
   permisos: Permiso[]
-  bloqueado_por_deuda: boolean
-  /** Sede de inscripción; para el personal, su sede de trabajo por defecto. */
-  biblioteca_id: number | null
-  /** La contraseña es la provisional: hay que elegir otra antes de seguir. */
-  debe_cambiar_clave?: boolean
+  /** Solo para el administrador: el respaldo está atrasado o falló. */
+  alerta_respaldo: boolean
 }
 
-export interface ApiLoan {
-  id: string
-  bookTitle: string
-  bookCode: string
-  userName: string
-  userId: string
-  userType: "student" | "teacher" | "staff"
-  loanDate: string
-  dueDate: string
-  returnDate: string | null
-  renewals: number
-  status: "active" | "overdue" | "returned"
-  /** Préstamo cerrado porque el ejemplar se declaró perdido. */
-  lost?: boolean
-  /** Perdido y todavía sin aparecer: se puede registrar que volvió. */
-  recoverable?: boolean
-  /** Tope de renovaciones según la regla de circulación de este préstamo. */
-  renewalsAllowed?: number | null
+export interface EstadoRespaldo {
+  ultimo: { fecha: string; ok: boolean; mensaje: string | null; tamano?: number | null } | null
+  ultimo_ok: string | null
+  alerta: boolean
+  motivo: string | null
 }
 
-export interface MovimientoCuenta {
-  id: number
-  tipo: "MULTA_ATRASO" | "REPOSICION" | "PAGO" | "CONDONACION" | "AJUSTE" | "REINTEGRO"
-  monto: number
-  descripcion: string | null
-  fecha: string
-  prestamo_id: number | null
-  /** El cargo al que se aplicó este crédito (condonación dirigida). */
-  cargo_id: number | null
-}
-
-/** Débito al que todavía se le puede aplicar una condonación. */
-export interface CargoPendiente {
-  id: number
-  tipo: MovimientoCuenta["tipo"]
-  descripcion: string | null
-  fecha: string
-  monto: number
-  pendiente: number
-  pagado?: number
-  condonado?: number
-}
-
-export interface EstadoCuenta {
-  saldo: number
-  umbral_bloqueo: number
-  bloqueado: boolean
-  movimientos: MovimientoCuenta[]
-  cargos: CargoPendiente[]
-}
-
-/** Qué hacer con el ejemplar después de pasarlo por el mostrador de devolución. */
-export type AccionDevolucion = "espera" | "transito" | "retorno" | "disponible"
-
-export interface ResultadoDevolucion {
-  mensaje: string
-  multa_aplicada: number
-  nuevo_estado_item: string
-  accion: AccionDevolucion
-  reserva: {
-    lector: string
-    carnet: string
-    /** Solo si ya quedó en el estante de reservas; en tránsito, el plazo corre al llegar. */
-    retirar_hasta: string | null
-    sede_retiro: string | null
-  } | null
-  traslado: { id: number; hacia: string | null; motivo: MotivoTraslado; enviado: boolean } | null
-  /** El ejemplar estaba declarado perdido y apareció. */
-  recuperado: boolean
-  /** Monto de la reposición que se acreditó al lector, y a quién. */
-  reintegro: number
-  lector_reintegro: string | null
-}
-
-export interface Ejemplar {
-  id: string
-  barcode: string
-  location: string | null
-  status: string
-  dueDate: string | null
-  borrowedBy: string | null
-  /** Numeración del fascículo si es un número de una seriada (Vol. 3, Núm. 2). */
-  enumeration: string | null
-  /** Sede donde está ahora y sede a la que pertenece. */
-  branch: string | null
-  homeBranch: string | null
-  /** Destino, si viaja entre sedes. */
-  transitTo: string | null
-  /** Código del tipo de ítem, id de la sede propia y precio de reposición (para editarlo). */
-  itemType?: string | null
-  homeBranchId?: number | null
-  price?: number | null
-  /** Última vez que se lo leyó en un inventario. */
-  lastSeen?: string | null
-}
-
-export interface DashboardStats {
-  totalItems: number
-  totalUsers: number
-  activeLoans: number
-  overdueLoans: number
-}
-
-export interface ReporteDisponible {
-  id: string
-  title: string
-  description: string
-  lastGenerated: string | null
-  rows: number
-}
-
+/** GET /settings. Sin sesión solo llega el nombre de la biblioteca. */
 export interface Configuracion {
-  institucion: {
+  biblioteca: {
     nombre: string
-    codigo: string
-    direccion: string
-    telefono: string
-    email: string
+    /** 952 $a/$b de la exportación a Koha. */
+    codigo?: string
+    /** 952 $y: tipo de ítem de Koha. */
+    tipo_item_koha?: string
   }
-  politicas_prestamo: {
-    dias_estudiante: number
-    dias_docente: number
-    dias_personal: number
-    max_estudiante: number
-    max_docente: number
-    max_personal: number
-    renovaciones_permitidas: number
-    multa_por_dia: number
-  }
-  notificaciones: {
-    recordatorio_dias_antes: number
-    canal: string
-  }
-  circulacion: {
-    umbral_bloqueo: number
-    dias_retiro_reserva: number
-    precio_reposicion: number
-    retorno_a_sede_propia: boolean
-    /** Al declarar perdido, no cobrar la multa de atraso acumulada. */
-    perdonar_mora_al_perder?: boolean
-  }
-}
-
-/** Regla de circulación. Un id de dimensión en null significa "todas". */
-export interface ReglaCirculacion {
-  id: number
-  categoria_id: number | null
-  categoria: string
-  tipo_item_id: number | null
-  tipo_item: string
-  biblioteca_id: number | null
-  biblioteca: string
-  prestable: boolean
-  dias_prestamo: number
-  max_prestamos: number
-  max_renovaciones: number
-  multa_por_dia: number
-  multa_maxima: number | null
-  dias_gracia: number
-  max_reservas: number
-}
-
-export type DatosRegla = Omit<ReglaCirculacion, "id" | "categoria" | "tipo_item" | "biblioteca">
-
-export interface OpcionDimension {
-  id: number
-  codigo: string
-  nombre: string
-}
-
-export interface OpcionesRegla {
-  categorias: OpcionDimension[]
-  tipos_item: OpcionDimension[]
-  bibliotecas: OpcionDimension[]
-}
-
-export interface Feriado {
-  id: number
-  /** AAAA-MM-DD */
-  fecha: string
-  descripcion: string
-}
-
-export interface CalendarioBiblioteca {
-  /** 0 = lunes … 6 = domingo */
-  dias_cerrados: number[]
-  dias_cerrados_nombres: string[]
-  feriados: Feriado[]
+  respaldo?: {
+    carpeta: string | null
+    pg_dump: string | null
+  } & Partial<EstadoRespaldo>
 }
 
 export interface SystemInfo {
@@ -254,63 +63,6 @@ export interface SystemInfo {
   total_registros: number
   total_ejemplares: number
   total_usuarios: number
-  total_prestamos: number
-}
-
-/** Mapea el usuario de la API a la forma que consume UserTable. */
-export function mapUsuario(u: ApiUser) {
-  // "inactive" = cuenta suspendida por el personal; "suspended" = bloqueada porque la
-  // deuda supera el umbral configurado (una deuda menor no bloquea).
-  let status: "active" | "suspended" | "inactive" = "active"
-  if (!u.activo) status = "inactive"
-  else if (u.bloqueado_por_deuda) status = "suspended"
-
-  const codigo = u.categoria?.codigo?.toLowerCase() || ""
-  let type: "student" | "teacher" | "staff" = "student"
-  if (codigo === "doc" || codigo === "docente") type = "teacher"
-  else if (codigo === "adm" || codigo === "staff") type = "staff"
-
-  return {
-    id: u.nro_carnet,
-    name: `${u.nombre} ${u.apellido}`,
-    email: u.email,
-    type,
-    department: u.departamento || "Sin asignar",
-    status,
-    activeLoans: u.prestamos_activos_count,
-    totalLoans: u.total_prestamos_count,
-    esPersonal: u.es_personal,
-    registeredDate: u.fecha_creacion
-      ? fechaDeBiblioteca(u.fecha_creacion)
-      : "—",
-  }
-}
-
-/** Un valor de faceta con cuántos títulos quedarían al elegirlo. */
-export interface ValorFaceta {
-  valor: string | number
-  etiqueta: string | null
-  cantidad: number
-}
-
-export interface FacetasCatalogo {
-  disponibilidad: ValorFaceta[]
-  tipos: ValorFaceta[]
-  materias: ValorFaceta[]
-  autores: ValorFaceta[]
-  decadas: ValorFaceta[]
-}
-
-export type OrdenBusqueda = "relevancia" | "titulo" | "ano_desc" | "ano_asc"
-
-export interface BusquedaCatalogo<T> {
-  total: number
-  pagina: number
-  por_pagina: number
-  paginas: number
-  orden: OrdenBusqueda
-  resultados: T[]
-  facetas: FacetasCatalogo
 }
 
 // --- MARC ---------------------------------------------------------------------------
@@ -384,6 +136,8 @@ export interface ResultadoImportacion {
   omitidos: number
   con_errores: number
   ejemplares: number
+  /** Avisos de toda la importación (p. ej. lo que se ignora de otro sistema). */
+  mensajes: string[]
   registros: {
     n: number
     titulo: string
@@ -397,428 +151,8 @@ export interface ResultadoImportacion {
   }[]
 }
 
-// --- Sedes, reservas y traslados (Fase 5) -------------------------------------------
+// --- Registro de acciones -----------------------------------------------------------
 
-export interface Sede {
-  id: number
-  codigo: string
-  nombre: string
-  direccion: string | null
-  telefono: string | null
-  email: string | null
-  /** Se pueden retirar reservas aquí. */
-  punto_retiro: boolean
-  /** Solo con `?con_uso=true`. */
-  ejemplares?: number
-  lectores?: number
-}
-
-export type EstadoReserva =
-  | "Pendiente"
-  | "EnTransito"
-  | "EnEspera"
-  | "Cumplida"
-  | "Cancelada"
-  | "Expirada"
-
-export interface ReservaGestion {
-  id: string
-  biblioId: string
-  title: string
-  author: string | null
-  userName: string
-  userId: string
-  priority: number
-  status: EstadoReserva
-  reservedOn: string | null
-  itemBarcode: string | null
-  callNumber: string | null
-  pickupBranchId: number | null
-  pickupBranch: string | null
-  pickupBy: string | null
-  waitingSince: string | null
-  daysWaiting: number | null
-  expiresToday: boolean
-  suspended: boolean
-  /** ISO (aaaa-mm-dd). */
-  suspendedUntil: string | null
-  notNeededAfter: string | null
-  notes: string | null
-  transitFromId: number | null
-  transitFrom: string | null
-  transitSent: boolean
-  closedOn: string | null
-}
-
-export interface TituloPorSacar {
-  biblioId: string
-  title: string
-  author: string | null
-  holds: number
-  toPull: number
-  firstPatron: string
-  firstPatronId: string
-  pickupBranch: string | null
-  reservedOn: string | null
-  items: { barcode: string; callNumber: string | null; branch: string | null }[]
-}
-
-export type MotivoTraslado = "reserva" | "retorno" | "manual"
-export type EstadoTraslado = "Solicitado" | "Enviado" | "Recibido" | "Cancelado"
-export type VistaTraslados = "por_enviar" | "por_recibir" | "enviados" | "historial"
-
-export interface Traslado {
-  id: number
-  barcode: string
-  title: string
-  callNumber: string | null
-  fromId: number
-  from: string | null
-  toId: number
-  to: string | null
-  reason: MotivoTraslado
-  status: EstadoTraslado
-  patron: string | null
-  patronId: string | null
-  holdActive: boolean
-  comment: string | null
-  requestedOn: string | null
-  sentOn: string | null
-  receivedOn: string | null
-  cancelledOn: string | null
-  daysInTransit: number | null
-}
-
-export interface ResumenTraslados {
-  sede_id: number | null
-  por_enviar: number
-  por_recibir: number
-  enviados: number
-}
-
-// --- Adquisiciones (Fase 5) ----------------------------------------------------------
-
-export interface Proveedor {
-  id: number
-  nombre: string
-  contacto: string | null
-  email: string | null
-  telefono: string | null
-  rif: string | null
-  direccion: string | null
-  /** Descuento habitual (%) que se propone en cada línea. */
-  descuento: number
-  /** Días que suele tardar en entregar; pasado ese plazo, el pedido está atrasado. */
-  dias_entrega: number | null
-  notas: string | null
-  activo: boolean
-  pedidos_vivos?: number
-  facturas_abiertas?: number
-}
-
-export interface Fondo {
-  id: number
-  presupuesto_id: number
-  presupuesto?: string
-  codigo: string
-  nombre: string
-  biblioteca_id: number | null
-  biblioteca?: string | null
-  activo: boolean
-  utilizable?: boolean
-  asignado: number
-  comprometido: number
-  gastado: number
-  disponible: number
-}
-
-export interface Presupuesto {
-  id: number
-  nombre: string
-  fecha_inicio: string
-  fecha_fin: string
-  monto_total: number
-  activo: boolean
-  bloqueado: boolean
-  asignado: number
-  sin_asignar: number
-  comprometido: number
-  gastado: number
-  fondos: Fondo[]
-}
-
-export type EstadoPedido = "Abierta" | "Cerrada" | "Recibida" | "Cancelada"
-export type EstadoLinea = "Pendiente" | "Parcial" | "Recibida" | "Cancelada"
-
-export interface LineaPedido {
-  id: number
-  orden_id: number
-  biblio_id: number | null
-  titulo: string
-  autor: string | null
-  isbn: string | null
-  cantidad: number
-  cantidad_recibida: number
-  pendiente: number
-  precio_unitario: number
-  descuento: number
-  costo_estimado: number
-  total_estimado: number
-  total_recibido: number
-  fondo_id: number | null
-  fondo: string | null
-  estado: EstadoLinea
-  notas: string | null
-  /** Solo en "por recibir". */
-  orden?: string
-  biblioteca_entrega_id?: number | null
-}
-
-export interface Pedido {
-  id: number
-  nombre: string
-  proveedor_id: number
-  proveedor_nombre: string | null
-  estado: EstadoPedido
-  observaciones: string | null
-  biblioteca_entrega_id: number | null
-  biblioteca_entrega: string | null
-  fecha_emision: string
-  fecha_cierre: string | null
-  fecha_recepcion: string | null
-  titulos: number
-  ejemplares: number
-  recibidos: number
-  total: number
-  total_recibido: number
-  dias_atraso: number | null
-  lineas?: LineaPedido[]
-}
-
-export interface PedidoAtrasado {
-  orden_id: number
-  nombre: string
-  proveedor_id: number
-  proveedor_nombre: string
-  proveedor_email: string | null
-  fecha_cierre: string
-  dias_atraso: number
-  lineas: { id: number; titulo: string; isbn: string | null; pendiente: number }[]
-}
-
-export interface RecepcionFactura {
-  id: number
-  linea_id: number
-  orden_id: number
-  orden: string
-  titulo: string
-  biblio_id: number | null
-  fondo: string | null
-  cantidad: number
-  costo_unitario: number
-  costo_estimado: number
-  total: number
-  fecha: string
-  ejemplares: string[]
-}
-
-export interface Factura {
-  id: number
-  proveedor_id: number
-  proveedor_nombre: string | null
-  numero: string
-  fecha: string
-  costo_envio: number
-  fondo_envio_id: number | null
-  fondo_envio: string | null
-  cerrada: boolean
-  fecha_cierre: string | null
-  notas: string | null
-  unidades: number
-  subtotal: number
-  total: number
-  recepciones?: RecepcionFactura[]
-}
-
-export interface ResultadoRecepcion {
-  recepcion_id: number
-  linea_id: number
-  biblio_id: number
-  cantidad: number
-  estado_linea: EstadoLinea
-  estado_pedido: EstadoPedido
-  ejemplares: ({ codigo_barras: string } & Pick<ResultadoDevolucion, "accion" | "reserva" | "traslado">)[]
-}
-
-export type EstadoSugerencia = "Pendiente" | "Aceptada" | "Rechazada" | "Pedida"
-
-export interface Sugerencia {
-  id: number
-  titulo: string
-  autor: string | null
-  isbn: string | null
-  editorial: string | null
-  ano: number | null
-  nota: string | null
-  estado: EstadoSugerencia
-  motivo: string | null
-  fecha: string
-  lector: string | null
-  carnet: string | null
-  gestionada_por: string | null
-  fecha_gestion: string | null
-  orden_id: number | null
-  en_catalogo_id: number | null
-}
-
-export interface ResumenAdquisiciones {
-  pedidos_abiertos: number
-  pedidos_por_recibir: number
-  pedidos_atrasados: number
-  facturas_abiertas: number
-  sugerencias_pendientes: number
-  fondos: Fondo[]
-}
-
-// --- Seriadas (Fase 5) ---------------------------------------------------------------
-
-export type UnidadFrecuencia = "dia" | "semana" | "mes" | "anio" | "irregular"
-export type EstadoFasciculo = "Esperado" | "Recibido" | "Reclamado" | "Faltante"
-
-export interface Fasciculo {
-  id: number
-  suscripcion_id: number
-  numero: string
-  fecha_esperada: string | null
-  fecha_recepcion: string | null
-  estado: EstadoFasciculo
-  recibido: boolean
-  /** Días pasados la fecha esperada más los de gracia; null si no está atrasado. */
-  dias_atraso: number | null
-  reclamos: number
-  fecha_reclamo: string | null
-  notas: string | null
-  codigo_barras: string | null
-  /** Solo en los listados generales (por recibir, atrasados). */
-  titulo?: string
-  issn?: string | null
-  proveedor_id?: number | null
-  proveedor_nombre?: string | null
-  proveedor_email?: string | null
-}
-
-export interface Suscripcion {
-  id: number
-  biblio_id: number | null
-  titulo: string
-  issn: string | null
-  proveedor_id: number | null
-  proveedor_nombre: string | null
-  proveedor_email: string | null
-  biblioteca_id: number | null
-  biblioteca: string | null
-  tipo_item_id: number | null
-  crear_ejemplares: boolean
-  frecuencia_unidad: UnidadFrecuencia
-  frecuencia_cada: number
-  periodicidad: string
-  numeracion: string
-  numeros_por_volumen: number | null
-  fecha_inicio: string | null
-  fecha_fin: string | null
-  dias_gracia: number
-  estado: "Activa" | "Vencida" | "Cancelada"
-  notas: string | null
-  fasciculos_recibidos: number
-  fasciculos_esperados: number
-  fasciculos_atrasados: number
-  proximo: { id: number; numero: string; fecha_esperada: string | null } | null
-  por_vencer: boolean
-  fasciculos?: Fasciculo[]
-}
-
-export interface FasciculoPredicho {
-  numero: string
-  fecha_esperada: string
-  volumen: number
-  secuencia: number
-}
-
-// --- Avisos y tareas (Fase 7) -------------------------------------------------------------
-
-export type EstadoAviso = "Pendiente" | "Enviado" | "Fallido"
-
-export interface Aviso {
-  id: number
-  codigo: string
-  tipo: string
-  destinatario: string
-  lector: string | null
-  carnet: string | null
-  asunto: string
-  cuerpo: string
-  estado: EstadoAviso
-  intentos: number
-  error: string | null
-  creado: string
-  enviado: string | null
-}
-
-export interface PlantillaAviso {
-  codigo: string
-  nombre: string
-  cuando: string
-  marcadores: string[]
-  activo: boolean
-  asunto: string
-  cuerpo: string
-  modificada: boolean
-}
-
-export interface AjustesAvisos {
-  recordatorio_dias_antes: number
-  dias_vencido: number[]
-  reclamos_automaticos: boolean
-  dias_entre_reclamos: number
-}
-
-export interface EstadoCorreo {
-  modo: "archivo" | "smtp" | "desactivado"
-  remitente: string
-  servidor: string | null
-  carpeta: string | null
-  listo: boolean
-}
-
-export interface ResumenAvisos {
-  pendientes: number
-  enviados: number
-  fallidos: number
-  correo: EstadoCorreo
-  tareas: { activas: boolean; hora_diarias: string; cada_minutos_cola: number }
-  ajustes: AjustesAvisos
-}
-
-export interface CorridaTarea {
-  id: number
-  tarea: string
-  origen: "automatica" | "manual" | "consola"
-  ok: boolean | null
-  inicio: string
-  fin: string | null
-  segundos: number | null
-  resultado: Record<string, unknown> | null
-  error: string | null
-}
-
-export interface TareaProgramada {
-  clave: string
-  nombre: string
-  descripcion: string
-  ultima: CorridaTarea | null
-}
-
-/** Una anotación del registro de acciones (GET /logs). */
 export interface AccionRegistrada {
   id: number
   fecha: string
@@ -828,10 +162,10 @@ export interface AccionRegistrada {
   accion_nombre: string
   descripcion: string
   actor: string
-  actor_carnet: string | null
-  desde_opac: boolean
+  actor_username: string | null
+  /** El miembro del personal afectado (p. ej. a quien se le restableció la clave). */
   lector: string | null
-  lector_carnet: string | null
+  lector_username: string | null
   biblio_id: number | null
   titulo: string | null
   codigo_barras: string | null
@@ -849,59 +183,8 @@ export interface PaginaRegistro {
 export interface AjustesRegistro {
   modulos: Record<string, boolean>
   dias_retencion: number
+  /** Módulo → qué se registra en él. */
   descripciones: Record<string, string>
+  /** Acción → nombre legible. */
   acciones: Record<string, string>
-}
-
-/** Inventario (GET /inventories y /inventories/{id}). */
-export type ResultadoLectura =
-  | "ok" | "fuera_de_lugar" | "prestado" | "devuelto" | "perdido" | "retirado"
-  | "reservado" | "en_transito" | "desconocido" | "repetido"
-
-export interface InventarioResumen {
-  id: number
-  nombre: string
-  estado: "Abierto" | "Cerrado"
-  biblioteca_id: number | null
-  sede: string | null
-  tipo_item: string | null
-  signatura_desde: string | null
-  signatura_hasta: string | null
-  devolver_prestados: boolean
-  creado_por: string | null
-  fecha_inicio: string
-  fecha_cierre: string | null
-  lecturas: number
-}
-
-export interface LecturaInventario {
-  codigo_barras: string
-  resultado: ResultadoLectura
-  resultado_nombre: string
-  detalle: string | null
-  titulo: string | null
-  biblio_id: number | null
-  signatura: string | null
-  fecha?: string
-  /** Falso si una lectura posterior del mismo código la reemplazó (p. ej., se devolvió y se releyó). */
-  vigente?: boolean
-}
-
-export interface FaltanteInventario {
-  codigo_barras: string
-  titulo: string | null
-  biblio_id: number | null
-  signatura: string | null
-  ultimo_inventario: string | null
-}
-
-export interface InventarioDetalle extends InventarioResumen {
-  esperados: number
-  esperados_leidos: number
-  faltantes_total: number
-  avance: number
-  conteos: Record<ResultadoLectura, number>
-  faltantes: FaltanteInventario[]
-  nombres_resultado: Record<ResultadoLectura, string>
-  ultimas_lecturas: LecturaInventario[]
 }

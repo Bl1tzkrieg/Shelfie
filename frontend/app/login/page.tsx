@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+import Link from "next/link"
 import { BookMarked, Loader2 } from "lucide-react"
 
 import { useSesion } from "@/components/auth/sesion-provider"
@@ -67,7 +68,7 @@ function FormularioLogin() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="username">Usuario o carnet</Label>
+            <Label htmlFor="username">Usuario</Label>
             <Input
               id="username"
               autoComplete="username"
@@ -103,12 +104,11 @@ function FormularioLogin() {
             Entrar
           </Button>
         </form>
-        <p className="mt-4 text-center text-sm">
-          <a href="/opac/recuperar" className="text-primary hover:underline">¿Olvidaste tu contraseña?</a>
+        <p className="mt-4 text-center text-sm text-muted-foreground">
+          ¿Olvidaste tu contraseña? Pídele al administrador que la restablezca.
         </p>
-        <p className="mt-6 text-center text-sm text-muted-foreground">
-          ¿Eres lector?{" "}
-          <a href="/opac" className="font-medium text-primary hover:underline">Entra al catálogo en línea</a>
+        <p className="mt-6 text-center text-sm">
+          <Link href="/" className="font-medium text-primary hover:underline">Volver a la búsqueda</Link>
         </p>
       </div>
     </div>

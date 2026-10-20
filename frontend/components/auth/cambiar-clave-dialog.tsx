@@ -20,7 +20,7 @@ export const MINIMO_CLAVE = 8
 
 /**
  * Cambio de la propia contraseña. Las demás sesiones abiertas se cierran.
- * `ruta`: la de la intranet o la de la cuenta del lector en el OPAC.
+ * `ruta`: el endpoint que cambia la contraseña de quien inició sesión.
  */
 export function CambiarClaveDialog({ open, onOpenChange, ruta = "/auth/password" }:
   { open: boolean; onOpenChange: (v: boolean) => void; ruta?: string }) {
@@ -38,7 +38,7 @@ function Formulario({ ruta, onListo }: { ruta: string; onListo: () => void }) {
     <>
       <DialogHeader>
         <DialogTitle>Cambiar contraseña</DialogTitle>
-        <DialogDescription>Al menos {MINIMO_CLAVE} caracteres, distinta del carnet.</DialogDescription>
+        <DialogDescription>Al menos {MINIMO_CLAVE} caracteres, distinta del usuario.</DialogDescription>
       </DialogHeader>
       <CamposDeClave ruta={ruta} onListo={onListo} onCancelar={onListo} />
     </>

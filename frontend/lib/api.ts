@@ -1,6 +1,12 @@
-import { cabeceraDeSede } from "@/lib/sede"
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL
+/**
+ * Origen del backend. Vacío (lo normal) = el mismo origen: en la instalación
+ * FastAPI sirve la API y estas páginas exportadas en el mismo puerto.
+ *
+ * Para `npm run dev` contra uvicorn en :8000, `frontend/.env.local` define
+ * NEXT_PUBLIC_API_URL=http://localhost:8000 (sin /api/v1); el backend ya admite
+ * http://localhost:3000 en CORS_ORIGINS.
+ */
+const API_URL = `${process.env.NEXT_PUBLIC_API_URL ?? ""}/api/v1`
 
 /**
  * Evento que se emite cuando el backend responde 401 fuera del login: la sesión
@@ -8,16 +14,10 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL
  */
 export const EVENTO_SESION_EXPIRADA = "shelfie:sesion-expirada"
 
-/** Lo mismo para la sesión del lector en el OPAC, que es aparte de la del personal. */
-export const EVENTO_SESION_OPAC_EXPIRADA = "shelfie:sesion-opac-expirada"
-
 function avisarSiSesionExpirada(status: number, path: string) {
   if (status !== 401 || typeof window === "undefined") return
-  // Equivocarse de contraseña al cambiarla no es una sesión vencida.
-  if (path.startsWith("/opac/account/password")) return
-  if (path.startsWith("/opac/account")) {
-    window.dispatchEvent(new Event(EVENTO_SESION_OPAC_EXPIRADA))
-  } else if (!path.startsWith("/auth/") && !path.startsWith("/opac/")) {
+  // Equivocarse de contraseña en el login o al cambiarla no es una sesión vencida.
+  if (!path.startsWith("/auth/")) {
     window.dispatchEvent(new Event(EVENTO_SESION_EXPIRADA))
   }
 }
@@ -67,13 +67,6 @@ export async function api<T = unknown>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  if (!API_URL) {
-    throw new ApiError(
-      "Falta NEXT_PUBLIC_API_URL. Crea frontend/.env.local (ver .env.example).",
-      0
-    )
-  }
-
   let response: Response
   try {
     response = await fetch(`${API_URL}${path}`, {
@@ -83,7 +76,6 @@ export async function api<T = unknown>(
       ...options,
       headers: {
         "Content-Type": "application/json",
-        ...cabeceraDeSede(),
         ...(options.headers || {}),
       },
     })
@@ -130,14 +122,9 @@ export async function apiUpload<T>(path: string, archivo: Blob): Promise<T> {
  * navegador abrir una pestaña con el JSON del error.
  */
 export async function apiDownload(path: string, fallbackName: string): Promise<void> {
-  if (!API_URL) {
-    throw new ApiError("Falta NEXT_PUBLIC_API_URL.", 0)
-  }
-
   const response = await fetch(`${API_URL}${path}`, {
     cache: "no-store",
     credentials: "include",
-    headers: cabeceraDeSede(),
   })
   if (!response.ok) {
     avisarSiSesionExpirada(response.status, path)

@@ -5,11 +5,11 @@ import { usePathname, useRouter } from "next/navigation"
 import { Loader2 } from "lucide-react"
 
 import { apiGet, apiPost, ApiError, EVENTO_SESION_EXPIRADA } from "@/lib/api"
-import type { ApiUser, Permiso } from "@/lib/types"
+import type { Permiso, Sesion } from "@/lib/types"
 import { ClaveObligatoria } from "@/components/auth/clave-obligatoria"
 
 type EstadoSesion = {
-  usuario: ApiUser | null
+  usuario: Sesion | null
   cargando: boolean
   tienePermiso: (permiso: Permiso) => boolean
   iniciarSesion: (username: string, password: string) => Promise<void>
@@ -18,15 +18,13 @@ type EstadoSesion = {
 
 const SesionContext = createContext<EstadoSesion | null>(null)
 
-/** Rutas que se ven sin sesión del personal: el login y todo el OPAC (que tiene la suya). */
-const RUTAS_PUBLICAS = ["/login"]
-const PREFIJOS_PUBLICOS = ["/opac"]
+/** Rutas que se ven sin sesión: la búsqueda, la ficha de un libro y el login. */
+const RUTAS_PUBLICAS = ["/", "/libro", "/login"]
 
 function esRutaPublica(pathname: string) {
-  return (
-    RUTAS_PUBLICAS.includes(pathname) ||
-    PREFIJOS_PUBLICOS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
-  )
+  // Con `trailingSlash` la ruta puede llegar como "/libro/".
+  const ruta = pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname
+  return RUTAS_PUBLICAS.includes(ruta)
 }
 
 /** La página actual con su query string, si `pathname` es la que se está viendo. */
@@ -44,7 +42,7 @@ export function rutaDeLogin(destino: string) {
 export function SesionProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
-  const [usuario, setUsuario] = useState<ApiUser | null>(null)
+  const [usuario, setUsuario] = useState<Sesion | null>(null)
   const [cargando, setCargando] = useState(true)
   // Al cerrar sesión a propósito no se recuerda la página: la próxima persona
   // que entre no debe aterrizar donde estaba la anterior.
@@ -52,7 +50,7 @@ export function SesionProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // La cookie es httpOnly: la única forma de saber si hay sesión es preguntarle al backend.
-    apiGet<ApiUser>("/auth/me")
+    apiGet<Sesion>("/auth/me")
       .then(setUsuario)
       .catch(() => setUsuario(null))
       .finally(() => setCargando(false))
@@ -68,7 +66,7 @@ export function SesionProvider({ children }: { children: React.ReactNode }) {
   }, [pathname, router])
 
   const iniciarSesion = useCallback(async (username: string, password: string) => {
-    const r = await apiPost<{ usuario: ApiUser }>("/auth/login", { username, password })
+    const r = await apiPost<{ usuario: Sesion }>("/auth/login", { username, password })
     setUsuario(r.usuario)
   }, [])
 

@@ -7,15 +7,15 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
 /**
- * Pantalla que aparece cuando la contraseña es la provisional (el carnet, o la que
- * puso el personal al restablecerla). El backend no deja hacer nada más hasta cambiarla.
+ * Pantalla que aparece cuando la contraseña es la provisional (el usuario, o la que
+ * puso el administrador al restablecerla). El backend no deja hacer nada más hasta cambiarla.
  */
 export function ClaveObligatoria({ nombre, ruta, onListo, onSalir, pantallaCompleta = true }: {
   nombre: string
   ruta: string
   onListo: () => void
   onSalir: () => void
-  /** En la intranet ocupa toda la pantalla; en el OPAC va dentro del marco público. */
+  /** Ocupa toda la pantalla salvo que se muestre dentro de otro marco. */
   pantallaCompleta?: boolean
 }) {
   return (
@@ -28,7 +28,7 @@ export function ClaveObligatoria({ nombre, ruta, onListo, onSalir, pantallaCompl
           <CardTitle>Elige tu contraseña, {nombre}</CardTitle>
           <CardDescription>
             La que usaste es provisional. Escribe una nueva de al menos {MINIMO_CLAVE} caracteres,
-            distinta del carnet, para seguir.
+            distinta del usuario, para seguir.
           </CardDescription>
         </CardHeader>
         <CardContent>

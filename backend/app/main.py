@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 
+from app import estaticos
 from app.config import comprobar_clave_de_firma, settings
 from app.core.errores import ErrorDeNegocio
 from app.routers import (
@@ -37,7 +38,6 @@ app.add_middleware(
 )
 
 
-
 @app.exception_handler(IntegrityError)
 def manejar_conflicto(_request: Request, error: IntegrityError):
     """Una restricción de la base que se coló (dos altas a la vez con el mismo código,
@@ -64,7 +64,11 @@ app.include_router(personal.router)
 app.include_router(registro_router.router)
 app.include_router(settings_router.router)
 
-
-@app.get("/")
-def read_root():
-    return {"status": "online", "system": "Shelfie API Gateway"}
+# El frontend exportado va al final: nunca tapa una ruta de la API. Sin él (en
+# desarrollo con `npm run dev`), "/" solo informa que la API está en línea.
+if settings.frontend_dir.is_dir():
+    estaticos.montar(app, settings.frontend_dir)
+else:
+    @app.get("/")
+    def read_root():
+        return {"status": "online", "system": "Shelfie API Gateway"}

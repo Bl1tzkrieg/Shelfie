@@ -1,69 +1,48 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
-  LayoutDashboard,
-  Search,
-  ArrowRightLeft,
-  Users,
-  BarChart3,
-  Settings,
+  AlertTriangle,
   BookMarked,
-  BookmarkCheck,
-  ExternalLink,
-  KeyRound,
-  LogOut,
-  Newspaper,
-  ShoppingCart,
-  Truck,
+  BookPlus,
   History,
-  ClipboardCheck,
+  KeyRound,
+  Library,
+  LogOut,
+  Search,
+  Settings,
+  Users,
+  type LucideIcon,
 } from "lucide-react"
 import { CambiarClaveDialog } from "@/components/auth/cambiar-clave-dialog"
 import { useSesion } from "@/components/auth/sesion-provider"
 import { Button } from "@/components/ui/button"
-import { apiGet } from "@/lib/api"
-import type { Configuracion, Permiso } from "@/lib/types"
+import { useNombreBiblioteca } from "@/lib/biblioteca"
+import { NOMBRE_ROL, type Permiso } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type ItemNavegacion = {
   name: string
   href: string
-  icon: typeof LayoutDashboard
+  icon: LucideIcon
   /** Permiso para ver el ítem; sin él, lo ve todo el personal. */
   permiso?: Permiso
 }
 
 const navigation: ItemNavegacion[] = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "Catálogo", href: "/catalogo", icon: Search },
-  { name: "Circulación", href: "/circulacion", icon: ArrowRightLeft },
-  { name: "Reservas", href: "/circulacion/reservas", icon: BookmarkCheck },
-  { name: "Traslados", href: "/circulacion/traslados", icon: Truck },
-  { name: "Usuarios", href: "/usuarios", icon: Users },
-  { name: "Inventario", href: "/inventario", icon: ClipboardCheck, permiso: "catalogo" },
-  { name: "Adquisiciones", href: "/adquisiciones", icon: ShoppingCart, permiso: "adquisiciones" },
-  { name: "Seriadas", href: "/seriadas", icon: Newspaper, permiso: "seriadas" },
-  { name: "Reportes", href: "/reportes", icon: BarChart3, permiso: "reportes" },
-  { name: "Registro", href: "/registro", icon: History, permiso: "registro" },
-  { name: "Configuración", href: "/configuracion", icon: Settings, permiso: "configuracion" },
+  { name: "Buscar", href: "/", icon: Search },
+  { name: "Ingreso", href: "/ingreso", icon: BookPlus, permiso: "catalogo" },
+  { name: "Libros", href: "/libros", icon: Library, permiso: "catalogo" },
+  { name: "Usuarios", href: "/usuarios", icon: Users, permiso: "superbibliotecario" },
+  { name: "Registro", href: "/registro", icon: History, permiso: "superbibliotecario" },
+  { name: "Configuración", href: "/configuracion", icon: Settings, permiso: "superbibliotecario" },
 ]
 
-function describirRol(permisos: Permiso[]) {
-  if (permisos.includes("superbibliotecario")) return "Administrador"
-  if (permisos.length === 0) return "Solo consulta"
-  return "Personal"
-}
-
-// El nombre de la institución casi nunca cambia: se pide una vez por pestaña, no en cada
-// navegación (la barra lateral se vuelve a montar con cada página).
-let institucionEnMemoria: string | null | undefined
-
-/** Tras cambiar el nombre en Configuración, la próxima barra lateral lo vuelve a pedir. */
-export function olvidarInstitucion() {
-  institucionEnMemoria = undefined
+/** La ruta sin la barra final que agrega `trailingSlash` (salvo la raíz). */
+function sinBarraFinal(ruta: string) {
+  return ruta.length > 1 && ruta.endsWith("/") ? ruta.slice(0, -1) : ruta
 }
 
 export function Sidebar({ enHoja = false, onNavegar }: {
@@ -74,25 +53,13 @@ export function Sidebar({ enHoja = false, onNavegar }: {
 } = {}) {
   const pathname = usePathname()
   const { usuario, tienePermiso, cerrarSesion } = useSesion()
-  // Shelfie es el producto; el nombre de la institución sale de Configuración.
-  const [institucion, setInstitucion] = useState<string | null>(institucionEnMemoria ?? null)
+  // Shelfie es el producto; el nombre de la biblioteca sale de Configuración.
+  const institucion = useNombreBiblioteca()
   const [cambiandoClave, setCambiandoClave] = useState(false)
 
-  useEffect(() => {
-    if (institucionEnMemoria !== undefined) return
-    apiGet<Configuracion>("/settings")
-      .then((c) => {
-        institucionEnMemoria = c.institucion.nombre
-        setInstitucion(institucionEnMemoria)
-      })
-      .catch(() => setInstitucion(null))
-  }, [])
-
   const visibles = navigation.filter((item) => !item.permiso || tienePermiso(item.permiso))
-  // La entrada más específica que contiene la ruta actual (Reservas antes que Circulación).
-  const activo = visibles
-    .filter((i) => pathname === i.href || (i.href !== "/" && pathname.startsWith(`${i.href}/`)))
-    .sort((a, b) => b.href.length - a.href.length)[0]?.href
+  const ruta = sinBarraFinal(pathname)
+  const activo = visibles.find((i) => i.href === ruta)?.href
 
   return (
     <aside className={cn("flex flex-col bg-sidebar",
@@ -134,17 +101,18 @@ export function Sidebar({ enHoja = false, onNavegar }: {
         })}
       </nav>
 
-      <div className="px-3 pb-2">
-        <a
-          href="/opac"
-          target="_blank"
-          rel="noopener"
-          className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-        >
-          <ExternalLink className="h-4 w-4" />
-          Catálogo público
-        </a>
-      </div>
+      {usuario?.alerta_respaldo && (
+        <div className="px-3 pb-2">
+          <Link
+            href="/configuracion"
+            onClick={onNavegar}
+            className="flex items-center gap-3 rounded-lg bg-destructive/15 px-3 py-2 text-sm font-medium text-destructive"
+          >
+            <AlertTriangle className="h-4 w-4" />
+            Revisar el respaldo
+          </Link>
+        </div>
+      )}
 
       {/* User section */}
       {usuario && (
@@ -158,7 +126,7 @@ export function Sidebar({ enHoja = false, onNavegar }: {
                 {usuario.nombre} {usuario.apellido}
               </span>
               <span className="text-xs text-sidebar-foreground/60">
-                {describirRol(usuario.permisos)}
+                {NOMBRE_ROL[usuario.rol]}
               </span>
             </div>
             <Button

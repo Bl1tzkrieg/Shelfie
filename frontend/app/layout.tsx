@@ -4,13 +4,12 @@ import type { Metadata } from 'next'
 import { GeistSans } from 'geist/font/sans'
 import { GeistMono } from 'geist/font/mono'
 import { SesionProvider } from '@/components/auth/sesion-provider'
-import { SedeProvider } from '@/components/layout/sede-provider'
 import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
 
 export const metadata: Metadata = {
   title: 'Shelfie - Sistema de Biblioteca',
-  description: 'Sistema integrado de gestión bibliotecaria',
+  description: 'Catálogo de la biblioteca',
   icons: {
     icon: [
       {
@@ -39,7 +38,7 @@ export default function RootLayout({
     <html lang="es" className="bg-background">
       <body className={`${GeistSans.variable} ${GeistMono.variable} font-sans antialiased`}>
         <SesionProvider>
-          <SedeProvider>{children}</SedeProvider>
+          {children}
         </SesionProvider>
         <Toaster richColors position="top-right" />
       </body>

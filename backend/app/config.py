@@ -1,4 +1,5 @@
 import warnings
+from pathlib import Path
 
 from pydantic_settings import BaseSettings
 
@@ -23,6 +24,16 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = False
     # Zona horaria de la biblioteca: define "qué día es" para vencimientos y calendario.
     ZONA_HORARIA: str = "America/Caracas"
+    # El frontend exportado que sirve el backend. Una ruta relativa se toma desde
+    # backend/ (no desde la carpeta en la que se arranque uvicorn).
+    FRONTEND_DIR: str = "../frontend/out"
+
+    @property
+    def frontend_dir(self) -> Path:
+        ruta = Path(self.FRONTEND_DIR)
+        if not ruta.is_absolute():
+            ruta = Path(__file__).resolve().parent.parent / ruta
+        return ruta.resolve()
 
     @property
     def cors_origins_list(self) -> list[str]:

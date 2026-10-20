@@ -5,7 +5,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { ChevronLeft, ChevronRight, Download, Loader2, RotateCcw, Save, Search } from "lucide-react"
 import { toast } from "sonner"
 
-import { useSesion } from "@/components/auth/sesion-provider"
 import { AppLayout } from "@/components/layout/app-layout"
 import { Header } from "@/components/layout/header"
 import { ListaAcciones, NOMBRE_MODULO } from "@/components/registro/lista-acciones"
@@ -49,7 +48,7 @@ function Registro() {
   }
 
   return (
-    <AppLayout permiso="registro">
+    <AppLayout permiso="superbibliotecario">
       <Header title="Registro de acciones" description="Quién hizo qué y cuándo" />
       <div className="p-4 sm:p-6">
         <Tabs value={vista} onValueChange={irA}>
@@ -138,6 +137,8 @@ function Acciones({ ajustes }: { ajustes: AjustesRegistro | null }) {
   }
 
   const modulo = params.get("modulo") || TODOS
+  // Los módulos salen del backend: son los que realmente registra.
+  const modulos = ajustes ? Object.keys(ajustes.descripciones) : Object.keys(NOMBRE_MODULO)
   const accionesDelModulo = ajustes ? Object.entries(ajustes.acciones) : []
   const set = (f: Filtro) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setBorrador((b) => ({ ...b, [f]: e.target.value }))
@@ -151,7 +152,7 @@ function Acciones({ ajustes }: { ajustes: AjustesRegistro | null }) {
             <SelectTrigger id="f-modulo" className="w-full"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value={TODOS}>Todos</SelectItem>
-              {Object.entries(NOMBRE_MODULO).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
+              {modulos.map((k) => <SelectItem key={k} value={k}>{NOMBRE_MODULO[k] ?? k}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
@@ -166,11 +167,11 @@ function Acciones({ ajustes }: { ajustes: AjustesRegistro | null }) {
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="f-actor">Quién (carnet o usuario)</Label>
-          <Input id="f-actor" value={borrador.actor} onChange={set("actor")} placeholder="douglas.worm o «sistema»" />
+          <Label htmlFor="f-actor">Quién (usuario)</Label>
+          <Input id="f-actor" value={borrador.actor} onChange={set("actor")} placeholder="maria.perez o «sistema»" />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="f-lector">Lector afectado (carnet)</Label>
+          <Label htmlFor="f-lector">Usuario afectado</Label>
           <Input id="f-lector" value={borrador.lector} onChange={set("lector")} />
         </div>
         <div className="space-y-1.5">
@@ -231,8 +232,6 @@ function leerFiltros(params: URLSearchParams) {
 }
 
 function Ajustes({ ajustes, onGuardado }: { ajustes: AjustesRegistro; onGuardado: (a: AjustesRegistro) => void }) {
-  const { tienePermiso } = useSesion()
-  const puedeEditar = tienePermiso("configuracion")
   const [modulos, setModulos] = useState(ajustes.modulos)
   const [dias, setDias] = useState(String(ajustes.dias_retencion))
   const [guardando, setGuardando] = useState(false)
@@ -259,7 +258,7 @@ function Ajustes({ ajustes, onGuardado }: { ajustes: AjustesRegistro; onGuardado
       <div className="divide-y divide-border rounded-lg border border-border bg-card">
         {Object.entries(ajustes.descripciones).map(([modulo, descripcion]) => (
           <div key={modulo} className="flex items-start gap-3 p-4">
-            <Switch id={`m-${modulo}`} checked={modulos[modulo] ?? true} disabled={!puedeEditar}
+            <Switch id={`m-${modulo}`} checked={modulos[modulo] ?? true}
                     onCheckedChange={(v) => setModulos((m) => ({ ...m, [modulo]: v }))}
                     aria-describedby={`m-${modulo}-ayuda`} />
             <div className="space-y-0.5">
@@ -271,21 +270,17 @@ function Ajustes({ ajustes, onGuardado }: { ajustes: AjustesRegistro; onGuardado
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="dias-retencion">Días que se guarda el registro</Label>
-        <Input id="dias-retencion" type="number" min={0} className="w-40" value={dias} disabled={!puedeEditar}
+        <Input id="dias-retencion" type="number" min={0} className="w-40" value={dias}
                onChange={(e) => setDias(e.target.value)} aria-describedby="dias-ayuda" />
         <p id="dias-ayuda" className="text-xs text-muted-foreground">
           La tarea de limpieza borra lo más viejo. 0 = guardar todo. Apagar un módulo o cambiar esto
           también queda registrado.
         </p>
       </div>
-      {puedeEditar ? (
-        <Button type="submit" disabled={!cambio || !valido || guardando}>
-          {guardando ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-          Guardar
-        </Button>
-      ) : (
-        <p className="text-sm text-muted-foreground">Para cambiarlo hace falta el permiso de Configuración.</p>
-      )}
+      <Button type="submit" disabled={!cambio || !valido || guardando}>
+        {guardando ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+        Guardar
+      </Button>
     </form>
   )
 }

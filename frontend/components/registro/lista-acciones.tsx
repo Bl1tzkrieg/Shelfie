@@ -2,22 +2,18 @@
 
 import { Fragment, useState } from "react"
 import Link from "next/link"
-import { ChevronDown, ChevronRight, Globe } from "lucide-react"
+import { ChevronDown, ChevronRight } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import type { AccionRegistrada } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
+/** Nombre corto de cada módulo del registro; uno que falte se muestra con su clave. */
 export const NOMBRE_MODULO: Record<string, string> = {
-  circulacion: "Circulación",
-  reservas: "Reservas",
-  cuentas: "Cobros",
-  lectores: "Lectores",
   catalogo: "Catálogo",
   configuracion: "Configuración",
   sesion: "Sesiones",
-  adquisiciones: "Adquisiciones",
-  seriadas: "Seriadas",
+  respaldo: "Respaldo",
 }
 
 type Cambios = Record<string, [unknown, unknown]>
@@ -106,11 +102,6 @@ export function ListaAcciones({ filas, compacta = false }: { filas: AccionRegist
                   <td className="whitespace-nowrap px-3 py-3 text-sm tabular-nums text-muted-foreground">{f.fecha}</td>
                   <td className="px-3 py-3 text-sm">
                     <p className="text-foreground">{f.actor}</p>
-                    {f.desde_opac && (
-                      <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                        <Globe className="h-3 w-3" aria-hidden /> desde el OPAC
-                      </p>
-                    )}
                   </td>
                   <td className="px-3 py-3 text-sm">
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -120,12 +111,9 @@ export function ListaAcciones({ filas, compacta = false }: { filas: AccionRegist
                   </td>
                   {!compacta && (
                     <td className="px-3 py-3 text-sm">
-                      {f.lector_carnet && (
-                        <Link href={`/usuarios/${encodeURIComponent(f.lector_carnet)}`} onClick={(e) => e.stopPropagation()}
-                              className="block text-primary hover:underline">{f.lector}</Link>
-                      )}
+                      {f.lector && <p className="text-foreground">{f.lector}</p>}
                       {f.biblio_id && f.titulo && (
-                        <Link href={`/catalogo/${f.biblio_id}`} onClick={(e) => e.stopPropagation()}
+                        <Link href={`/libro/?id=${f.biblio_id}`} onClick={(e) => e.stopPropagation()}
                               className="block truncate text-primary hover:underline">{f.titulo}</Link>
                       )}
                       {f.codigo_barras && <p className="font-mono text-xs text-muted-foreground">{f.codigo_barras}</p>}
