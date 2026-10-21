@@ -178,3 +178,22 @@ def test_ano_desde_260_o_008():
     assert marc.ano_de(con_260) == 1998
     solo_008 = marc.normalizar({"leader": "", "fields": [{"008": marc.campo_008(1975)}]})
     assert marc.ano_de(solo_008) == 1975
+
+
+@pytest.mark.parametrize("crudo,esperado", [
+    ("Murray, Robert K.", "Murray, Robert K."),
+    ("Gallegos, Rómulo,", "Gallegos, Rómulo"),
+    ("Bioquímica ilustrada /", "Bioquímica ilustrada"),
+    ("Pérez, Juan, Jr.", "Pérez, Juan, Jr."),
+    ("Editorial Andina, S.A.", "Editorial Andina, S.A."),
+    ("2.ª ed.", "2.ª ed."),
+    ("Cien años de soledad.", "Cien años de soledad"),
+    ("Murray, Robert K. ,", "Murray, Robert K."),
+])
+def test_limpio_conserva_el_punto_de_iniciales_y_abreviaturas(crudo, esperado):
+    assert marc._limpio(crudo) == esperado
+
+
+def test_derivar_conserva_la_inicial_del_autor():
+    registro = marc.desde_columnas("Bioquímica", autor="Murray, Robert K.")
+    assert marc.derivar(registro)["autor"] == "Murray, Robert K."

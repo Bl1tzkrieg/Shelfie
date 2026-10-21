@@ -207,7 +207,8 @@ El primer administrador se crea con `scripts.crear_admin`, que ya existe.
   1. `base.dump` (`pg_dump -Fc`)
   2. `catalogo.mrc` y `catalogo.xml` (MARC completo, con 952)
   3. `catalogo.csv` (cota, título, autor, editorial, año, ISBN, materias, ejemplares;
-     protegido con `celda_segura`)
+     protegido con `celda_segura`; todos los CSV del sistema van separados por `;`, con BOM
+     UTF-8, para que Excel con configuración regional de Venezuela separe las columnas)
   4. `LEEME.txt`: qué es cada archivo y cómo restaurarlo
 - Se conservan los últimos 30 respaldos. El resultado (fecha, éxito o error, tamaño) queda
   en `configuraciones["respaldo"]` y en el registro de acciones.

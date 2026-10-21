@@ -21,7 +21,7 @@ nadie.
 | `/libro?id=` | Cualquiera | Ficha con la cota y los ejemplares |
 | `/login` | Personal | Inicio de sesión (la clave provisional se cambia al entrar) |
 | `/ingreso` | Catalogador | Alta con «Guardar» y «Guardar y nuevo»; con `?id=`, edición y ejemplares |
-| `/libros` | Catalogador | Lista en orden de estante; importar y exportar MARC, MARCXML y CSV |
+| `/libros` | Catalogador | Lista en orden de estante; importar y exportar MARC, MARCXML y CSV (separado por `;`, para Excel en español) |
 | `/marc?id=` | Administrador | Editor MARC avanzado |
 | `/usuarios` | Administrador | Crear personal, asignar rol, desactivar, restablecer clave |
 | `/registro` | Administrador | Registro de acciones |

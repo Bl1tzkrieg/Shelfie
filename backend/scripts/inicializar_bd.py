@@ -83,11 +83,28 @@ def _migrar(url: str) -> None:
     command.upgrade(cfg, "head")
 
 
+def _despedida(destino, seed: bool, sin_test: bool, desde_instalador: bool) -> list:
+    """Los mensajes finales. El instalador ya levanta la API y crea al administrador, así
+    que cuando él llama no se imprime nada de esto."""
+    if desde_instalador:
+        return []
+    lineas = ["\nListo. Levanta la API con: uvicorn app.main:app --reload"]
+    if not seed:
+        lineas.append("Crea tu usuario administrador con: python -m scripts.crear_admin")
+    if not sin_test:
+        prueba = destino.set(database=f"{destino.database}_test")
+        lineas.append(f"Para los tests: TEST_DATABASE_URL="
+                      f"{prueba.render_as_string(hide_password=True)}  (con tu clave en lugar de ***)")
+    return lineas
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--admin-user", default="postgres",
                         help="Cuenta administradora de PostgreSQL (por defecto: postgres)")
     parser.add_argument("--seed", action="store_true", help="Cargar los datos de ejemplo")
+    parser.add_argument("--desde-instalador", action="store_true",
+                        help="Lo llama instalar.ps1: no imprime los pasos siguientes de desarrollo")
     parser.add_argument("--sin-test", action="store_true", help="No crear la base <base>_test")
     args = parser.parse_args()
 
@@ -125,13 +142,8 @@ def main() -> None:
         import runpy
         runpy.run_path(os.path.join(BACKEND_DIR, "seed.py"), run_name="__main__")
 
-    print("\nListo. Levanta la API con: uvicorn app.main:app --reload")
-    if not args.seed:
-        print("Crea tu usuario administrador con: python -m scripts.crear_admin")
-    if not args.sin_test:
-        prueba = destino.set(database=f"{destino.database}_test")
-        print(f"Para los tests: TEST_DATABASE_URL="
-              f"{prueba.render_as_string(hide_password=True)}  (con tu clave en lugar de ***)")
+    for linea in _despedida(destino, args.seed, args.sin_test, args.desde_instalador):
+        print(linea)
 
 
 if __name__ == "__main__":

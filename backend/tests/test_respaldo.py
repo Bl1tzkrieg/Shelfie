@@ -3,6 +3,7 @@
 import os
 import subprocess
 import time
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -57,9 +58,16 @@ def test_respaldo_completo(db, datos, tmp_path):
     assert (creada / "base.dump").stat().st_size > 0
     assert (creada / "catalogo.mrc").stat().st_size > 0
     csv = (creada / "catalogo.csv").read_text(encoding="utf-8-sig")
-    assert csv.splitlines()[0].startswith("cota,titulo")
+    assert csv.splitlines()[0].startswith("cota;titulo")
     assert "'=HYPERLINK" in csv  # celda_segura
-    assert "restaurar.ps1" in (creada / "LEEME.txt").read_text(encoding="utf-8")
+    leeme = (creada / "LEEME.txt").read_bytes().decode("utf-8")
+    assert "\r\n" in leeme and "\n" not in leeme.replace("\r\n", "")
+    raiz = Path(respaldo.__file__).resolve().parents[3]
+    comando = (f'powershell -ExecutionPolicy Bypass -File "{raiz / "instalacion" / "restaurar.ps1"}" '
+               f'"{creada}"')
+    assert "abra PowerShell como administrador y ejecute:" in leeme
+    assert "  " + comando in leeme.splitlines()
+    assert "importe catalogo.mrc desde Libros → Importar MARC" in leeme
     assert r["tamano"] == sum(p.stat().st_size for p in creada.iterdir())
     assert _carpetas(tmp_path) == [CARPETA_DEL_AHORA]  # sin carpeta temporal
 

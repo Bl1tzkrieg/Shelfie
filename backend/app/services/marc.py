@@ -32,6 +32,11 @@ _INDICADOR = re.compile(r"^[ 0-9a-z]$")
 _ANO = re.compile(r"(1[0-9]{3}|20[0-9]{2})")
 # Puntuación ISBD que cierra un subcampo ("Cien años de soledad /").
 _PUNTUACION_FINAL = re.compile(r"[\s/:;,=.]+$")
+_ENLACE_FINAL = re.compile(r"[\s/:;,=]+$")
+# Abreviaturas que terminan en punto y no se pierden al limpiar («Jr.», «ed.»).
+_ABREVIATURAS = {"jr", "sr", "sra", "dr", "dra", "lic", "ing", "ed", "eds", "p", "pp", "il", "vol",
+                 "no", "núm", "comp", "coord", "trad", "etc", "ltda", "cía", "cia", "inc", "co",
+                 "hnos", "mons", "prof", "gral"}
 
 
 def _error(msg: str, *loc) -> dict:
@@ -133,8 +138,19 @@ def primero(marc: dict, tag: str, codigo: str) -> Optional[str]:
 def _limpio(texto: Optional[str]) -> Optional[str]:
     if not texto:
         return None
-    texto = _PUNTUACION_FINAL.sub("", texto.strip())
+    texto = _ENLACE_FINAL.sub("", texto.strip())
+    if texto.endswith(".") and not _cierra_abreviatura(texto):
+        texto = _PUNTUACION_FINAL.sub("", texto)
     return texto or None
+
+
+def _cierra_abreviatura(texto: str) -> bool:
+    """El punto final es parte de la palabra: una inicial («K.»), una sigla («S.A.») o una
+    abreviatura conocida («Jr.», «ed.»)."""
+    palabra = texto.split()[-1]
+    sin_punto = palabra.rstrip(".")
+    return (len(sin_punto) == 1 or "." in sin_punto
+            or sin_punto.lower() in _ABREVIATURAS)
 
 
 # --- Validación --------------------------------------------------------------------

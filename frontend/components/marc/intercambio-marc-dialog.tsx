@@ -194,7 +194,7 @@ function Importar({ onImportado }: { onImportado: () => void }) {
           )}
           <div className="max-h-72 overflow-y-auto rounded-lg border border-border">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-muted/90 text-left text-muted-foreground">
+              <thead className="sticky top-0 z-10 bg-popover text-left text-muted-foreground shadow-[0_1px_0_0_var(--color-border)]">
                 <tr>
                   <th className="px-3 py-2 font-medium">#</th>
                   <th className="px-3 py-2 font-medium">Título</th>

@@ -277,3 +277,14 @@ def test_cambiar_el_autor_100_quita_d_y_q_y_conserva_e():
     assert marc.campos(r, "100")[0]["subfields"] == [{"a": "Nuevo, B."}, {"e": "autor"}]
     sin_cambio = ficha.a_marc(previa.model_copy(update={"cota": "1"}), base)
     assert marc.campos(sin_cambio, "100") == marc.campos(base, "100")  # $d y $q intactos
+
+
+def test_editar_sin_cambios_con_inicial_en_el_autor_deja_el_marc_identico():
+    original = _koha()
+    for campo in original["fields"]:
+        if "100" in campo:
+            campo["100"]["subfields"] = [{"a": "Murray, Robert K."}]
+    previa = ficha.desde_marc(original)
+    assert previa.autor == "Murray, Robert K."
+    assert marc.derivar(original)["autor"] == "Murray, Robert K."
+    assert ficha.a_marc(previa, original) == original

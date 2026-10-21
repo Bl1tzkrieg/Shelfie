@@ -340,7 +340,7 @@ def test_csv_protegido(client, datos):
     r = client.get(f"{URL}/export.csv")
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
     import csv
-    filas = list(csv.DictReader(io.StringIO(r.content.decode("utf-8-sig"))))
+    filas = list(csv.DictReader(io.StringIO(r.content.decode("utf-8-sig")), delimiter=";"))
     assert list(filas[0]) == ["cota", "titulo", "autor", "editorial", "ano", "isbn", "materias",
                               "ejemplares"]
     assert [f["cota"] for f in filas] == ["12 A8", "900 B2", ""]

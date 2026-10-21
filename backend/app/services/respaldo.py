@@ -47,7 +47,9 @@ Archivos de esta carpeta:
                 ISBN, materias y ejemplares). Ábrelo con Excel.
   LEEME.txt     Este archivo.
 
-Para restaurar: restaurar.ps1 <esta carpeta>; si base.dump no sirve, importar catalogo.mrc
+Para restaurar, abra PowerShell como administrador y ejecute:
+  {comando_restaurar}
+Si base.dump no sirve, importe catalogo.mrc desde Libros → Importar MARC en una instalación nueva.
 {avisos}"""
 
 AVISO_OMITIDOS = """
@@ -166,7 +168,15 @@ def _csv(db: Session, ruta: str) -> None:
     _escribir(ruta, csv, "w", encoding="utf-8", newline="")
 
 
-def _armar(db: Session, temporal: str, pg_dump: str, momento: datetime) -> Optional[str]:
+def _comando_restaurar(final: str) -> str:
+    """El comando listo para copiar, con la ruta real de la instalación (la carpeta raíz de
+    Shelfie, dos niveles sobre `backend/`) y la de este respaldo."""
+    raiz = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    script = os.path.join(raiz, "instalacion", "restaurar.ps1")
+    return f'powershell -ExecutionPolicy Bypass -File "{script}" "{final}"'
+
+
+def _armar(db: Session, temporal: str, pg_dump: str, momento: datetime, final: str) -> Optional[str]:
     """Arma la carpeta y devuelve un aviso (o None). Sin base.dump no hay respaldo: su fallo
     es un error. Un fallo en el catálogo (.mrc, .xml, .csv) no tira el base.dump bueno: el
     respaldo queda «ok con aviso» y LEEME.txt lo cuenta."""
@@ -201,20 +211,18 @@ def _armar(db: Session, temporal: str, pg_dump: str, momento: datetime) -> Optio
     biblioteca = configuracion.leer(db, "biblioteca").get("nombre") or "Biblioteca"
     _escribir(os.path.join(temporal, "LEEME.txt"),
               LEEME.format(biblioteca=biblioteca, fecha=f"{a_local(momento):%d/%m/%Y %H:%M}",
-                           avisos="".join(detalle)),
+                           comando_restaurar=_comando_restaurar(final), avisos="".join(detalle)),
               "w", encoding="utf-8", newline="\r\n")
     return ("Atención: " + "; ".join(avisos))[:1000] if avisos else None
 
 
-def _ponerle_nombre(destino: str, temporal: str, momento: datetime) -> str:
+def _nombre_libre(destino: str, momento: datetime) -> str:
     base = f"shelfie-{a_local(momento):%Y%m%d-%H%M}"
     nombre, n = base, 1
     while os.path.exists(os.path.join(destino, nombre)):
         n += 1
         nombre = f"{base}-{n}"
-    final = os.path.join(destino, nombre)
-    os.rename(temporal, final)
-    return final
+    return os.path.join(destino, nombre)
 
 
 def _clave_de_orden(nombre: str) -> tuple:
@@ -277,8 +285,9 @@ def _crear(db: Session, carpeta: Optional[str], momento: datetime) -> dict:
     except OSError as error:
         raise ErrorDeRespaldo(f"No se puede escribir en la carpeta de respaldo: {error}")
     try:
-        aviso = _armar(db, temporal, pg_dump, momento)
-        final = _ponerle_nombre(destino, temporal, momento)
+        final = _nombre_libre(destino, momento)
+        aviso = _armar(db, temporal, pg_dump, momento, final)
+        os.rename(temporal, final)
     except BaseException:
         shutil.rmtree(temporal, ignore_errors=True)
         raise

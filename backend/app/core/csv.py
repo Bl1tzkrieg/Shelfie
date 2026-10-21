@@ -1,4 +1,4 @@
-"""Exportación CSV compartida por circulación, usuarios y reportes."""
+"""Exportación CSV compartida por el catálogo, el respaldo y el registro de acciones."""
 
 import csv
 import io
@@ -8,6 +8,9 @@ from fastapi.responses import StreamingResponse
 
 # El BOM hace que Excel abra el archivo en UTF-8 sin romper los acentos.
 BOM = "﻿"
+# Punto y coma: con la configuración regional de Venezuela (coma decimal) Excel no separa
+# las columnas de un CSV con comas.
+SEPARADOR = ";"
 
 
 # Una celda que empieza así se interpreta como fórmula en Excel y LibreOffice.
@@ -38,7 +41,8 @@ def texto_csv(
         buffer.write(texto_si_vacio)
     else:
         campos = list(columnas) if columnas else (list(filas[0].keys()) if filas else [])
-        writer = csv.DictWriter(buffer, fieldnames=campos, extrasaction="ignore")
+        writer = csv.DictWriter(buffer, fieldnames=campos, extrasaction="ignore",
+                            delimiter=SEPARADOR)
         writer.writeheader()
         writer.writerows({k: celda_segura(v) for k, v in fila.items()} for fila in filas)
     return BOM + buffer.getvalue()

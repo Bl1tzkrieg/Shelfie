@@ -314,7 +314,7 @@ END $$;
         if ($r.Codigo -ne 0) { Detener-ConError "No se pudo actualizar la clave del usuario '$($Conexion.Usuario)': $($r.Salida)" }
         # scripts.inicializar_bd crea el usuario y la base (si faltan) y migra; lee PGPASSWORD.
         $env:PGPASSWORD = $claveSuper
-        Correr-Python @('-m', 'scripts.inicializar_bd', '--admin-user', $SuperusuarioPg, '--sin-test') 'Crear el usuario y la base'
+        Correr-Python @('-m', 'scripts.inicializar_bd', '--admin-user', $SuperusuarioPg, '--sin-test', '--desde-instalador') 'Crear el usuario y la base'
     } finally {
         Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
         $claveSuper = $null

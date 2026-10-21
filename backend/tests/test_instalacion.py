@@ -290,3 +290,14 @@ def test_la_prueba_del_respaldo_espera_a_que_la_tarea_arranque():
     espera = tramo.index("$arranco")
     assert tramo.index("-eq 'Running'") > espera  # primero espera el arranque, después el fin
     assert "if (-not $arranco)" in instalar[arranque:]
+
+
+def test_instalar_omite_los_mensajes_de_desarrollador_de_inicializar_bd():
+    assert "'--desde-instalador'" in _texto("instalar.ps1")
+    from scripts import inicializar_bd
+    from sqlalchemy.engine import make_url
+    destino = make_url("postgresql://shelfie:x@localhost:5432/shelfie")
+    assert inicializar_bd._despedida(destino, seed=False, sin_test=False, desde_instalador=True) == []
+    manual = "\n".join(inicializar_bd._despedida(destino, seed=False, sin_test=False,
+                                                desde_instalador=False))
+    assert "uvicorn app.main:app --reload" in manual and "scripts.crear_admin" in manual
