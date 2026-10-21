@@ -455,3 +455,123 @@ def test_duplicado_por_el_segundo_isbn_al_importar(client, datos, db):
     assert r.status_code == 201, r.text
     r = _importar(client, _mrc(_libro("Entrante", isbn="978-84-9759-220-8")), modo="vista").json()
     assert r["omitidos"] == 1, r
+
+
+# --- La cota del registro solo cambia si cambia la clasificación ----------------------
+
+def _importado_con_082_y_952(client, db):
+    """Como un registro típico de Koha: sin 092, con 082 y la cota en el 952 $o. Dos
+    ejemplares heredan la cota del registro y uno tiene la suya."""
+    registro = _libro("Química general", ejemplares=[
+        [("o", "540 C43 Q"), ("p", "Q-1")], [("o", "540 C43 Q"), ("p", "Q-2")],
+        [("o", "REF 540 C43"), ("p", "Q-3")]])
+    registro.add_field(Field(tag="082", indicators=Indicators("0", "4"),
+                             subfields=[Subfield("a", "540"), Subfield("b", "C43")]))
+    _importar(client, registro.as_marc())
+    biblio = db.query(models.RegistroBibliografico).one()
+    assert biblio.cota == "540 C43 Q"
+    return biblio
+
+
+def _cotas_de_ejemplares(db, biblio):
+    db.expire_all()
+    return {i.codigo_barras: i.signatura_topografica
+            for i in db.query(models.Item).filter(models.Item.biblio_id == biblio.id)}
+
+
+def _ediciones(db, biblio):
+    db.expire_all()
+    return db.query(models.RegistroAccion).filter_by(
+        modulo="catalogo", accion="edicion", biblio_id=biblio.id).count()
+
+
+def _guardar_marc(client, biblio, cambiar=None):
+    marc = client.get(f"{URL}/items/{biblio.id}/marc").json()
+    for campo in marc["marc"]["fields"]:
+        tag = next(iter(campo))
+        if cambiar and tag in cambiar:
+            campo[tag]["subfields"] = cambiar[tag]
+    r = client.put(f"{URL}/items/{biblio.id}/marc",
+                   json={"marc": marc["marc"], "plantilla": marc["plantilla"]})
+    assert r.status_code == 200, r.text
+
+
+ANTES = {"Q-1": "540 C43 Q", "Q-2": "540 C43 Q", "Q-3": "REF 540 C43"}
+
+
+def test_editor_marc_sin_cambios_no_mueve_la_cota_del_952(client, db):
+    biblio = _importado_con_082_y_952(client, db)
+
+    _guardar_marc(client, biblio)
+
+    db.refresh(biblio)
+    assert biblio.cota == "540 C43 Q"
+    assert _cotas_de_ejemplares(db, biblio) == ANTES
+
+
+def test_editor_marc_cambiando_solo_el_245_no_mueve_la_cota(client, db):
+    biblio = _importado_con_082_y_952(client, db)
+
+    _guardar_marc(client, biblio, cambiar={"245": [{"a": "Química general (10.ª ed.)"}]})
+
+    db.refresh(biblio)
+    assert biblio.titulo == "Química general (10.ª ed.)"
+    assert biblio.cota == "540 C43 Q"
+    assert _cotas_de_ejemplares(db, biblio) == ANTES
+
+
+def test_editor_marc_cambiando_el_082_recalcula_la_cota(client, db):
+    biblio = _importado_con_082_y_952(client, db)
+
+    _guardar_marc(client, biblio, cambiar={"082": [{"a": "541"}, {"b": "C43"}]})
+
+    db.refresh(biblio)
+    assert biblio.cota == "541 C43"
+    assert _cotas_de_ejemplares(db, biblio) == {
+        "Q-1": "541 C43", "Q-2": "541 C43", "Q-3": "REF 540 C43"}
+
+
+def test_formulario_sin_cambios_no_toca_el_marc_importado(client, db):
+    biblio = _importado_con_082_y_952(client, db)
+    antes = biblio.marc_json
+    ediciones = _ediciones(db, biblio)
+
+    vista = client.get(f"/api/v1/books/{biblio.id}").json()
+    assert vista["ficha"]["cota"] == "540 C43 Q"
+    assert client.put(f"/api/v1/books/{biblio.id}", json=vista["ficha"]).status_code == 200
+
+    db.refresh(biblio)
+    assert biblio.marc_json == antes
+    assert not any("092" in c for c in biblio.marc_json["fields"])
+    assert biblio.cota == "540 C43 Q"
+    assert _cotas_de_ejemplares(db, biblio) == ANTES
+    assert _ediciones(db, biblio) == ediciones
+
+
+def test_formulario_cambiando_la_cota_escribe_el_092_y_mueve_ejemplares(client, db):
+    biblio = _importado_con_082_y_952(client, db)
+
+    vista = client.get(f"/api/v1/books/{biblio.id}").json()
+    r = client.put(f"/api/v1/books/{biblio.id}", json={**vista["ficha"], "cota": "540 C43 Q2"})
+    assert r.status_code == 200, r.text
+
+    db.refresh(biblio)
+    assert biblio.cota == "540 C43 Q2"
+    [campo_092] = [c["092"] for c in biblio.marc_json["fields"] if "092" in c]
+    assert campo_092["subfields"] == [{"a": "540"}, {"b": "C43 Q2"}]
+    assert _cotas_de_ejemplares(db, biblio) == {
+        "Q-1": "540 C43 Q2", "Q-2": "540 C43 Q2", "Q-3": "REF 540 C43"}
+
+
+def test_formulario_con_la_cota_del_082_tambien_la_aplica(client, db):
+    biblio = _importado_con_082_y_952(client, db)
+
+    vista = client.get(f"/api/v1/books/{biblio.id}").json()
+    r = client.put(f"/api/v1/books/{biblio.id}", json={**vista["ficha"], "cota": "540 C43"})
+    assert r.status_code == 200, r.text
+
+    db.refresh(biblio)
+    assert biblio.cota == "540 C43"
+    assert r.json()["ficha"]["cota"] == "540 C43"
+    assert _cotas_de_ejemplares(db, biblio) == {
+        "Q-1": "540 C43", "Q-2": "540 C43", "Q-3": "REF 540 C43"}

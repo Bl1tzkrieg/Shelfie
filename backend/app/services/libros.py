@@ -175,11 +175,14 @@ def actualizar(db: Session, biblio_id: int, ficha: FichaLibro) -> dict:
     marc_antes = biblio.marc_json
     nuevo = ficha_svc.a_marc(ficha, marc_antes, cota_actual=cota_anterior)
     cota = normalizar_cota(ficha.cota)
-    if (ficha_svc.cota_de_clasificacion(nuevo) or cota_anterior) != cota:
-        # Sin 092, la cota saldría del 082 o del 050 y no sería la del formulario: se escribe.
+    cambia_la_cota = cota != normalizar_cota(cota_anterior)
+    if cambia_la_cota and ficha_svc.cota_de_clasificacion(nuevo) != cota:
+        # Una cota nueva que no sale del MARC (sin 092 saldría del 082 o del 050): se escribe
+        # el 092. Si la cota no cambió, no se escribe nada: el MARC queda como estaba.
         nuevo = ficha_svc.con_cota(nuevo, cota)
     marc, plantilla = marc_svc.preparar(nuevo, biblio.plantilla)
-    aplicar_marc(biblio, marc, plantilla)
+    # Con la cota igual, el registro la conserva (p. ej. la del 952 de un importado con 082).
+    aplicar_marc(biblio, marc, plantilla, editando=not cambia_la_cota)
     heredan = mover_ejemplares_de_cota(db, biblio, cota_anterior)
 
     cambios = registro.diferencias(antes, {c: getattr(biblio, c) for c in _CAMPOS_DERIVADOS})

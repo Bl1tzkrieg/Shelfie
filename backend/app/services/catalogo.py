@@ -71,18 +71,25 @@ def obtener_registro(db: Session, biblio_id: int, *,
 
 # --- Registro MARC ----------------------------------------------------------------
 
-def aplicar_marc(biblio: models.RegistroBibliografico, marc: dict, plantilla) -> None:
+def aplicar_marc(biblio: models.RegistroBibliografico, marc: dict, plantilla, *,
+                 editando: bool = False) -> None:
     """Guarda el MARC y actualiza las columnas que se derivan de él.
 
     La cota sale del 092 $a + $b; si no hay, del 082 o del 050 ($a + $b), normalizada. Si
     el MARC no trae ninguno, el registro conserva la cota que tenía (p. ej. la del 952 al
-    importar de Koha). La editorial (264 con 2.º indicador 1 o, si no hay, 260 $b, sin la
-    puntuación ISBD final) se lee igual que en el formulario."""
+    importar de Koha). Al editar (`editando`), la cota solo se recalcula si cambió esa
+    clasificación: un importado con 082 y la cota del 952 la conserva aunque se guarde, y
+    cambiar el 092, el 082 o el 050 sí la cambia. La editorial (264 con 2.º indicador 1 o,
+    si no hay, 260 $b, sin la puntuación ISBD final) se lee igual que en el formulario."""
+    clasificacion = ficha.cota_de_clasificacion(marc)
+    if (editando and biblio.cota and biblio.marc_json is not None
+            and ficha.cota_de_clasificacion(biblio.marc_json) == clasificacion):
+        clasificacion = None  # no cambió: queda la cota que tenía
     biblio.marc_json = marc
     biblio.plantilla = plantilla.codigo
     for columna, valor in marc_svc.derivar(marc).items():
         setattr(biblio, columna, valor)
-    biblio.cota = ficha.cota_de_clasificacion(marc) or biblio.cota
+    biblio.cota = clasificacion or biblio.cota
     biblio.editorial = ficha.desde_marc(marc).editorial
 
 
@@ -141,7 +148,7 @@ def guardar_marc(db: Session, biblio_id: int, datos) -> dict:
     antes = {c: getattr(biblio, c) for c in _CAMPOS_DERIVADOS}
     marc_antes = biblio.marc_json
     cota_anterior = biblio.cota
-    aplicar_marc(biblio, marc, plantilla)
+    aplicar_marc(biblio, marc, plantilla, editando=True)
     heredan = mover_ejemplares_de_cota(db, biblio, cota_anterior)
     cambios = registro.diferencias(antes, {c: getattr(biblio, c) for c in _CAMPOS_DERIVADOS})
     if marc_antes != biblio.marc_json or heredan:

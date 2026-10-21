@@ -413,6 +413,21 @@ def test_respaldo_sin_avisos_no_trae_aviso(db, tmp_path, monkeypatch):
     "C:/Users/Public/pg_dump.exe",
     r"C:\Program Files\PostgreSQL\16\bin\..\..\..\..\Users\ana\pg_dump.exe",
     "pg_dump.exe.bat",
+    # Grafías que Windows trata como carpeta de red aunque no empiecen con \\ ni //.
+    r"\/servidor/compartida/pg_dump.exe",
+    r"/\servidor\c\pg_dump.exe",
+    r"\\?\UNC\servidor\c\pg_dump.exe",
+    r"\\.\C:\Program Files\PostgreSQL\16\bin\pg_dump.exe",
+    # Relativas: dependen de la carpeta actual o de la unidad actual.
+    r"C:Users\ana\pg_dump.exe",
+    r"C:pg_dump.exe",
+    "pg_dump.exe",
+    "pg_dump",
+    r"bin\pg_dump.exe",
+    r"\Program Files\PostgreSQL\16\bin\pg_dump.exe",
+    # El prefijo de perfiles se compara sobre la ruta ya normalizada.
+    r"C:\Program Files\..\Users\ana\pg_dump.exe",
+    "C:/Program Files/../Users/ana/pg_dump.exe",
 ])
 def test_pg_dump_no_valido_se_rechaza_al_guardar(client, ruta):
     r = client.put("/api/v1/settings", json={"respaldo": {"pg_dump": ruta}})
@@ -432,6 +447,15 @@ def test_pg_dump_valido_se_guarda(client, ruta):
     r = client.put("/api/v1/settings", json={"respaldo": {"pg_dump": ruta}})
 
     assert r.status_code == 200, r.text
+
+
+def test_en_windows_una_ruta_sin_unidad_no_sirve(monkeypatch):
+    """En el servidor Windows, «/usr/...» es relativa a la unidad actual: no se acepta."""
+    from app.core import pg_dump as regla
+    monkeypatch.setattr(regla, "_en_windows", lambda: True)
+    assert regla.problema("/usr/lib/postgresql/16/bin/pg_dump")
+    assert regla.problema(r"C:\Program Files\PostgreSQL\16\bin\pg_dump.exe") is None
+    assert regla.problema("C:/Program Files/PostgreSQL/16/bin/pg_dump.exe") is None
 
 
 def test_perfiles_segun_public(monkeypatch):

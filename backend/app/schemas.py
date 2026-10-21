@@ -1,6 +1,6 @@
 from typing import Annotated, Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from app.core import pg_dump
 
@@ -144,6 +144,17 @@ class ActualizarConfiguracionRequest(BaseModel):
 MAX_BYTES_TEXTO_LARGO = 9000
 
 
+def cabe_en_iso2709(valor: Optional[str]) -> Optional[str]:
+    """Un texto largo que va a un campo MARC: el tope es en bytes UTF-8, no en caracteres."""
+    if valor is not None and len(valor.encode("utf-8")) > MAX_BYTES_TEXTO_LARGO:
+        raise ValueError(f"Es demasiado largo: hasta {MAX_BYTES_TEXTO_LARGO} bytes "
+                         "(unos 9000 caracteres; las letras con tilde cuentan doble)")
+    return valor
+
+
+TextoLargo = Annotated[Optional[str], AfterValidator(cabe_en_iso2709)]
+
+
 class FichaLibro(BaseModel):
     """Los campos del formulario de catalogación simple. `services/ficha.py` la traduce a MARC."""
 
@@ -185,10 +196,7 @@ class FichaLibro(BaseModel):
     @field_validator("descripcion", "notas")
     @classmethod
     def _cabe_en_iso2709(cls, valor: Optional[str]) -> Optional[str]:
-        if valor is not None and len(valor.encode("utf-8")) > MAX_BYTES_TEXTO_LARGO:
-            raise ValueError(f"Es demasiado largo: hasta {MAX_BYTES_TEXTO_LARGO} bytes "
-                             "(unos 9000 caracteres; las letras con tilde cuentan doble)")
-        return valor
+        return cabe_en_iso2709(valor)
 
     @field_validator("otros_autores", "isbn", "materias", mode="before")
     @classmethod
@@ -209,7 +217,7 @@ class NuevoLibroRequest(BaseModel):
     ficha: FichaLibro
     ejemplares: int = Field(default=1, ge=0, le=100)
     # La misma nota para todos los ejemplares creados (p. ej. «Donación»).
-    nota_ejemplares: Optional[str] = Field(default=None, max_length=MAX_BYTES_TEXTO_LARGO)
+    nota_ejemplares: TextoLargo = None
     # Guardar aunque haya posibles duplicados (otra edición, otro libro con el mismo título).
     forzar: bool = False
 
@@ -219,4 +227,4 @@ class EjemplarRequest(BaseModel):
     cota: Optional[str] = Field(default=None, max_length=100)
     codigo_barras: Optional[str] = Field(default=None, max_length=50)
     numero_copia: Optional[str] = Field(default=None, max_length=20)
-    nota: Optional[str] = Field(default=None, max_length=MAX_BYTES_TEXTO_LARGO)
+    nota: TextoLargo = None

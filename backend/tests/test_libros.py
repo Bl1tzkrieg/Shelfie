@@ -324,3 +324,18 @@ def test_descripcion_y_notas_con_tope_en_bytes(client):
     libro = alta(client, forzar=True, descripcion="x" * 9000, notas="é" * 4500)
     assert len(libro["ficha"]["descripcion"]) == 9000
     assert client.put(f"{URL}/{libro['id']}", json=ficha(descripcion="x" * 9001)).status_code == 422
+
+
+def test_nota_de_ejemplares_con_tope_en_bytes(client):
+    # 9000 letras con tilde son 18000 bytes en UTF-8: no caben aunque sean 9000 caracteres.
+    r = client.post(URL, json={"ficha": ficha(), "ejemplares": 1, "forzar": True,
+                               "nota_ejemplares": "á" * 9000})
+    assert r.status_code == 422, r.text
+    libro = alta(client, forzar=True)
+    assert client.post(f"{URL}/{libro['id']}/copies",
+                       json={"nota": "á" * 9000}).status_code == 422
+    item_id = libro["ejemplares"][0]["id"]
+    assert client.patch(f"{URL}/{libro['id']}/copies/{item_id}",
+                        json={"nota": "á" * 9000}).status_code == 422
+    assert client.patch(f"{URL}/{libro['id']}/copies/{item_id}",
+                        json={"nota": "á" * 4500}).status_code == 200
