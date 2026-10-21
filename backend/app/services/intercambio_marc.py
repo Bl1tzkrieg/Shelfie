@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.core import marc_plantillas
-from app.core.csv import celda_segura
+from app.core.csv import Texto, celda_segura
 from app.core.errores import ErroresDeValidacion, ReglaIncumplida
 from app.core.signaturas import clave_signatura_sql, normalizar_cota
 from app.core.tiempo import sello_archivo
@@ -163,7 +163,8 @@ def exportar_csv(db: Session) -> List[dict]:
     """El catálogo en el orden del estante (sin cota al final), una fila por registro.
 
     Cada celda pasa por `celda_segura`: un título como «=HYPERLINK(...)» no se ejecuta como
-    fórmula al abrirlo en una hoja de cálculo."""
+    fórmula al abrirlo en una hoja de cálculo. La cota y el ISBN van como `Texto` para que
+    Excel no los convierta en números."""
     RB = models.RegistroBibliografico
     ejemplares = (db.query(models.Item.biblio_id, func.count(models.Item.id).label("cantidad"))
                   .group_by(models.Item.biblio_id).subquery())
@@ -178,7 +179,8 @@ def exportar_csv(db: Session) -> List[dict]:
                 "editorial": biblio.editorial or "", "ano": biblio.ano_publicacion,
                 "isbn": biblio.isbn or "", "materias": " | ".join(materias),
                 "ejemplares": cantidad}
-        resultado.append({k: celda_segura(v) for k, v in fila.items()})
+        resultado.append({k: Texto(v) if k in ("cota", "isbn") else celda_segura(v)
+                          for k, v in fila.items()})
     return resultado
 
 

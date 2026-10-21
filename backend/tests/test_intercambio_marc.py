@@ -343,9 +343,25 @@ def test_csv_protegido(client, datos):
     filas = list(csv.DictReader(io.StringIO(r.content.decode("utf-8-sig")), delimiter=";"))
     assert list(filas[0]) == ["cota", "titulo", "autor", "editorial", "ano", "isbn", "materias",
                               "ejemplares"]
-    assert [f["cota"] for f in filas] == ["12 A8", "900 B2", ""]
+    assert [f["cota"] for f in filas] == ['="12 A8"', '="900 B2"', ""]
     assert filas[1]["titulo"] == "'=HYPERLINK(\"http://x\")"
     assert filas[1]["ejemplares"] == "1" and filas[2]["ejemplares"] == "0"
+
+
+def test_csv_cota_e_isbn_como_texto_de_excel(client, datos):
+    import csv
+    _alta(client, "Dewey", "D-1", cota="025.32", isbn="9789800000014")
+    _alta(client, "Comillas", "D-2", cota='=HYPERLINK("x")')
+    _alta(client, "Numérica", "D-3", cota="540")
+    _importar(client, _mrc(_libro("Sin nada")))
+    r = client.get(f"{URL}/export.csv")
+    filas = {f["titulo"]: f for f in
+             csv.DictReader(io.StringIO(r.content.decode("utf-8-sig")), delimiter=";")}
+    assert (filas["Dewey"]["cota"], filas["Dewey"]["isbn"]) == ('="025.32"', '="9789800000014"')
+    assert filas["Comillas"]["cota"] == '="=HYPERLINK(""X"")"'  # la cota se normaliza a mayúsculas
+    assert filas["Numérica"]["cota"] == '="540"'
+    assert (filas["Sin nada"]["cota"], filas["Sin nada"]["isbn"]) == ("", "")
+    assert filas["Dewey"]["ejemplares"] == "1"
 
 
 def test_csv_materias_unidas(client, datos):

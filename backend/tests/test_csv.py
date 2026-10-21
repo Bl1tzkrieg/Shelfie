@@ -3,7 +3,7 @@
 import csv
 import io
 
-from app.core.csv import BOM, SEPARADOR, texto_csv
+from app.core.csv import BOM, SEPARADOR, Texto, celda_segura, texto_csv
 
 
 def test_separador_punto_y_coma_con_bom_y_celdas_seguras():
@@ -26,3 +26,23 @@ def test_registro_de_acciones_tambien_usa_punto_y_coma(client, datos):
     texto = r.content.decode("utf-8-sig")
     filas = list(csv.reader(io.StringIO(texto), delimiter=";"))
     assert len(filas[0]) > 3 and any("Eliminó el ejemplar B-1" in c for c in filas[1])
+
+
+def _celdas(filas, columnas):
+    texto = texto_csv(filas, columnas)
+    return list(csv.reader(io.StringIO(texto[len(BOM):]), delimiter=";"))[1]
+
+
+def test_texto_se_escribe_como_cadena_de_excel():
+    assert _celdas([{"a": Texto("025.32"), "b": Texto("9789800000014")}], ["a", "b"]) == [
+        '="025.32"', '="9789800000014"']
+
+
+def test_texto_duplica_las_comillas_y_no_ejecuta_formulas():
+    celdas = _celdas([{"a": Texto('A"B'), "b": Texto('=HYPERLINK("x")')}], ["a", "b"])
+    assert celdas == ['="A""B"', '="=HYPERLINK(""x"")"']
+    assert celda_segura(Texto("=1+1")) == "=1+1"  # literal de cadena: no hay que prefijarlo
+
+
+def test_texto_vacio_queda_vacio():
+    assert _celdas([{"a": Texto(""), "b": ""}], ["a", "b"]) == ["", ""]

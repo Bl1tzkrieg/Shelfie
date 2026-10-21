@@ -17,16 +17,31 @@ SEPARADOR = ";"
 _INICIO_DE_FORMULA = ("=", "+", "-", "@", "\t", "\r")
 
 
+class Texto(str):
+    """Valor que Excel debe abrir como texto (ISBN, cota «025.32»): sin esto lo convierte en
+    número y pierde ceros y dígitos."""
+
+
 def celda_segura(valor):
     """Neutraliza la inyección de fórmulas: un nombre como «=HYPERLINK(...)» se exporta
     con un apóstrofo delante, que la hoja de cálculo muestra como texto. Los números
-    (incluidos los negativos) se dejan tal cual."""
+    (incluidos los negativos) se dejan tal cual. Un `Texto` también: se escribe como literal
+    de cadena (`="..."`), así que su contenido nunca se ejecuta como fórmula."""
+    if isinstance(valor, Texto):
+        return valor
     if isinstance(valor, str) and valor.startswith(_INICIO_DE_FORMULA):
         try:
             float(valor)
             return valor
         except ValueError:
             return "'" + valor
+    return valor
+
+
+def _celda(valor):
+    valor = celda_segura(valor)
+    if isinstance(valor, Texto) and valor:
+        return '="' + valor.replace('"', '""') + '"'
     return valor
 
 
@@ -44,7 +59,7 @@ def texto_csv(
         writer = csv.DictWriter(buffer, fieldnames=campos, extrasaction="ignore",
                             delimiter=SEPARADOR)
         writer.writeheader()
-        writer.writerows({k: celda_segura(v) for k, v in fila.items()} for fila in filas)
+        writer.writerows({k: _celda(v) for k, v in fila.items()} for fila in filas)
     return BOM + buffer.getvalue()
 
 

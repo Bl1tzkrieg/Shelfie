@@ -60,6 +60,7 @@ def test_respaldo_completo(db, datos, tmp_path):
     csv = (creada / "catalogo.csv").read_text(encoding="utf-8-sig")
     assert csv.splitlines()[0].startswith("cota;titulo")
     assert "'=HYPERLINK" in csv  # celda_segura
+    assert '"=""9780307474728"""' in csv  # el ISBN se abre como texto en Excel: ="978..."
     leeme = (creada / "LEEME.txt").read_bytes().decode("utf-8")
     assert "\r\n" in leeme and "\n" not in leeme.replace("\r\n", "")
     raiz = Path(respaldo.__file__).resolve().parents[3]
