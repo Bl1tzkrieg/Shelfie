@@ -25,7 +25,7 @@ nadie.
 | `/marc?id=` | Administrador | Editor MARC avanzado |
 | `/usuarios` | Administrador | Crear personal, asignar rol, desactivar, restablecer clave |
 | `/registro` | Administrador | Registro de acciones |
-| `/configuracion` | Administrador | Datos de la biblioteca para Koha y respaldo |
+| `/configuracion` | Administrador | Nombre de la biblioteca, código de sede (952 `$a` `$b`), tipo de ítem (952 `$y`), código de organización MARC (003) y respaldo |
 
 Las rutas no usan segmentos `[id]`: el frontend es un sitio estático y el `id` va en `?id=`.
 
@@ -47,23 +47,27 @@ encuentra *Bioquímica de Harper*. La cota se escribe como sea ("616.39  h37") y
 busca normalizada ("616.39 H37"); "616.39" encuentra "616.39 H37". Con solo palabras vacías o
 símbolos responde una lista vacía, nunca un error.
 
-## Koha
+## Intercambio MARC (registros y ejemplares 952)
 
 Importa y exporta ISO 2709 y MARCXML. Por cada ejemplar se escribe un campo **952**:
 
 | Subcampo | Contenido |
 |---|---|
-| `$a`, `$b` | Código de biblioteca (Configuración) |
+| `$a`, `$b` | Código de sede (Configuración): biblioteca propietaria y biblioteca donde está |
 | `$y` | Tipo de ítem (Configuración; por defecto `LIB`) |
 | `$o` | Cota |
 | `$p` | Código de barras, si existe |
 | `$t` | Número de copia |
 | `$z` | Nota |
 
+El 001 es el número del registro en Shelfie. El 003 lleva el código de organización MARC de
+Configuración; si está vacío, el registro sale sin 003 (un 003 importado de otro sistema no se
+exporta: identificaba al 001 de ese sistema, no al de Shelfie).
+
 Al importar se lee cada 952 como ejemplar. Si falta el 092, la cota sale del primer 952 `$o`
 o, en su defecto, de 082 o 050 (`$a` + `$b`); un registro sin ninguna sale como "Sin cota" al
-final de la lista. La importación no agrega un 092: importar un `.mrc` de Koha y volver a
-exportarlo da los mismos campos. Al editar con el formulario solo se tocan los campos del
+final de la lista. La importación no agrega un 092: importar un `.mrc` y volver a
+exportarlo da los mismos campos (salvo 001, 003, 005, 952 y 999). Al editar con el formulario solo se tocan los campos del
 formulario: el resto del MARC se conserva tal cual.
 
 ## Respaldo y restauración

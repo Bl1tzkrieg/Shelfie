@@ -1,4 +1,4 @@
-"""Instalador de la base de datos de Shelfie (equivalente a `koha-create`).
+"""Instalador de la base de datos de Shelfie: crea la base, el rol y las tablas.
 
 Lee DATABASE_URL de backend/.env y, usando una cuenta administradora de
 PostgreSQL solo durante la instalación, deja todo listo:

@@ -1,4 +1,4 @@
-"""Registro de acciones: consulta, exportación y qué se registra (action_logs de Koha)."""
+"""Registro de acciones: consulta, exportación y qué se registra."""
 
 from datetime import date
 from typing import Dict, Optional

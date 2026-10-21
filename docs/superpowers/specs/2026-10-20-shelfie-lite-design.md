@@ -34,7 +34,7 @@ desarrollador.
 
 1. Ingresar un libro con un formulario simple, sin saber MARC, y guardarlo en MARC 21.
 2. Encontrarlo por título, autor, materia, ISBN, cota o editorial, y ver la cota de inmediato.
-3. Importar y exportar MARC compatible con Koha (ISO 2709 y MARCXML, ejemplares en 952),
+3. Importar y exportar MARC 21 (ISO 2709 y MARCXML, ejemplares en 952 con $a $b $o $p $t $y $z),
    de ida y de vuelta sin pérdidas.
 4. Que no vuelva a perderse el catálogo: respaldo automático diario, legible fuera de
    Shelfie.
@@ -54,7 +54,7 @@ desarrollador.
 | Base del código | Recortar Shelfie en la rama `shelfie-lite` | SQLite, porque obliga a reescribir la búsqueda; app nueva, porque pierde MARC, pruebas y seguridad |
 | Base de datos | PostgreSQL, con la búsqueda actual (`shelfie_es`, sin acentos, AND, prefijo) | — |
 | Ingreso | Formulario simple con MARC por debajo; editor MARC avanzado solo para el administrador | Tabla plana sin MARC |
-| Copias | Se conservan los ejemplares (952 de Koha). Código de barras opcional, sin estados de préstamo | Solo "N.º de ejemplares" en el registro |
+| Copias | Se conservan los ejemplares (952 al importar y exportar). Código de barras opcional, sin estados de préstamo | Solo "N.º de ejemplares" en el registro |
 | Acceso | Búsqueda sin iniciar sesión. Iniciar sesión para ingresar | Todo con login |
 | Roles | Administrador y Catalogador | Un único administrador |
 | Despliegue | Frontend exportado como estático y servido por FastAPI: un proceso y un puerto, sin Node en la biblioteca | `next start` y `uvicorn` juntos |
@@ -173,7 +173,7 @@ Todas son exportables como estáticas, sin segmentos `[id]` (se usa `?id=`).
 | `/marc?id=` | Administrador | Editor MARC avanzado (el actual) |
 | `/usuarios` | Administrador | Personal: crear, asignar rol, desactivar y restablecer clave |
 | `/registro` | Administrador | Registro de acciones (el actual) |
-| `/configuracion` | Administrador | Nombre de la biblioteca, código de biblioteca y tipo de ítem para la exportación a Koha, y la sección de respaldo |
+| `/configuracion` | Administrador | Nombre de la biblioteca, código de sede (952 `$a` y `$b`), tipo de ítem (952 `$y`), código de organización MARC (003, opcional) y la sección de respaldo |
 
 En el encabezado: nombre de la biblioteca, "Buscar" e "Ingreso / Libros" (si hay sesión).
 Si el último respaldo es viejo o falló, el administrador ve un aviso en rojo.
@@ -188,16 +188,22 @@ Si el último respaldo es viejo o falló, el administrador ve un aviso en rojo.
 
 El primer administrador se crea con `scripts.crear_admin`, que ya existe.
 
-## 10. Compatibilidad con Koha
+## 10. Intercambio MARC (registros y ejemplares 952)
 
-- Exportar: un 952 por ejemplar, con `$a` y `$b` = código de biblioteca (configurable,
-  obligatorio en Koha), `$y` = tipo de ítem (configurable, por ejemplo `LIB`), `$o` cota,
-  `$p` código (si existe), `$t` copia y `$z` nota. Un registro sin ejemplares sale sin 952.
+Koha es el sistema conocido de origen y destino de los archivos: los subcampos del 952 son los
+suyos.
+
+- Exportar: un 952 por ejemplar, con `$a` (biblioteca propietaria) y `$b` (biblioteca donde
+  está) = código de sede (configurable; Koha exige que exista al importar), `$y` = tipo de
+  ítem (configurable, por ejemplo `LIB`), `$o` cota, `$p` código de barras (si existe), `$t`
+  copia y `$z` nota. Un registro sin ejemplares sale sin 952. El 001 es el número del registro
+  en Shelfie y el 003, el código de organización MARC configurado; si no hay, el registro sale
+  sin 003 (un 003 importado no se exporta: era del sistema de origen).
 - Importar: se lee cada 952 como ejemplar (`$o`, `$p`, `$t`, `$z`) y se ignoran `$a`, `$b`
   y `$y`. Si falta 092, la cota del registro se toma del primer 952 `$o`, y si tampoco hay,
   de 082 o 050. El duplicado se detecta por ISBN, con las políticas actuales (omitir,
   reemplazar o agregar).
-- Criterio de aceptación: importar un `.mrc` exportado de Koha y volver a exportarlo da los
+- Criterio de aceptación: importar un `.mrc` con ejemplares en 952 y volver a exportarlo da los
   mismos campos bibliográficos y los mismos 952 `$o`, `$p` y `$t`.
 
 ## 11. Respaldo
@@ -254,7 +260,7 @@ El primer administrador se crea con `scripts.crear_admin`, que ya existe.
 - búsqueda: AND, sin acentos, prefijo, por cada campo de acceso, cota por prefijo, ISBN con
   guiones, y que sea pública;
 - permisos: catalogador y administrador, y un 401/403 para cada ruta protegida;
-- ida y vuelta con Koha: un archivo de prueba con 952 (exportado de Koha) se importa, se
+- ida y vuelta: un archivo de prueba con 952 (`tests/datos/registros_con_952.py`) se importa, se
   exporta y se compara;
 - respaldo: con `pg_dump` real genera los 4 archivos, rota a 30 y registra el resultado; el
   aviso se calcula bien.
@@ -275,5 +281,5 @@ circulación por título, autor y cota. El respaldo del día aparece en la carpe
 | No hay red entre las PC, o no se sabe cómo están | El diseño también funciona en una sola PC. Se confirma en la visita antes de instalar |
 | Se apaga la PC servidor y circulación no puede buscar | Va en el LEEME y en la capacitación: la PC servidor debe estar encendida en horario de atención |
 | Fallan los respaldos sin que nadie lo note | Aviso en rojo, registro de acciones y copia a una carpeta sincronizada |
-| Koha local de LUZ con subcampos 952 personalizados | Archivo de prueba real de una biblioteca de LUZ en cuanto se consiga. Hasta entonces se usa el mapeo estándar de Koha |
+| Koha local de LUZ con subcampos 952 personalizados | Archivo de prueba real de una biblioteca de LUZ en cuanto se consiga. Hasta entonces se usa el 952 estándar ($a $b $o $p $t $y $z) |
 | Divergencia entre `main` y `shelfie-lite` | La rama solo recorta y agrega pantallas. Las correcciones al núcleo (MARC, búsqueda, seguridad) se hacen en `main` y se pasan con `cherry-pick` |

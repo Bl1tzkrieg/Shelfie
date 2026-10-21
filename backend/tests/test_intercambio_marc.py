@@ -1,4 +1,5 @@
-"""Importar y exportar MARC21 (ISO 2709 y MARCXML), con ejemplares en 952 como Koha."""
+"""Importar y exportar MARC21 (ISO 2709 y MARCXML), con ejemplares en 952
+($a $b sede, $o cota, $p código de barras, $t copia, $y tipo de ítem, $z nota)."""
 
 import io
 
@@ -25,7 +26,7 @@ def _libro(titulo, isbn=None, autor=None, ejemplares=(), con_008=False, lider_ti
         r.add_field(Field(tag="245", indicators=Indicators("1", "0"),
                           subfields=[Subfield("a", titulo)]))
     r.add_field(Field(tag="999", indicators=Indicators(" ", " "),
-                      subfields=[Subfield("c", "4711")]))  # biblionumber de otro Koha
+                      subfields=[Subfield("c", "4711")]))  # número de registro del sistema de origen
     for subs in ejemplares:
         r.add_field(Field(tag="952", indicators=Indicators(" ", " "),
                           subfields=[Subfield(k, v) for k, v in subs]))
@@ -224,7 +225,7 @@ def test_exportar_iso2709_avisa_si_un_campo_no_cabe(client, datos, db):
     assert client.get(f"{URL}/export", params={"formato": "marcxml"}).status_code == 200
 
 
-# --- Compatibilidad con Koha ---------------------------------------------------------
+# --- Intercambio de registros con ejemplares en 952 ----------------------------------
 
 FUERA_DE_LA_COMPARACION = {"001", "003", "005", "952", "999"}
 
@@ -246,9 +247,9 @@ def _clave_bibliografica(r):
     return (tuple(sorted(campos, key=repr)), ejemplares)
 
 
-def test_ida_y_vuelta_koha(client, datos):
-    from tests.datos import koha_muestra
-    original = koha_muestra.iso2709()
+def test_ida_y_vuelta_con_ejemplares_en_952(client, datos):
+    from tests.datos import registros_con_952
+    original = registros_con_952.iso2709()
     r = _importar(client, original).json()
     assert (r["nuevos"], r["con_errores"], r["ejemplares"]) == (3, 0, 4), r
 
@@ -276,12 +277,12 @@ def test_952_sin_codigo_se_importa(client, datos, db):
 
 
 def test_cota_desde_082(client, datos, db):
-    from tests.datos import koha_muestra
-    _importar(client, koha_muestra.iso2709())
+    from tests.datos import registros_con_952
+    _importar(client, registros_con_952.iso2709())
     quimica = db.query(models.RegistroBibliografico).filter_by(titulo="Química general").one()
     assert quimica.cota == "540 C43"  # 082 $a + $b
     assert not any("092" in c for c in quimica.marc_json["fields"])
-    # Si hay 092, manda el 092; y los 952 y 999 de Koha no quedan en el MARC guardado.
+    # Si hay 092, manda el 092; y los 952 y 999 del sistema de origen no quedan en el MARC guardado.
     barbara = db.query(models.RegistroBibliografico).filter(
         models.RegistroBibliografico.titulo.like("Doña%")).one()
     assert barbara.cota == "863 G16"
@@ -305,9 +306,9 @@ def test_importa_sin_cota(client, datos, db):
     assert not any("092" in c for c in biblio.marc_json["fields"])
 
 
-def test_export_usa_codigo_de_biblioteca(client, datos):
+def test_export_usa_codigo_de_sede_y_tipo_de_item(client, datos):
     assert client.put("/api/v1/settings", json={
-        "biblioteca": {"codigo": "UCV", "tipo_item_koha": "lib"}}).status_code == 200
+        "biblioteca": {"codigo_sede": "UCV", "tipo_item": "lib"}}).status_code == 200
     biblio = _alta(client, "Canaima", "CAN-1", cota="863 G16")
     r = client.post(f"/api/v1/books/{biblio}/copies", json={"nota": "Donación"})
     assert r.status_code == 201, r.text
@@ -318,7 +319,32 @@ def test_export_usa_codigo_de_biblioteca(client, datos):
         ("a", "UCV"), ("b", "UCV"), ("o", "863 G16"), ("p", "CAN-1"), ("t", "c.1"), ("y", "LIB")]
     assert [s.code for s in dos.subfields] == ["a", "b", "o", "t", "y", "z"]
     assert dos["z"] == "Donación"
-    assert leido["003"].data == "UCV"
+    assert leido["001"].data == str(biblio)
+    assert not leido.get_fields("003")  # el código de sede no es un código de organización MARC
+
+
+def test_export_003_con_el_codigo_de_organizacion(client, datos):
+    assert client.put("/api/v1/settings", json={
+        "biblioteca": {"codigo_sede": "UCV", "codigo_organizacion": "VeMaLUZ"}}).status_code == 200
+    _alta(client, "Canaima", "CAN-1")
+    [leido] = pymarc.MARCReader(io.BytesIO(client.get(f"{URL}/export").content), to_unicode=True)
+    assert leido["003"].data == "VeMaLUZ"
+    assert leido["952"]["a"] == "UCV"
+
+
+def test_export_quita_el_003_importado(client, datos):
+    from tests.datos import registros_con_952
+    _importar(client, registros_con_952.iso2709())
+    exportado = client.get(f"{URL}/export", params={"formato": "marc"}).content
+    leidos = list(pymarc.MARCReader(io.BytesIO(exportado), to_unicode=True))
+    assert len(leidos) == 3
+    assert not any(r.get_fields("003") for r in leidos)  # «XxOrigen» no identifica al 001 de Shelfie
+
+    client.put("/api/v1/settings", json={"biblioteca": {"codigo_organizacion": "VeMaLUZ"}})
+    exportado = client.get(f"{URL}/export", params={"formato": "marcxml"}).content
+    leidos = pymarc.parse_xml_to_array(io.BytesIO(exportado))
+    assert [r["003"].data for r in leidos] == ["VeMaLUZ"] * 3
+    assert all(len(r.get_fields("003")) == 1 for r in leidos)
 
 
 def test_reemplazar_no_duplica_codigos(client, datos, db):
@@ -365,8 +391,8 @@ def test_csv_cota_e_isbn_como_texto_de_excel(client, datos):
 
 
 def test_csv_materias_unidas(client, datos):
-    from tests.datos import koha_muestra
-    _importar(client, koha_muestra.iso2709())
+    from tests.datos import registros_con_952
+    _importar(client, registros_con_952.iso2709())
     from app.services import intercambio_marc
     filas = intercambio_marc.exportar_csv(datos.db)
     barbara = next(f for f in filas if f["titulo"].startswith("Doña"))
@@ -377,10 +403,10 @@ def test_csv_materias_unidas(client, datos):
 
 # --- Reimportar sin duplicar ---------------------------------------------------------
 
-def test_reimportar_koha_con_omitir_no_duplica(client, datos, db):
-    from tests.datos import koha_muestra
-    _importar(client, koha_muestra.iso2709())
-    r = _importar(client, koha_muestra.iso2709()).json()
+def test_reimportar_con_omitir_no_duplica(client, datos, db):
+    from tests.datos import registros_con_952
+    _importar(client, registros_con_952.iso2709())
+    r = _importar(client, registros_con_952.iso2709()).json()
     assert (r["nuevos"], r["omitidos"]) == (0, 3), r
     assert db.query(models.RegistroBibliografico).count() == 3
     assert db.query(models.Item).count() == 4
@@ -404,9 +430,9 @@ def test_sin_isbn_ni_codigos_se_detecta_por_titulo_autor_y_ano(client, datos, db
 
 
 def test_reemplazar_no_repite_ejemplares_sin_codigo(client, datos, db):
-    from tests.datos import koha_muestra
-    _importar(client, koha_muestra.iso2709())
-    r = _importar(client, koha_muestra.iso2709(), duplicados="reemplazar").json()
+    from tests.datos import registros_con_952
+    _importar(client, registros_con_952.iso2709())
+    r = _importar(client, registros_con_952.iso2709(), duplicados="reemplazar").json()
     assert (r["reemplazados"], r["ejemplares"]) == (3, 0), r
     barbara = next(x for x in r["registros"] if x["titulo"].startswith("Doña"))
     assert any("ejemplar sin código ya existe: omitido" in m for m in barbara["mensajes"])
@@ -415,7 +441,7 @@ def test_reemplazar_no_repite_ejemplares_sin_codigo(client, datos, db):
 
 def test_avisa_lo_que_se_ignora_del_952(client, datos):
     archivo = _mrc(
-        _libro("Con datos de Koha", ejemplares=[
+        _libro("Con estados en el 952", ejemplares=[
             [("p", "K-1"), ("c", "GEN"), ("d", "2020-01-01"), ("g", "25.00"), ("1", "1")],
             [("p", "K-2"), ("8", "REF"), ("9", "77"), ("7", "1"), ("1", "0")]]),
         _libro("Otro", ejemplares=[[("p", "K-3"), ("e", "Donación"), ("y", "BK")]]))
@@ -423,12 +449,12 @@ def test_avisa_lo_que_se_ignora_del_952(client, datos):
     assert r["mensajes"] == [
         "Se ignoraron subcampos del 952 que Shelfie no guarda: c, d, e, g, 1, 7, 8, 9"]
     mensajes = " | ".join(r["registros"][0]["mensajes"])
-    assert "el ejemplar K-1 figuraba perdido en Koha; en Shelfie queda como uno más" in mensajes
-    assert "el ejemplar K-2 figuraba no prestable en Koha; en Shelfie queda como uno más" in mensajes
+    assert "el ejemplar K-1 figuraba perdido (952 $1); en Shelfie queda como uno más" in mensajes
+    assert "el ejemplar K-2 figuraba no prestable (952 $7); en Shelfie queda como uno más" in mensajes
     assert not any("figuraba" in m for m in r["registros"][1]["mensajes"])
 
-    from tests.datos import koha_muestra  # $1 = 0 en todos: no se pierde nada
-    assert _importar(client, koha_muestra.iso2709(), modo="vista").json()["mensajes"] == []
+    from tests.datos import registros_con_952  # $1 = 0 en todos: no se pierde nada
+    assert _importar(client, registros_con_952.iso2709(), modo="vista").json()["mensajes"] == []
 
 
 def test_cota_del_952_se_conserva_al_editar(client, db):
@@ -476,7 +502,7 @@ def test_duplicado_por_el_segundo_isbn_al_importar(client, datos, db):
 # --- La cota del registro solo cambia si cambia la clasificación ----------------------
 
 def _importado_con_082_y_952(client, db):
-    """Como un registro típico de Koha: sin 092, con 082 y la cota en el 952 $o. Dos
+    """Un registro importado típico: sin 092, con 082 y la cota en el 952 $o. Dos
     ejemplares heredan la cota del registro y uno tiene la suya."""
     registro = _libro("Química general", ejemplares=[
         [("o", "540 C43 Q"), ("p", "Q-1")], [("o", "540 C43 Q"), ("p", "Q-2")],

@@ -26,7 +26,7 @@ están hechas. Diseño en `docs/superpowers/specs/2026-10-20-shelfie-lite-design
 ## Pendientes menores
 
 Detectados en las revisiones y no urgentes. La revisión final (2026-10-20) resolvió los que
-afectaban datos, seguridad o la compatibilidad con Koha, y sus tres residuales (ruta de pg_dump
+afectaban datos, seguridad o el intercambio MARC (registros y ejemplares 952), y sus tres residuales (ruta de pg_dump
 que Windows lee como de red o relativa, la cota que se movía al guardar un importado con
 082/050 y la nota de ejemplares contada en caracteres); quedan estos.
 

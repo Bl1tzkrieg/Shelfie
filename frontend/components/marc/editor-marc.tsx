@@ -48,7 +48,7 @@ interface EditorMarcProps {
   onGuardar: (plantilla: string, marc: RegistroMarc, permitirDuplicado: boolean) => Promise<void>
 }
 
-/** Editor MARC21 guiado por la plantilla de catalogación, al estilo del de Koha. */
+/** Editor MARC21 por campos y subcampos, guiado por la plantilla de catalogación. */
 export function EditorMarc({
   plantillaInicial,
   marcInicial,

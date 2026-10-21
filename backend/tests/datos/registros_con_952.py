@@ -1,7 +1,8 @@
-"""Archivo de muestra al estilo de una exportación de Koha (ISO 2709, UTF-8).
+"""Archivo de muestra como el que exporta otro sistema (ISO 2709, UTF-8).
 
-Tres registros con ejemplares en 952 ($a y $b = biblioteca, $o cota, $p código, $t copia,
-$y tipo de ítem) y el 999 con el biblionumber de Koha:
+Tres registros con su 001 y 003 de origen, ejemplares en 952 ($a y $b = código de sede,
+$o cota, $p código de barras, $t copia, $y tipo de ítem, $1 estado de pérdida), el 942
+con el tipo de ítem del registro y el 999 con el número de registro del sistema de origen:
 
 1. «Doña Bárbara»: con 092, 260 (catalogación vieja) y dos ejemplares; el segundo sin código.
 2. «Química general»: sin 092 pero con 082; su ejemplar no trae $o.
@@ -30,7 +31,7 @@ def _registro(biblionumber, campos, ejemplares):
     r = Record(force_utf8=True)
     r.leader = "00000nam a2200000 a 4500"
     r.add_field(Field(tag="001", data=str(biblionumber)))
-    r.add_field(Field(tag="003", data="KOHA"))
+    r.add_field(Field(tag="003", data="XxOrigen"))
     r.add_field(Field(tag="008", data="850101s1985    ve            000 1 spa d"))
     for campo in campos:
         r.add_field(campo)
@@ -51,7 +52,7 @@ def registros():
             _campo("260", a="Caracas :", b="Monte Ávila,", c="1985."),
             _campo("650", " ", "4", a="Novela venezolana."),
             _campo("650", " ", "4", a="Llanos (Venezuela)"),
-        ], [_ejemplar(o="863 G16", p="KOHA-1", t="c.1"),
+        ], [_ejemplar(o="863 G16", p="ORIG-1", t="c.1"),
             _ejemplar(o="863 G16", t="c.2")]),
         _registro(102, [
             _campo("020", a="9789701054949"),
@@ -60,14 +61,14 @@ def registros():
             _campo("245", "1", "0", a="Química general /", c="Raymond Chang."),
             _campo("264", " ", "1", a="México :", b="McGraw-Hill,", c="2010."),
             _campo("650", " ", "4", a="Química."),
-        ], [_ejemplar(p="KOHA-3", y="LIB")]),
+        ], [_ejemplar(p="ORIG-3", y="LIB")]),
         _registro(103, [
             _campo("092", a="868", b="Q6"),
             _campo("100", "1", a="Quiroga, Horacio."),
             _campo("245", "1", "0", a="Cuentos completos"),
             _campo("264", " ", "1", a="Buenos Aires :", b="Losada,", c="2004."),
             _campo("650", " ", "4", a="Cuentos uruguayos."),
-        ], [_ejemplar(o="868 Q6", p="KOHA-4", t="c.1")]),
+        ], [_ejemplar(o="868 Q6", p="ORIG-4", t="c.1")]),
     ]
 
 

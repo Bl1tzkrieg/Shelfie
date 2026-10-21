@@ -121,7 +121,7 @@ def test_registro_sin_cota_se_puede_leer():
     assert r.cota == "" and r.titulo == "Importado"
 
 
-def _koha() -> dict:
+def _importado_con_952() -> dict:
     def c(tag, ind, *subs):
         return {tag: {"ind1": ind[0], "ind2": ind[1], "subfields": [{k: v} for k, v in subs]}}
     return {"leader": "00000nam a22000007i 4500", "fields": [
@@ -147,7 +147,7 @@ def _sin_092(registro: dict) -> list:
 
 
 def test_editar_solo_la_cota_de_un_registro_importado_no_pierde_nada():
-    original = _koha()
+    original = _importado_con_952()
     previa = ficha.desde_marc(original)
     assert (previa.autor, previa.otros_autores, previa.lugar) == (
         "Gallegos, Rómulo", ["Pérez, Ana"], "Caracas")
@@ -157,7 +157,7 @@ def test_editar_solo_la_cota_de_un_registro_importado_no_pierde_nada():
 
 
 def test_quitar_una_materia_conserva_las_otras_con_subdivisiones():
-    original = _koha()
+    original = _importado_con_952()
     previa = ficha.desde_marc(original)
     resultado = ficha.a_marc(previa.model_copy(update={
         "cota": "1 A", "materias": ["Llanos"]}), original)
@@ -170,7 +170,7 @@ def test_quitar_una_materia_conserva_las_otras_con_subdivisiones():
 
 
 def test_cambiar_solo_el_titulo_conserva_n_p_y_el_indicador_con_110():
-    original = _koha()
+    original = _importado_con_952()
     original["fields"] = [c for c in original["fields"] if "100" not in c]
     original["fields"].insert(3, {"110": {"ind1": "2", "ind2": " ",
                                            "subfields": [{"a": "Editorial X."}]}})
@@ -185,7 +185,7 @@ def test_cambiar_solo_el_titulo_conserva_n_p_y_el_indicador_con_110():
 
 
 def test_cambiar_el_autor_edita_el_a_y_quita_el_d():
-    original = _koha()
+    original = _importado_con_952()
     previa = ficha.desde_marc(original)
     resultado = ficha.a_marc(previa.model_copy(update={"cota": "1 A", "autor": "Otro, Autor"}),
                              original)
@@ -194,7 +194,7 @@ def test_cambiar_el_autor_edita_el_a_y_quita_el_d():
 
 
 def test_la_publicacion_solo_toca_el_264_de_publicacion():
-    original = _koha()
+    original = _importado_con_952()
     previa = ficha.desde_marc(original)
     resultado = ficha.a_marc(previa.model_copy(update={"cota": "1 A", "editorial": "Otra"}),
                              original)
@@ -215,7 +215,7 @@ def test_un_264_de_copyright_solo_no_es_la_publicacion():
 
 
 def test_limpieza_uniforme_de_la_puntuacion_al_leer():
-    f = ficha.desde_marc(_koha())
+    f = ficha.desde_marc(_importado_con_952())
     assert (f.autor, f.otros_autores, f.titulo, f.editorial) == (
         "Gallegos, Rómulo", ["Pérez, Ana"], "Doña Bárbara", "Monte Ávila")
     assert f.isbn == ["9789800000001"]
@@ -280,7 +280,7 @@ def test_cambiar_el_autor_100_quita_d_y_q_y_conserva_e():
 
 
 def test_editar_sin_cambios_con_inicial_en_el_autor_deja_el_marc_identico():
-    original = _koha()
+    original = _importado_con_952()
     for campo in original["fields"]:
         if "100" in campo:
             campo["100"]["subfields"] = [{"a": "Murray, Robert K."}]

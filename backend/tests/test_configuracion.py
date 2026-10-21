@@ -1,4 +1,5 @@
-"""Configuración lite: nombre y código de la biblioteca, tipo de ítem de Koha y respaldo."""
+"""Configuración lite: nombre, código de sede, tipo de ítem y código de organización MARC
+de la biblioteca, y respaldo."""
 
 from app import models
 
@@ -6,8 +7,8 @@ from app import models
 def test_configuracion_por_defecto(client):
     c = client.get("/api/v1/settings").json()
     assert set(c) == {"biblioteca", "respaldo"}
-    assert c["biblioteca"]["codigo"] == "BIB"
-    assert c["biblioteca"]["tipo_item_koha"] == "LIB"
+    assert c["biblioteca"] == {"nombre": "Biblioteca", "codigo_sede": "BIB", "tipo_item": "LIB",
+                               "codigo_organizacion": ""}
     assert c["respaldo"] == {"carpeta": None, "pg_dump": None, "ultimo": None, "ultimo_ok": None}
 
 
@@ -26,7 +27,7 @@ def test_catalogador_ve_biblioteca_sin_respaldo(como):
 
     assert r.status_code == 200
     assert set(r.json()) == {"biblioteca"}
-    assert r.json()["biblioteca"]["codigo"] == "BIB"
+    assert r.json()["biblioteca"]["codigo_sede"] == "BIB"
 
 
 def test_solo_el_administrador_guarda(como, anonimo):
@@ -40,19 +41,19 @@ def test_guardar_mezcla_secciones(client):
 
     assert r.status_code == 200
     assert r.json()["biblioteca"]["nombre"] == "Biblioteca de Prueba"
-    assert r.json()["biblioteca"]["codigo"] == "BIB"  # el resto conserva sus valores
+    assert r.json()["biblioteca"]["codigo_sede"] == "BIB"  # el resto conserva sus valores
 
-    client.put("/api/v1/settings", json={"biblioteca": {"codigo": "UNA"}})
+    client.put("/api/v1/settings", json={"biblioteca": {"codigo_sede": "UNA"}})
     c = client.get("/api/v1/settings").json()
     assert c["biblioteca"]["nombre"] == "Biblioteca de Prueba"
-    assert c["biblioteca"]["codigo"] == "UNA"
+    assert c["biblioteca"]["codigo_sede"] == "UNA"
 
 
-def test_codigo_biblioteca_obligatorio(client):
-    for campo in ("codigo", "nombre", "tipo_item_koha"):
+def test_codigo_de_sede_obligatorio(client):
+    for campo in ("codigo_sede", "nombre", "tipo_item"):
         assert client.put("/api/v1/settings", json={"biblioteca": {campo: ""}}).status_code == 422
         assert client.put("/api/v1/settings", json={"biblioteca": {campo: "  "}}).status_code == 422
-    assert client.get("/api/v1/settings").json()["biblioteca"]["codigo"] == "BIB"
+    assert client.get("/api/v1/settings").json()["biblioteca"]["codigo_sede"] == "BIB"
 
 
 def test_respaldo_solo_edita_carpeta_y_pg_dump(client, db):
@@ -82,14 +83,14 @@ def test_ya_no_hay_ajustes_de_circulacion(client):
 
 
 def test_guardar_registra_diferencias(client, db):
-    client.put("/api/v1/settings", json={"biblioteca": {"nombre": "Nueva", "codigo": "NVA"}})
+    client.put("/api/v1/settings", json={"biblioteca": {"nombre": "Nueva", "codigo_sede": "NVA"}})
     client.put("/api/v1/settings", json={"biblioteca": {"nombre": "Nueva"}})  # sin cambios
 
     filas = db.query(models.RegistroAccion).filter_by(modulo="configuracion").all()
 
     assert len(filas) == 1
     assert filas[0].datos["seccion"] == "biblioteca"
-    assert filas[0].datos["cambios"]["codigo"] == ["BIB", "NVA"]
+    assert filas[0].datos["cambios"]["codigo_sede"] == ["BIB", "NVA"]
     assert filas[0].datos["cambios"]["nombre"][1] == "Nueva"
 
 
@@ -101,10 +102,64 @@ def test_informacion_del_sistema_es_del_personal(client, anonimo, datos):
     assert anonimo.get("/api/v1/settings/system-info").status_code == 401
 
 
-def test_codigos_de_koha_hasta_10_caracteres(client):
-    """Koha guarda branchcode e itemtype en varchar(10)."""
-    for campo in ("codigo", "tipo_item_koha"):
+def test_codigo_de_sede_y_tipo_de_item_hasta_10_caracteres(client):
+    """Koha guarda el código de sede y el tipo de ítem en varchar(10): uno más largo no
+    se podría importar allí."""
+    for campo in ("codigo_sede", "tipo_item"):
         assert client.put("/api/v1/settings",
                           json={"biblioteca": {campo: "X" * 11}}).status_code == 422
         assert client.put("/api/v1/settings",
                           json={"biblioteca": {campo: "X" * 10}}).status_code == 200
+
+
+def test_codigo_de_organizacion_opcional_hasta_16_y_sin_cambiar_mayusculas(client):
+    r = client.put("/api/v1/settings", json={"biblioteca": {"codigo_organizacion": " VeMaLUZ "}})
+    assert r.status_code == 200
+    assert r.json()["biblioteca"]["codigo_organizacion"] == "VeMaLUZ"
+    assert client.put("/api/v1/settings", json={
+        "biblioteca": {"codigo_organizacion": "X" * 17}}).status_code == 422
+    # Vacío vuelve a «sin 003».
+    r = client.put("/api/v1/settings", json={"biblioteca": {"codigo_organizacion": ""}})
+    assert r.status_code == 200
+    assert r.json()["biblioteca"]["codigo_organizacion"] == ""
+
+
+def test_las_claves_anteriores_ya_no_se_aceptan(client):
+    r = client.put("/api/v1/settings", json={"biblioteca": {"codigo": "UNA"}})
+    assert r.status_code == 422
+
+
+def _sembrar_claves_anteriores(db):
+    """Una instalación anterior guardó la sección con `codigo` y `tipo_item_koha`."""
+    from app.core.tiempo import ahora
+    db.add(models.Configuracion(clave="biblioteca", actualizado_en=ahora(), valor={
+        "nombre": "Biblioteca Central", "codigo": "BCL", "tipo_item_koha": "TES"}))
+    db.commit()
+
+
+def test_lee_las_claves_anteriores_de_una_instalacion_existente(client, db):
+    _sembrar_claves_anteriores(db)
+    assert client.get("/api/v1/settings").json()["biblioteca"] == {
+        "nombre": "Biblioteca Central", "codigo_sede": "BCL", "tipo_item": "TES",
+        "codigo_organizacion": ""}
+
+
+def test_guardar_reemplaza_las_claves_anteriores(client, db):
+    _sembrar_claves_anteriores(db)
+    r = client.put("/api/v1/settings", json={"biblioteca": {"nombre": "Central"}})
+    assert r.status_code == 200
+    fila = db.query(models.Configuracion).filter_by(clave="biblioteca").one()
+    db.refresh(fila)
+    assert fila.valor == {"nombre": "Central", "codigo_sede": "BCL", "tipo_item": "TES"}
+    # El cambio de nombre es lo único que queda en el registro de acciones.
+    [accion] = db.query(models.RegistroAccion).filter_by(modulo="configuracion").all()
+    assert set(accion.datos["cambios"]) == {"nombre"}
+
+
+def test_una_clave_nueva_manda_sobre_la_anterior(client, db):
+    from app.services import configuracion
+    from app.core.tiempo import ahora
+    db.add(models.Configuracion(clave="biblioteca", actualizado_en=ahora(), valor={
+        "codigo": "VIE", "codigo_sede": "NUE"}))
+    db.commit()
+    assert configuracion.leer(db, "biblioteca")["codigo_sede"] == "NUE"

@@ -64,12 +64,13 @@ function Tarjeta({ titulo, descripcion, children }: {
 
 function TarjetaBiblioteca({ inicial }: { inicial: Configuracion["biblioteca"] }) {
   const original = {
-    nombre: inicial.nombre ?? "", codigo: inicial.codigo ?? "", tipo: inicial.tipo_item_koha ?? "",
+    nombre: inicial.nombre ?? "", codigoSede: inicial.codigo_sede ?? "", tipoItem: inicial.tipo_item ?? "",
+    codigoOrganizacion: inicial.codigo_organizacion ?? "",
   }
   const [guardado, setGuardado] = useState(original)
   const [f, setF] = useState(original)
   const [guardando, setGuardando] = useState(false)
-  const completo = f.nombre.trim() !== "" && f.codigo.trim() !== "" && f.tipo.trim() !== ""
+  const completo = f.nombre.trim() !== "" && f.codigoSede.trim() !== "" && f.tipoItem.trim() !== ""
   const cambio = JSON.stringify(f) !== JSON.stringify(guardado)
 
   async function guardar(e: React.FormEvent) {
@@ -77,11 +78,15 @@ function TarjetaBiblioteca({ inicial }: { inicial: Configuracion["biblioteca"] }
     setGuardando(true)
     try {
       const r = await apiPut<Configuracion>("/settings", {
-        biblioteca: { nombre: f.nombre.trim(), codigo: f.codigo.trim(), tipo_item_koha: f.tipo.trim() },
+        biblioteca: {
+          nombre: f.nombre.trim(), codigo_sede: f.codigoSede.trim(), tipo_item: f.tipoItem.trim(),
+          codigo_organizacion: f.codigoOrganizacion.trim(),
+        },
       })
       const nuevo = {
-        nombre: r.biblioteca.nombre ?? f.nombre, codigo: r.biblioteca.codigo ?? f.codigo,
-        tipo: r.biblioteca.tipo_item_koha ?? f.tipo,
+        nombre: r.biblioteca.nombre ?? f.nombre, codigoSede: r.biblioteca.codigo_sede ?? f.codigoSede,
+        tipoItem: r.biblioteca.tipo_item ?? f.tipoItem,
+        codigoOrganizacion: r.biblioteca.codigo_organizacion ?? f.codigoOrganizacion,
       }
       setGuardado(nuevo)
       setF(nuevo)
@@ -98,7 +103,7 @@ function TarjetaBiblioteca({ inicial }: { inicial: Configuracion["biblioteca"] }
     setF((a) => ({ ...a, [k]: e.target.value }))
 
   return (
-    <Tarjeta titulo="Biblioteca" descripcion="Estos datos salen en el encabezado y en la exportación a Koha.">
+    <Tarjeta titulo="Biblioteca" descripcion="El nombre sale en el encabezado; los códigos, en cada registro MARC exportado.">
       <form onSubmit={guardar} className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="b-nombre">Nombre de la biblioteca</Label>
@@ -106,20 +111,37 @@ function TarjetaBiblioteca({ inicial }: { inicial: Configuracion["biblioteca"] }
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor="b-codigo">Código de biblioteca</Label>
-            <Input id="b-codigo" value={f.codigo} onChange={set("codigo")} maxLength={10}
-                   aria-describedby="b-ayuda" />
+            <Label htmlFor="b-codigo-sede">Código de sede (952 $a y $b)</Label>
+            <Input id="b-codigo-sede" value={f.codigoSede} onChange={set("codigoSede")} maxLength={10}
+                   aria-describedby="b-codigo-sede-ayuda" />
+            <p id="b-codigo-sede-ayuda" className="text-xs text-muted-foreground">
+              Identifica a esta biblioteca en cada ejemplar exportado (biblioteca propietaria y
+              biblioteca donde está). Debe coincidir con el código que tenga esta biblioteca en el
+              sistema que importe el archivo. Obligatorio, hasta 10 caracteres.
+            </p>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="b-tipo">Tipo de ítem para Koha</Label>
-            <Input id="b-tipo" value={f.tipo} onChange={set("tipo")} maxLength={10}
-                   aria-describedby="b-ayuda" />
+            <Label htmlFor="b-tipo-item">Tipo de ítem (952 $y)</Label>
+            <Input id="b-tipo-item" value={f.tipoItem} onChange={set("tipoItem")} maxLength={10}
+                   aria-describedby="b-tipo-item-ayuda" />
+            <p id="b-tipo-item-ayuda" className="text-xs text-muted-foreground">
+              Código del tipo de material que llevan los ejemplares exportados (p. ej. LIB). Debe
+              existir en el sistema que importe el archivo. Obligatorio, hasta 10 caracteres; se
+              exporta en mayúsculas.
+            </p>
           </div>
         </div>
-        <p id="b-ayuda" className="text-xs text-muted-foreground">
-          Koha exige estos dos datos al importar. Máximo 10 caracteres cada uno; por ejemplo
-          código «BIBLIO» y tipo «LIB».
-        </p>
+        <div className="space-y-1.5">
+          <Label htmlFor="b-codigo-organizacion">Código de organización MARC (003)</Label>
+          <Input id="b-codigo-organizacion" value={f.codigoOrganizacion}
+                 onChange={set("codigoOrganizacion")} maxLength={16}
+                 aria-describedby="b-codigo-organizacion-ayuda" />
+          <p id="b-codigo-organizacion-ayuda" className="text-xs text-muted-foreground">
+            Código MARC de la institución (lista de códigos de organizaciones MARC de la Biblioteca
+            del Congreso). Si se deja vacío, los registros se exportan sin 003. Opcional, hasta 16
+            caracteres; se respetan mayúsculas y minúsculas (p. ej. «VeMaLUZ»).
+          </p>
+        </div>
         <Button type="submit" disabled={!cambio || !completo || guardando}>
           {guardando ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
           Guardar

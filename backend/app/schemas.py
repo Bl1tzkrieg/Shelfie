@@ -107,9 +107,17 @@ TextoObligatorio = Annotated[str, StringConstraints(strip_whitespace=True, min_l
 
 
 class BibliotecaRequest(BaseModel):
+    """Las claves anteriores (`codigo`, `tipo_item_koha`) se rechazan en vez de ignorarse."""
+    model_config = ConfigDict(extra="forbid")
     nombre: Optional[TextoObligatorio] = None
-    codigo: Optional[TextoObligatorio] = Field(default=None, max_length=10)  # Koha: varchar(10)
-    tipo_item_koha: Optional[TextoObligatorio] = Field(default=None, max_length=10)
+    # 952 $a y $b. Hasta 10: Koha guarda el código de sede en varchar(10) y no importaría uno
+    # más largo.
+    codigo_sede: Optional[TextoObligatorio] = Field(default=None, max_length=10)
+    # 952 $y. Hasta 10 por la misma razón; se exporta en mayúsculas.
+    tipo_item: Optional[TextoObligatorio] = Field(default=None, max_length=10)
+    # 003. Opcional (vacío = sin 003) y tal cual: los códigos MARC distinguen mayúsculas.
+    codigo_organizacion: Optional[Annotated[str, StringConstraints(
+        strip_whitespace=True, max_length=16)]] = None
 
 
 class RespaldoRequest(BaseModel):

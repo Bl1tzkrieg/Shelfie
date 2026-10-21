@@ -1,4 +1,4 @@
-"""Plantillas de catalogación MARC21 (los "frameworks" de Koha).
+"""Plantillas de catalogación MARC21: qué campos lleva cada tipo de material.
 
 Cada plantilla dice qué campos ofrece el editor, cómo se llaman en español, cuáles
 son obligatorios y cuáles se repiten. Un registro puede traer campos que su
@@ -216,7 +216,7 @@ ERE = Plantilla(
 PLANTILLAS: Dict[str, Plantilla] = {p.codigo: p for p in (BKS, SER, TES, ERE)}
 POR_DEFECTO = "BKS"
 
-# Nombre de cada bloque de etiquetas, para agrupar el editor como lo hace Koha.
+# Nombre de cada bloque de etiquetas (0XX, 1XX…), para agrupar el editor por bloque.
 BLOQUES = {
     "0": "Control e identificadores", "1": "Autor principal", "2": "Título, edición y publicación",
     "3": "Descripción física", "4": "Serie", "5": "Notas", "6": "Materias",

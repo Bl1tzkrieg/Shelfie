@@ -29,7 +29,7 @@ def exportar(
     ids: Optional[str] = Query(None, description="Solo estos registros: 12,15,40"),
     db: Session = Depends(get_db),
 ):
-    """Descarga en MARC (ISO 2709) o MARCXML el catálogo, con un 952 por ejemplar (Koha)."""
+    """Descarga en MARC (ISO 2709) o MARCXML el catálogo, con un 952 por ejemplar."""
     contenido, tipo_mime, nombre = intercambio_marc.exportar(db, formato=formato,
                                                              ids=_lista_de_ids(ids))
     return Response(content=contenido, media_type=tipo_mime,
@@ -69,7 +69,7 @@ async def importar(
     """Importa un archivo MARC (ISO 2709) o MARCXML enviado como cuerpo de la petición.
 
     `modo=vista` no escribe nada y dice qué pasaría con cada registro; `modo=aplicar`
-    importa. Los ejemplares en 952 (formato Koha) se crean junto con su registro.
+    importa. Los ejemplares en 952 ($o $p $t $z) se crean junto con su registro.
     """
     # Se mira el tamaño declarado antes de leer: así un archivo enorme no se carga en memoria.
     declarado = request.headers.get("content-length", "")
@@ -90,7 +90,7 @@ async def importar(
 
 @router.get("/frameworks")
 def listar_plantillas():
-    """Plantillas de catalogación disponibles (frameworks de Koha)."""
+    """Plantillas de catalogación disponibles (campos y subcampos MARC21 de cada tipo de material)."""
     return marc_plantillas.listar()
 
 

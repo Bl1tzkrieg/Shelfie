@@ -10,10 +10,12 @@ from app.core.tiempo import ahora, formatear_fecha_hora
 DEFAULTS = {
     "biblioteca": {
         "nombre": "Biblioteca",
-        # Va en el 952 $a/$b de la exportación a Koha y como organización del MARC exportado.
-        "codigo": "BIB",
-        # 952 $y: tipo de ítem que Koha asigna a cada ejemplar.
-        "tipo_item_koha": "LIB",
+        # 952 $a (biblioteca propietaria) y $b (biblioteca donde está) de cada ejemplar exportado.
+        "codigo_sede": "BIB",
+        # 952 $y: código del tipo de material de cada ejemplar exportado.
+        "tipo_item": "LIB",
+        # 003 de cada registro exportado (código de organización MARC); vacío = sin 003.
+        "codigo_organizacion": "",
     },
     # Solo se guarda y se devuelve aquí; `ultimo` y `ultimo_ok` los escribe el respaldo.
     "respaldo": {
@@ -34,12 +36,29 @@ DEFAULTS = {
 
 SECCIONES = ("biblioteca", "respaldo")
 
+# Claves con las que versiones anteriores guardaron una sección: anterior → actual.
+CLAVES_ANTERIORES = {
+    "biblioteca": {"codigo": "codigo_sede", "tipo_item_koha": "tipo_item"},
+}
+
+
+def _con_claves_actuales(clave: str, valor: dict) -> dict:
+    """La fila guardada con las claves de hoy: una clave anterior solo rellena la actual
+    que falte, y no se devuelve ni se vuelve a guardar."""
+    actual = dict(valor)
+    for anterior, nueva in CLAVES_ANTERIORES.get(clave, {}).items():
+        if anterior in actual:
+            viejo = actual.pop(anterior)
+            actual.setdefault(nueva, viejo)
+    return actual
+
+
 def leer(db: Session, clave: str) -> dict:
     fila = db.query(models.Configuracion).filter(
         models.Configuracion.clave == clave).first()
     if fila and isinstance(fila.valor, dict):
         # Los defaults rellenan claves que falten en la fila guardada.
-        return {**DEFAULTS.get(clave, {}), **fila.valor}
+        return {**DEFAULTS.get(clave, {}), **_con_claves_actuales(clave, fila.valor)}
     return dict(DEFAULTS.get(clave, {}))
 
 
@@ -76,7 +95,7 @@ def guardar(db: Session, secciones: dict, anotar: bool = True) -> dict:
         fila = db.query(models.Configuracion).filter(
             models.Configuracion.clave == clave).first()
         if fila:
-            fila.valor = {**(fila.valor or {}), **valor}
+            fila.valor = {**_con_claves_actuales(clave, fila.valor or {}), **valor}
             # JSONB mutado en sitio: SQLAlchemy necesita el aviso explícito.
             flag_modified(fila, "valor")
             fila.actualizado_en = momento

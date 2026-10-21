@@ -62,8 +62,8 @@ export function IntercambioMarcDialog({
         <DialogHeader>
           <DialogTitle>Importar y exportar MARC</DialogTitle>
           <DialogDescription>
-            MARC21 en ISO 2709 (.mrc) o MARCXML. Los ejemplares viajan en el campo 952, como en
-            Koha.
+            MARC21 en ISO 2709 (.mrc) o MARCXML. Los ejemplares viajan en el campo 952, uno por
+            ejemplar.
           </DialogDescription>
         </DialogHeader>
         <Tabs defaultValue={puedeImportar ? "importar" : "exportar"}>
@@ -293,7 +293,8 @@ function Exportar({ ids }: { ids: number[] }) {
         </div>
       </div>
       <p className="text-sm text-muted-foreground">
-        Cada ejemplar va en su 952 (código de barras, cota, copia y nota), listo para Koha.
+        Cada ejemplar va en su 952: código de sede ($a y $b), cota ($o), código de barras ($p),
+        copia ($t), tipo de ítem ($y) y nota ($z).
       </p>
       <div className="flex justify-end">
         <Button onClick={descargar} disabled={descargando}>

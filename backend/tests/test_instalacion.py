@@ -68,7 +68,7 @@ def test_leeme_cuenta_lo_que_hay_que_saber():
     leeme = _texto("LEEME.md")
     for esperado in ["instalar.ps1", "restaurar.ps1", "RESTAURAR", "8080",
                      "PostgreSQL 16", "Python 3.12",
-                     # Regla de la Tarea 7: qué se conserva del 952 al exportar a Koha.
+                     # Regla de la Tarea 7: qué subcampos lleva el 952 al exportar.
                      "952", "$a $b $o $p $t $y $z",
                      # Regla de la Tarea 9: desarrollo contra uvicorn en :8000, sin /api/v1.
                      "NEXT_PUBLIC_API_URL=http://localhost:8000"]:

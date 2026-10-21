@@ -1,4 +1,4 @@
-"""Permisos del personal, al estilo de los permisos por módulo de Koha.
+"""Permisos del personal: catalogar o acceso total (superbibliotecario).
 
 Cada miembro del personal guarda su lista de permisos en `usuarios.permisos`.
 Los perfiles son solo plantillas para asignar varios de una vez: al aplicar uno,

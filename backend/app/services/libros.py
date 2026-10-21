@@ -82,7 +82,7 @@ def _vista_ejemplar(item: models.Item) -> dict:
 
 
 def _ficha(biblio: models.RegistroBibliografico) -> dict:
-    """La ficha del formulario. Sin 092 (importado de Koha, con la cota del 952, el 082 o el
+    """La ficha del formulario. Sin 092 (importado, con la cota del 952 $o, el 082 o el
     050) muestra la cota guardada del registro. Un registro sin cota ni 245 $a trae la ficha
     sin validar (cota vacía): se muestra igual para poder completarla."""
     datos = ficha_svc.desde_marc(biblio.marc_json).model_dump()

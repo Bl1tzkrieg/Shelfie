@@ -53,10 +53,12 @@ export interface EstadoRespaldo {
 export interface Configuracion {
   biblioteca: {
     nombre: string
-    /** 952 $a/$b de la exportación a Koha. */
-    codigo?: string
-    /** 952 $y: tipo de ítem de Koha. */
-    tipo_item_koha?: string
+    /** Código de sede: 952 $a (biblioteca propietaria) y $b (biblioteca donde está). */
+    codigo_sede?: string
+    /** 952 $y: código del tipo de material de los ejemplares exportados. */
+    tipo_item?: string
+    /** 003: código de organización MARC; vacío = registros sin 003. */
+    codigo_organizacion?: string
   }
   respaldo?: {
     carpeta: string | null

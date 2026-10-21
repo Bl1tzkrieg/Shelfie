@@ -69,7 +69,7 @@ class RegistroBibliografico(Base):
 
 
 class Item(Base):
-    """Un ejemplar (952 de Koha). El código de barras es opcional, pero único si existe."""
+    """Un ejemplar (se intercambia en el 952). El código de barras es opcional, pero único si existe."""
     __tablename__ = "items"
     __table_args__ = (
         Index("ux_items_codigo_barras", "codigo_barras", unique=True,
@@ -127,7 +127,7 @@ class IntentoAcceso(Base):
 
 
 class RegistroAccion(Base):
-    """Registro de acciones (action_logs de Koha): quién hizo qué, cuándo y sobre qué.
+    """Registro de acciones: quién hizo qué, cuándo y sobre qué.
 
     `usuario_id` es quien actuó (NULL = el sistema, p. ej. una tarea programada).
     `usuario_afectado_id` es el usuario del personal afectado (alta, rol, clave), y `biblio_id` e

@@ -2,7 +2,7 @@
 
 > **Para agentes:** sub-skill OBLIGATORIA: usar superpowers:subagent-driven-development (recomendado) o superpowers:executing-plans para implementar este plan tarea por tarea. Los pasos usan casillas (`- [ ]`) para el seguimiento.
 
-**Objetivo:** convertir la rama `shelfie-lite` en un catálogo MARC mínimo con cuatro piezas: ingreso con formulario simple, búsqueda pública que muestra la cota, compatibilidad con Koha y respaldo diario. Todo se instala en una PC con Windows y se usa desde la red local.
+**Objetivo:** convertir la rama `shelfie-lite` en un catálogo MARC mínimo con cuatro piezas: ingreso con formulario simple, búsqueda pública que muestra la cota, intercambio MARC (ISO 2709 y MARCXML, con ejemplares en 952) y respaldo diario. Todo se instala en una PC con Windows y se usa desde la red local.
 
 **Arquitectura:** se recorta Shelfie (FastAPI + SQLAlchemy + PostgreSQL + Next.js). El núcleo que se queda es MARC, búsqueda, autenticación, registro de acciones y configuración. Lo nuevo es una capa "ficha" (formulario ↔ MARC), un servicio de libros, la búsqueda pública y el respaldo. El frontend se exporta como estático y lo sirve el mismo FastAPI: un proceso y un puerto.
 
@@ -17,7 +17,7 @@
 - No tocar la base `dev` de AIRTEK ni las bases de odoo. Las pruebas usan `<base>_test`.
 - Se conservan las capas `routers → services → models`, el mapeo de `core/errores` (400/401/403/404/409/422/429) y el patrón `registro.anotar(...)` antes del commit del servicio.
 - Roles: **Administrador** = `superbibliotecario`; **Catalogador** = `catalogo`. La búsqueda y la ficha pública van **sin autenticación**.
-- Exportación a Koha: un 952 por ejemplar con `$a` y `$b` = código de biblioteca, `$y` = tipo de ítem (por defecto `LIB`), `$o` cota, `$p` código, `$t` copia y `$z` nota.
+- Exportación MARC: un 952 por ejemplar con `$a` y `$b` = código de sede, `$y` = tipo de ítem (por defecto `LIB`), `$o` cota, `$p` código, `$t` copia y `$z` nota.
 - Respaldo: carpeta `shelfie-AAAAMMDD-HHMM/` con `base.dump`, `catalogo.mrc`, `catalogo.xml`, `catalogo.csv` y `LEEME.txt`. Se conservan los **30** últimos. El aviso salta si el último respaldo correcto tiene **más de 7 días** o si el último falló.
 - Servidor: puerto **8080**, base `shelfie_lite`, PostgreSQL 16 o más reciente, Python 3.12 o más reciente. Las rutas del frontend no usan segmentos `[id]`; se usa `?id=`.
 - Comandos desde `backend/`: `python -m pytest -q` y `alembic upgrade head`. En el contenedor: `TEST_DATABASE_URL=…/shelfie_test`.
@@ -26,7 +26,7 @@
 
 1. **Cota mal escrita** ("616.39  h37", con doble espacio y en minúsculas): se debe guardar normalizada ("616.39 H37"), encontrarse igual y ordenarse en su lugar del estante. → Tarea 4 (`test_cota_se_normaliza`) y Tarea 6 (`test_busca_cota_con_espacios_y_minusculas`).
 2. **Registro importado sin 092, sin 952 y sin 082/050:** se importa igual con la cota vacía y en `/libros` aparece al final como "Sin cota", sin error. → Tarea 7 (`test_importa_sin_cota`) y Tarea 5 (`test_lista_sin_cota_al_final`).
-3. **Registro con 260 y sin 264** (catalogación vieja o de Koha): el formulario muestra lugar, editorial y año desde 260, y al guardar actualiza ese 260 en su sitio, sin crear un 264 duplicado. → Tarea 4 (`test_edita_260_en_su_lugar`).
+3. **Registro con 260 y sin 264** (catalogación vieja o importada): el formulario muestra lugar, editorial y año desde 260, y al guardar actualiza ese 260 en su sitio, sin crear un 264 duplicado. → Tarea 4 (`test_edita_260_en_su_lugar`).
 4. **Búsqueda solo con palabras vacías o símbolos** ("de la", "¿?", "-"): responde 200 con la lista vacía y nunca un 500 de `to_tsquery`. → Tarea 6 (`test_busqueda_sin_terminos_utiles`).
 5. **Destino del respaldo no disponible** (pendrive desconectado, carpeta sin permisos) o `pg_dump` no encontrado: el respaldo queda como fallido con el mensaje, el aviso se enciende y la API no da 500. → Tarea 8 (`test_respaldo_destino_inexistente`, `test_respaldo_sin_pg_dump`).
 
@@ -153,7 +153,7 @@
 **Interfaces:**
 
 - Produce estas secciones en `configuraciones`:
-  - `biblioteca: {nombre: str, codigo: str = "BIB", tipo_item_koha: str = "LIB"}`
+  - `biblioteca: {nombre: str, codigo_sede: str = "BIB", tipo_item: str = "LIB", codigo_organizacion: str = ""}` (las claves anteriores `codigo` y `tipo_item_koha` se leen si faltan las nuevas y se reemplazan al guardar)
   - `respaldo: {carpeta: str|None, pg_dump: str|None, ultimo: {fecha, ok: bool, mensaje, tamano}|None, ultimo_ok: fecha|None}`
 - `GET /api/v1/settings` es **público** y devuelve solo `biblioteca.nombre` cuando no hay sesión. `PUT` exige administrador.
 
@@ -279,7 +279,7 @@
 - [ ] **Paso 2:** FAIL. **Paso 3:** implementar. **Paso 4:** PASS con la suite completa.
 - [ ] **Paso 5: Checkpoint.**
 
-### Tarea 7: Importar y exportar compatible con Koha
+### Tarea 7: Importar y exportar MARC con ejemplares en 952
 
 **Archivos:** modificar `app/services/intercambio_marc.py`. Prueba: `tests/test_intercambio_marc.py` (se rehace).
 
@@ -290,13 +290,13 @@
   - `exportar(db, *, formato: Literal["marc","marcxml"], ids: list[int]|None = None) -> tuple[bytes, str, str]`, que devuelve contenido, tipo MIME y nombre de archivo.
   - `exportar_csv(db) -> list[dict]` con las columnas `cota, titulo, autor, editorial, ano, isbn, materias, ejemplares`.
   - `importar(...)` mantiene la firma y las políticas actuales (`omitir`, `reemplazar`, `agregar`).
-  - Exportar: un 952 por item con `$a` y `$b` = `biblioteca.codigo`, `$y` = `biblioteca.tipo_item_koha`, `$o`, `$p` (si hay), `$t` (si hay) y `$z` (si hay).
+  - Exportar: un 952 por item con `$a` y `$b` = `biblioteca.codigo_sede`, `$y` = `biblioteca.tipo_item`, `$o`, `$p` (si hay), `$t` (si hay) y `$z` (si hay).
   - Importar: cada 952 se lee como item con `$o`, `$p`, `$t` y `$z`. `$a`, `$b`, `$y` y `$1` se ignoran. Un 952 sin `$p` **no** se omite.
   - Cota del registro: 092, si no el primer 952 `$o`, si no 082 `$a`, si no 050 `$a`. Si el 092 falta, se escribe en el MARC.
 - Ruta nueva `GET /api/v1/catalog/export.csv` (catalogador).
 
-- [ ] **Paso 1: pruebas que fallan.** Para el archivo de muestra: `tests/datos/koha_muestra.py` construye con pymarc 3 registros al estilo de Koha (con 952 `$a`, `$b`, `$o`, `$p`, `$y`, uno con 260 y otro sin 092 pero con 082) y devuelve los bytes ISO 2709. Pruebas:
-  - `test_ida_y_vuelta_koha`: importar y exportar da los mismos 245, 100, 020, 650 y los mismos 952 `$o`, `$p` y `$t` por registro.
+- [ ] **Paso 1: pruebas que fallan.** Para el archivo de muestra: `tests/datos/registros_con_952.py` construye con pymarc 3 registros de otro sistema (con 952 `$a`, `$b`, `$o`, `$p`, `$y`, uno con 260 y otro sin 092 pero con 082) y devuelve los bytes ISO 2709. Pruebas:
+  - `test_ida_y_vuelta_con_ejemplares_en_952`: importar y exportar da los mismos 245, 100, 020, 650 y los mismos 952 `$o`, `$p` y `$t` por registro.
   - `test_952_sin_codigo_se_importa`
   - `test_cota_desde_082`
   - `test_importa_sin_cota`: un registro sin 092, 952, 082 ni 050 se importa con cota None.
@@ -415,7 +415,7 @@
 **Interfaces:** consume `/api/v1/staff*` (Tarea 2), `/api/v1/settings` y `/settings/backup` (Tareas 3 y 8), y `auth/me.alerta_respaldo` (Tarea 8).
 
 - [ ] **Paso 1: Usuarios.** Tabla con usuario, nombre, rol y estado. Diálogo "Nuevo" con usuario, nombre, apellido, rol y clave temporal. Acciones: cambiar rol, activar o desactivar, restablecer clave. Se muestran los errores 400 del servicio, por ejemplo el del último administrador.
-- [ ] **Paso 2: Configuración.** Tarjeta "Biblioteca" (nombre, código y tipo de ítem para Koha, con ayuda: "Koha exige estos dos datos al importar"). Tarjeta "Respaldo":
+- [ ] **Paso 2: Configuración.** Tarjeta "Biblioteca" (nombre, código de sede (952 $a y $b), tipo de ítem (952 $y) y código de organización MARC (003), cada uno con su ayuda). Tarjeta "Respaldo":
   - carpeta y ruta de `pg_dump` (con "Detectar")
   - el último resultado con fecha, tamaño y mensaje
   - el botón "Respaldar ahora" con su spinner
@@ -460,6 +460,6 @@
   4. La ficha muestra los 2 ejemplares.
   5. El administrador hace "Respaldar ahora" y ve el resultado correcto.
 - [ ] **Paso 2:** `npx playwright test` en verde.
-- [ ] **Paso 3:** README: qué es lite, instalación (remite a `instalacion/LEEME.md`), respaldo y restauración, roles, Koha (los subcampos 952) y desarrollo (venv en la raíz, comandos desde `backend/`). TODO: tabla de verificación con pytest, migración, e2e y lint.
+- [ ] **Paso 3:** README: qué es lite, instalación (remite a `instalacion/LEEME.md`), respaldo y restauración, roles, intercambio MARC (los subcampos 952 y el 003) y desarrollo (venv en la raíz, comandos desde `backend/`). TODO: tabla de verificación con pytest, migración, e2e y lint.
 - [ ] **Paso 4: verificación final.** pytest completo, `npm run typecheck && npm run lint && npm run build`, e2e, y un `grep` de los módulos eliminados en `backend/` y `frontend/` sin resultados.
 - [ ] **Paso 5: Checkpoint final.** `Shelfie-lite: recorrido e2e y documentación`.

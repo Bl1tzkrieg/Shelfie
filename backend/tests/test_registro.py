@@ -1,4 +1,4 @@
-"""Fase 8: registro de acciones (action_logs de Koha)."""
+"""Fase 8: registro de acciones."""
 
 from datetime import timedelta
 
@@ -71,10 +71,10 @@ def test_editar_un_ejemplar(client, datos, db):
 
 
 def test_ajustes_con_antes_y_despues(client, db):
-    client.put("/api/v1/settings", json={"biblioteca": {"codigo": "UNA"}})
+    client.put("/api/v1/settings", json={"biblioteca": {"codigo_sede": "UNA"}})
     [cambio] = _acciones(db, modulo="configuracion")
     assert cambio.datos["seccion"] == "biblioteca"
-    assert cambio.datos["cambios"]["codigo"] == ["BIB", "UNA"]
+    assert cambio.datos["cambios"]["codigo_sede"] == ["BIB", "UNA"]
 
 
 def test_apagar_un_modulo_deja_de_registrarlo_pero_el_cambio_queda(client, datos, db):

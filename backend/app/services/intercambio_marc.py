@@ -1,18 +1,19 @@
 """Importar y exportar registros MARC21 (ISO 2709 y MARCXML) con pymarc.
 
-Los ejemplares viajan en el campo 952, con los mismos subcampos que usa Koha,
-para poder migrar desde o hacia Koha sin transformar nada:
+Los ejemplares viajan en el campo 952, uno por ejemplar, con estos subcampos (los que
+usa Koha, el sistema del que vienen y al que van los archivos de esta biblioteca):
 
-    952 $a y $b biblioteca   $o signatura   $p código de barras   $t número de copia
-        $y tipo de ítem      $z nota
+    952 $a biblioteca propietaria   $b biblioteca donde está   $o signatura
+        $p código de barras         $t número de copia         $y tipo de ítem   $z nota
 
-Al exportar, $a y $b llevan `biblioteca.codigo` y $y `biblioteca.tipo_item_koha`; al
-importar se ignoran (también $1). Los ejemplares son la fuente de verdad: el 952 no se
-guarda en el MARC del registro, se regenera al exportar.
+Al exportar, $a y $b llevan `biblioteca.codigo_sede` y $y `biblioteca.tipo_item`; al
+importar se ignoran (también $1 y $7). Los ejemplares son la fuente de verdad: el 952 no
+se guarda en el MARC del registro, se regenera al exportar. El 001 es el número del
+registro en Shelfie y el 003, `biblioteca.codigo_organizacion` (sin él, no hay 003).
 
 La cota del registro importado es la del 092; si no hay, la del primer 952 $o, la del
 082 ($a + $b) o la del 050 ($a + $b), en ese orden. No se escribe un 092: el MARC queda
-como vino, para que la ida y vuelta con Koha no agregue campos. Sin ninguna, queda vacía.
+como vino, para que importar y volver a exportar no agregue campos. Sin ninguna, queda vacía.
 
 Al importar, el duplicado se detecta por ISBN (solo dígitos, cualquiera de los 020). La política elige qué
 hacer con él: omitirlo, reemplazar su MARC (conserva sus ejemplares y suma los
@@ -49,7 +50,8 @@ TAGS_DE_OTRO_SISTEMA = {"999", TAG_EJEMPLAR}
 # --- Exportación -------------------------------------------------------------------
 
 def _campo_952(item: models.Item, biblioteca: str, tipo_item: str) -> dict:
-    """Un 952 como lo espera Koha: $a $b $o $p $t $y $z; $a, $b e $y siempre van."""
+    """Un 952 con $a $b $o $p $t $y $z; $a, $b e $y siempre van (sin ellos el ejemplar no se
+    puede importar en Koha)."""
     subs = []
     for codigo, valor in (("a", biblioteca), ("b", biblioteca),
                           ("o", item.signatura_topografica), ("p", item.codigo_barras),
@@ -59,14 +61,26 @@ def _campo_952(item: models.Item, biblioteca: str, tipo_item: str) -> dict:
     return {TAG_EJEMPLAR: {"ind1": " ", "ind2": " ", "subfields": subs}}
 
 
-def _para_exportar(biblio: models.RegistroBibliografico, biblioteca: str, tipo_item: str,
+@dataclass(frozen=True)
+class DatosDeExportacion:
+    codigo_sede: str           # 952 $a y $b
+    tipo_item: str             # 952 $y
+    codigo_organizacion: str   # 003; vacío = sin 003
+
+
+def _para_exportar(biblio: models.RegistroBibliografico, datos: DatosDeExportacion,
                    ejemplares: List[models.Item]) -> pymarc.Record:
     origen = biblio.marc_json or marc.desde_columnas(biblio.titulo, biblio.autor, biblio.isbn,
                                                      biblio.ano_publicacion, biblio.materia)
+    # El 001 es el número de Shelfie; un 003 importado era del sistema de origen y ya no
+    # le corresponde, así que solo sale el código de organización configurado.
     campos = [c for c in origen.get("fields", [])
               if next(iter(c)) not in {"001", "003"} | TAGS_DE_OTRO_SISTEMA]
-    campos = [{"001": str(biblio.id)}, {"003": biblioteca}] + campos
-    campos += [_campo_952(i, biblioteca, tipo_item) for i in ejemplares]
+    control = [{"001": str(biblio.id)}]
+    if datos.codigo_organizacion:
+        control.append({"003": datos.codigo_organizacion})
+    campos = control + campos
+    campos += [_campo_952(i, datos.codigo_sede, datos.tipo_item) for i in ejemplares]
     lider = (origen.get("leader") or marc_plantillas.obtener(biblio.plantilla).lider).ljust(24)
     lider = lider[:9] + "a" + lider[10:24]  # posición 9 = "a": texto en UTF-8
     return marc.a_pymarc({"leader": lider, "fields": campos})
@@ -113,12 +127,14 @@ def _para_exportar_todos(db: Session, ids: Optional[List[int]]) -> List[tuple]:
     if ids is not None:
         consulta = consulta.filter(models.RegistroBibliografico.id.in_(ids))
     registros = consulta.order_by(models.RegistroBibliografico.id).all()
-    datos = configuracion.leer(db, "biblioteca")
-    biblioteca = (datos.get("codigo") or "BIB").strip()  # hasta 10, como en Koha
-    # El ajuste se guarda como lo escribieron; Koha espera el código en mayúsculas.
-    tipo_item = (datos.get("tipo_item_koha") or "LIB").strip().upper()
+    ajustes = configuracion.leer(db, "biblioteca")
+    datos = DatosDeExportacion(
+        codigo_sede=(ajustes.get("codigo_sede") or "BIB").strip(),
+        # El ajuste se guarda como lo escribieron; los códigos de tipo de ítem van en mayúsculas.
+        tipo_item=(ajustes.get("tipo_item") or "LIB").strip().upper(),
+        codigo_organizacion=(ajustes.get("codigo_organizacion") or "").strip())
     items = _items_por_titulo(db, [b.id for b in registros])
-    return [(b, _para_exportar(b, biblioteca, tipo_item, items[b.id])) for b in registros]
+    return [(b, _para_exportar(b, datos, items[b.id])) for b in registros]
 
 
 def exportar(db: Session, *, formato: Literal["marc", "marcxml"],
@@ -297,7 +313,7 @@ class _Contexto:
                 valor = (valor or "").strip()
                 if codigo in SUBCAMPOS_952_USADOS or not valor:
                     continue
-                if codigo in ESTADOS_KOHA and valor == "0":
+                if codigo in ESTADOS_952 and valor == "0":
                     continue
                 self.subcampos_ignorados.add(codigo)
 
@@ -310,8 +326,8 @@ class _Contexto:
 
 # $o $p $t $z se guardan; $a, $b e $y se regeneran al exportar desde la configuración.
 SUBCAMPOS_952_USADOS = set("abyoptz")
-# Estados de Koha que Shelfie no maneja: $1 perdido y $7 no prestable (0 = normal).
-ESTADOS_KOHA = {"1": "perdido", "7": "no prestable"}
+# Estados del ejemplar que Shelfie no maneja: 952 $1 perdido y $7 no prestable (0 = normal).
+ESTADOS_952 = {"1": "perdido", "7": "no prestable"}
 
 
 def _sub_952(campo: dict, codigo: str) -> Optional[str]:
@@ -336,7 +352,7 @@ def _ejemplares(db: Session, ctx: _Contexto, campos_952: List[dict], resultado: 
         def sub(codigo: str) -> Optional[str]:
             return _sub_952(campo, codigo)
 
-        barcode = sub("p")  # opcional: Koha admite ejemplares sin código
+        barcode = sub("p")  # opcional: un ejemplar puede no tener código de barras
         if barcode and (barcode in ctx.barcodes_en_archivo or db.query(models.Item.id).filter(
                 models.Item.codigo_barras == barcode).first()):
             resultado.mensajes.append(f"El código de barras {barcode} ya existe: omitido")
@@ -355,11 +371,11 @@ def _ejemplares(db: Session, ctx: _Contexto, campos_952: List[dict], resultado: 
             continue
         if barcode:
             ctx.barcodes_en_archivo.add(barcode)
-        for codigo, estado in ESTADOS_KOHA.items():
+        for codigo, estado in ESTADOS_952.items():
             if (sub(codigo) or "0") != "0":
                 resultado.mensajes.append(
                     f"el ejemplar {_nombre_ejemplar(barcode, sub('o'), sub('t'))} figuraba "
-                    f"{estado} en Koha; en Shelfie queda como uno más")
+                    f"{estado} (952 ${codigo}); en Shelfie queda como uno más")
         resultado.ejemplares += 1
         if not aplicar:
             continue
@@ -413,7 +429,7 @@ def _importar_uno(db: Session, ctx: _Contexto, crudo, n: int, aplicar: bool, dup
     sin_ejemplares, campos_952 = _separar_ejemplares(marc.desde_pymarc(crudo))
     ctx.anotar_ignorados(campos_952)
     # Etiquetas propias de otros sistemas (FMT, LDR de Aleph/Alma): se descarta el campo,
-    # no el registro, como hace Koha.
+    # no el registro.
     ajenas = sorted({next(iter(c)) for c in sin_ejemplares.get("fields", [])
                      if isinstance(c, dict) and len(c) == 1
                      and not re.fullmatch(r"\d{3}", str(next(iter(c))))})
@@ -437,7 +453,7 @@ def _importar_uno(db: Session, ctx: _Contexto, crudo, n: int, aplicar: bool, dup
         resultado.accion = "error"
         resultado.mensajes.append("Sin título (245 $a)")
         return resultado
-    # Lo demás que la plantilla pediría no impide importar (Koha tampoco lo exige).
+    # Lo demás que la plantilla pediría queda como aviso: solo el 245 $a impide importar.
     resultado.mensajes += [e["msg"] for e in marc.validar(canonico, plantilla)]
 
     isbns = (derivado["isbns"] or "").split()

@@ -1,6 +1,6 @@
 """Registros MARC21: forma canónica, validación contra la plantilla y datos derivados.
 
-El registro MARC es la fuente (como en Koha). Título, autor, materia, año e ISBN
+El registro MARC es la fuente. Título, autor, materia, año e ISBN
 de `registros_bibliograficos` se derivan de él cada vez que se guarda, para que
 la búsqueda, las listas y la circulación no tengan que leer MARC.
 

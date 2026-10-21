@@ -178,12 +178,14 @@ Remove-NetFirewallRule -DisplayName 'Shelfie-lite (TCP 8080)'
 Después borre la carpeta de instalación y el acceso del escritorio. La base `shelfie_lite`
 queda en PostgreSQL hasta que la borre (`DROP DATABASE shelfie_lite;`); haga antes un respaldo.
 
-## Intercambio con Koha
+## Intercambio MARC (registros y ejemplares 952)
 
-- Al **exportar a Koha**, cada ejemplar sale como un 952 rehecho solo con
-  **$a $b $o $p $t $y $z** (biblioteca, biblioteca, cota, código de barras, copia, tipo de
-  ítem y nota). Los demás subcampos de ejemplar de Koha (estado, ubicación, fechas, precio…)
-  **no se conservan**.
+- Al **exportar**, cada ejemplar sale como un 952 rehecho solo con
+  **$a $b $o $p $t $y $z** (código de sede como biblioteca propietaria y como biblioteca donde
+  está, cota, código de barras, copia, tipo de ítem y nota). Los demás subcampos del 952 que
+  traiga un archivo importado (estado, ubicación, fechas, precio…) **no se conservan**.
+- El **003** lleva el código de organización MARC de Configuración; si está vacío, los
+  registros salen sin 003.
 - Al **importar**, la pantalla indica qué subcampos del 952 se ignoraron.
 
 ## Desarrollo (no para la biblioteca)

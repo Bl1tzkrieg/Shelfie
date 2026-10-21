@@ -50,7 +50,7 @@ def inicio_del_dia(fecha: date) -> datetime:
 
 
 def fin_del_dia(fecha: date) -> datetime:
-    """23:59:59 hora local de `fecha`, en UTC: así vencen los préstamos (como en Koha)."""
+    """23:59:59 hora local de `fecha`, en UTC: así vencen los préstamos."""
     return datetime.combine(fecha, time(23, 59, 59), tzinfo=zona()).astimezone(timezone.utc)
 
 

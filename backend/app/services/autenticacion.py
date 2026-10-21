@@ -15,8 +15,8 @@ from app.services import personal, registro
 # Mismo mensaje para usuario inexistente y contraseña incorrecta, y el mismo trabajo en
 # ambos casos (se verifica contra un hash de relleno), para no revelar qué usuarios
 # existen; una cuenta desactivada cuenta como inexistente. Tras varios fallos seguidos
-# con el mismo usuario (o desde la misma IP) hay que esperar unos minutos
-# (FailedLoginAttempts de Koha, pero temporal).
+# con el mismo usuario (o desde la misma IP) hay que esperar unos minutos: el bloqueo es
+# temporal, no deja la cuenta inhabilitada.
 
 _HASH_DE_RELLENO = hash_password("shelfie-relleno-para-igualar-tiempos")
 

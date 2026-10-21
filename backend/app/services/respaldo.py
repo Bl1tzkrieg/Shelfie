@@ -41,7 +41,7 @@ Fecha: {fecha}
 
 Archivos de esta carpeta:
   base.dump     Copia completa de la base de datos (formato de pg_dump, -Fc).
-  catalogo.mrc  El catálogo en MARC (ISO 2709), con un 952 por ejemplar, listo para Koha.
+  catalogo.mrc  El catálogo en MARC (ISO 2709), con un 952 por ejemplar ($a $b $o $p $t $y $z).
   catalogo.xml  El mismo catálogo en MARCXML.
   catalogo.csv  El catálogo en una hoja de cálculo (cota, título, autor, editorial, año,
                 ISBN, materias y ejemplares). Ábrelo con Excel.

@@ -1,4 +1,4 @@
-"""Registro de acciones (action_logs de Koha): quién hizo qué, cuándo y sobre qué.
+"""Registro de acciones: quién hizo qué, cuándo y sobre qué.
 
 Los servicios llaman a `anotar` justo antes de su commit, así la anotación entra en la
 misma transacción que la operación: si la operación falla, no queda registrada, y si
