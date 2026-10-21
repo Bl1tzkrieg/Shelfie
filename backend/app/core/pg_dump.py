@@ -20,7 +20,15 @@ def _carpetas_de_perfiles() -> List[str]:
     publica = os.environ.get("PUBLIC")
     if publica:
         carpetas.append(ntpath.dirname(publica.rstrip("\\/")))
-    return [ntpath.normcase(ntpath.normpath(c)) for c in carpetas if c]
+    return [ntpath.normcase(_como_la_ve_windows(c)) for c in carpetas if c]
+
+
+def _como_la_ve_windows(ruta: str) -> str:
+    """La ruta normalizada como la resuelve Windows: / pasa a \\, se resuelven . y .., y se
+    quitan los puntos y espacios del final de cada parte (C:\\Users. \\ana es C:\\Users\\ana)."""
+    partes = ruta.replace("/", "\\").split("\\")
+    partes = [p if p in (".", "..") else p.rstrip(". ") for p in partes]
+    return ntpath.normpath("\\".join(partes))
 
 
 def _en_windows() -> bool:
@@ -36,20 +44,21 @@ def _es_absoluta_posix(ruta: str) -> bool:
 def problema(ruta: Optional[str]) -> Optional[str]:
     """Por qué `ruta` no sirve como pg_dump, o None si sirve (o si está vacía).
 
-    Todo se decide sobre la ruta normalizada como la lee Windows (con / pasada a \\): así
+    Todo se decide sobre la ruta como la resuelve Windows (`_como_la_ve_windows`): así
     \\/servidor/... o /\\servidor\\... cuentan como carpeta de red y C:\\Program Files\\..\\Users
     como carpeta de usuario."""
     ruta = (ruta or "").strip().strip('"').strip()
     if not ruta:
         return None
-    normal = ntpath.normpath(ruta.replace("/", "\\"))
+    normal = _como_la_ve_windows(ruta)
     if ntpath.basename(normal).lower() not in NOMBRES:
         return ("La ruta de pg_dump debe terminar en pg_dump.exe (por ejemplo "
                 r"C:\Program Files\PostgreSQL\16\bin\pg_dump.exe)")
     unidad, resto = ntpath.splitdrive(normal)
     if unidad.startswith("\\\\") or normal.startswith("\\\\"):
         return "pg_dump debe estar en este equipo, no en una carpeta de red"
-    con_unidad = len(unidad) == 2 and unidad[1] == ":" and resto.startswith("\\")
+    con_unidad = (len(unidad) == 2 and unidad[0].isascii() and unidad[0].isalpha()
+                  and unidad[1] == ":" and resto.startswith("\\"))
     if not con_unidad and not _es_absoluta_posix(ruta):
         return ("La ruta de pg_dump debe ser completa, con la unidad (por ejemplo "
                 r"C:\Program Files\PostgreSQL\16\bin\pg_dump.exe)")

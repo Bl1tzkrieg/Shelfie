@@ -7,7 +7,7 @@ están hechas. Diseño en `docs/superpowers/specs/2026-10-20-shelfie-lite-design
 
 | Qué | Resultado |
 |---|---|
-| `python -m pytest -q` (backend/, `TEST_DATABASE_URL`) | 309 pruebas pasan (con `pwsh` 7 y un rol con CREATEDB; sin ellos algunas se saltan) |
+| `python -m pytest -q` (backend/, `TEST_DATABASE_URL`) | 318 pruebas pasan (con `pwsh` 7 y un rol con CREATEDB; sin ellos algunas se saltan) |
 | Migración `0001_lite` | `alembic upgrade head` sobre base vacía (la ejerce el e2e y `test_migraciones`) |
 | `npm run e2e` (Playwright 1.56.0) | 1 recorrido en verde: administrador → catalogador → ingreso → búsqueda pública → edición sin cambios → respaldo |
 | Restaurar un respaldo | `test_restauracion`: `base.dump` → `pg_restore` en una base nueva → la búsqueda encuentra el libro |

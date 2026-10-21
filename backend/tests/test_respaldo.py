@@ -428,6 +428,15 @@ def test_respaldo_sin_avisos_no_trae_aviso(db, tmp_path, monkeypatch):
     # El prefijo de perfiles se compara sobre la ruta ya normalizada.
     r"C:\Program Files\..\Users\ana\pg_dump.exe",
     "C:/Program Files/../Users/ana/pg_dump.exe",
+    # Windows quita los puntos y espacios del final de cada parte: C:\Users.\ es C:\Users\.
+    r"C:\Users.\ana\pg_dump.exe",
+    r"C:\Users \ana\pg_dump.exe",
+    r"C:\Users. .\ana\pg_dump.exe",
+    "C:/Users./Public/pg_dump.exe",
+    r"C:\Users\ana\pg_dump.exe.",
+    # La unidad tiene que ser una letra.
+    r"1:\x\pg_dump.exe",
+    r"$:\x\pg_dump.exe",
 ])
 def test_pg_dump_no_valido_se_rechaza_al_guardar(client, ruta):
     r = client.put("/api/v1/settings", json={"respaldo": {"pg_dump": ruta}})
@@ -440,6 +449,8 @@ def test_pg_dump_no_valido_se_rechaza_al_guardar(client, ruta):
 @pytest.mark.parametrize("ruta", [
     r"C:\Program Files\PostgreSQL\16\bin\pg_dump.exe",
     r'"C:\Program Files\PostgreSQL\16\bin\pg_dump.exe"',
+    r"D:\PostgreSQL\16\bin\pg_dump.exe",
+    r"C:\Program Files\PostgreSQL\16\bin\pg_dump.exe.",
     "/usr/lib/postgresql/16/bin/pg_dump",
     "",
 ])
