@@ -4,6 +4,8 @@ Catálogo de biblioteca para las computadoras de una biblioteca universitaria: s
 libros con un formulario simple, se encuentran escribiendo lo que se recuerda de ellos y la
 **cota** (el número que dice en qué lugar del estante está) aparece de inmediato.
 
+![Búsqueda pública de Shelfie-lite](docs/capturas/buscar.png)
+
 ## Por qué existe
 
 La biblioteca llevaba su catálogo en un Koha alojado por un proveedor. Primero se perdieron
@@ -28,6 +30,25 @@ nadie.
 | `/configuracion` | Administrador | Nombre de la biblioteca, código de sede (952 `$a` `$b`), tipo de ítem (952 `$y`), código de organización MARC (003) y respaldo |
 
 Las rutas no usan segmentos `[id]`: el frontend es un sitio estático y el `id` va en `?id=`.
+
+### Capturas
+
+Tomadas con los libros de ejemplo (ISBN y códigos ficticios).
+
+| Resultados de búsqueda | Ficha del libro |
+|---|---|
+| ![Resultados con la cota destacada](docs/capturas/resultados.png) | ![Ficha con la cota y los ejemplares](docs/capturas/ficha.png) |
+| **Libros** | **Ingreso** |
+| ![Lista en orden de estante](docs/capturas/libros.png) | ![Formulario de alta](docs/capturas/ingreso.png) |
+| **Configuración** | **Inicio de sesión** |
+| ![Biblioteca, códigos MARC y respaldo](docs/capturas/configuracion.png) | ![Inicio de sesión del personal](docs/capturas/login.png) |
+
+En el teléfono:
+
+<p>
+  <img src="docs/capturas/movil-buscar.png" alt="Búsqueda en el teléfono" width="260">
+  <img src="docs/capturas/movil-resultados.png" alt="Resultados en el teléfono" width="260">
+</p>
 
 ## Roles
 
@@ -161,5 +182,5 @@ frontend/
   e2e/            recorrido de Playwright
 instalacion/      instalar.ps1, iniciar.ps1, restaurar.ps1, LEEME.md
 scripts/          empaquetar.sh (arma el zip de instalación)
-docs/             diseño y plan de Shelfie-lite
+docs/             diseño y plan de Shelfie-lite; capturas/ con las pantallas
 ```
