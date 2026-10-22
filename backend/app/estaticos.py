@@ -7,13 +7,32 @@ páginas en el resto de las rutas.
 from pathlib import Path
 
 from fastapi import FastAPI
+from starlette.responses import Response
 from starlette.routing import Match, Mount
 from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 
+# /_next/static/ lleva el hash del contenido en el nombre: un cambio es otro archivo.
+_GUARDAR_SIEMPRE = "public, max-age=31536000, immutable"
+# Lo demás (páginas y los .txt que Next pide al navegar) se revalida en cada visita: con el
+# ETag la respuesta es un 304 sin cuerpo. Sin esto el navegador los guarda "a ojo" según la
+# fecha del archivo y, tras actualizar, mezcla la versión vieja con la nueva: Next nota la
+# diferencia y recarga la página sin parar.
+_REVALIDAR = "no-cache"
+
 
 def _es_de_la_api(ruta: str) -> bool:
     return ruta == "/api" or ruta.startswith("/api/")
+
+
+class _ArchivosDelFrontend(StaticFiles):
+    """StaticFiles con el Cache-Control que necesita una exportación de Next."""
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        respuesta = await super().get_response(path, scope)
+        inmutable = path.replace("\\", "/").startswith("_next/static/")
+        respuesta.headers["cache-control"] = _GUARDAR_SIEMPRE if inmutable else _REVALIDAR
+        return respuesta
 
 
 class _MontajeSinApi(Mount):
@@ -35,5 +54,5 @@ def montar(app: FastAPI, carpeta: Path) -> None:
     (`/../`), así que no se puede leer nada más del disco."""
     if not carpeta.is_dir():
         return
-    archivos = StaticFiles(directory=carpeta, html=True)
+    archivos = _ArchivosDelFrontend(directory=carpeta, html=True)
     app.router.routes.append(_MontajeSinApi("/", app=archivos, name="frontend"))

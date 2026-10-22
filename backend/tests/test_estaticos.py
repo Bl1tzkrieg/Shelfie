@@ -83,3 +83,24 @@ def test_carpeta_por_defecto_no_depende_del_directorio_actual(monkeypatch, tmp_p
     ruta = Settings().frontend_dir
     assert ruta.is_absolute()
     assert ruta == (Path(__file__).resolve().parents[2] / "frontend" / "out")
+
+
+def test_las_paginas_se_revalidan_en_cada_visita(cliente, carpeta):
+    # Sin Cache-Control el navegador guarda las páginas y los .txt de Next "a ojo" (según la
+    # fecha del archivo): tras actualizar mezcla la versión vieja con la nueva y Next recarga
+    # la página sin parar. Se piden de nuevo siempre (con ETag, la respuesta es un 304).
+    (carpeta / "__next._tree.txt").write_text("arbol", encoding="utf-8")
+    for ruta in ("/", "/ingreso/", "/__next._tree.txt"):
+        assert cliente.get(ruta).headers["cache-control"] == "no-cache", ruta
+    r = cliente.get("/no-existe/")
+    assert r.status_code == 404
+    assert r.headers["cache-control"] == "no-cache"
+
+
+def test_los_archivos_con_hash_se_guardan_para_siempre(cliente, carpeta):
+    # /_next/static/ lleva el hash del contenido en el nombre: un cambio es otro archivo.
+    (carpeta / "_next" / "static" / "chunks").mkdir(parents=True)
+    (carpeta / "_next" / "static" / "chunks" / "a1b2.js").write_text("x", encoding="utf-8")
+    r = cliente.get("/_next/static/chunks/a1b2.js")
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "public, max-age=31536000, immutable"
