@@ -14,10 +14,10 @@ export function marcarLlegadaDeBuscar(valor: boolean) {
   }
 }
 
-/** La cota, grande y en monoespaciada: es lo que la bibliotecaria busca en el estante. */
+/** La cota, grande, en monoespaciada y en teal: es lo que la bibliotecaria busca en el estante. */
 export function Cota({ cota, className = "" }: { cota: string | null; className?: string }) {
   return cota ? (
-    <span aria-label="Cota" className={`font-mono text-2xl font-semibold text-foreground ${className}`}>
+    <span aria-label="Cota" className={`font-mono text-2xl font-semibold tracking-tight text-primary ${className}`}>
       {cota}
     </span>
   ) : (
@@ -40,8 +40,10 @@ export function Resultado({ r }: { r: ResultadoBusqueda }) {
       <Link
         href={`/libro/?id=${r.id}`}
         onClick={() => marcarLlegadaDeBuscar(true)}
-        className="flex flex-col gap-1 rounded-lg border border-border bg-card p-4 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:flex-row sm:items-start sm:gap-6"
+        className="group relative flex flex-col gap-1 overflow-hidden rounded-xl border border-border/80 bg-card p-4 pl-5 shadow-papel transition-[box-shadow,border-color,translate] duration-200 hover:-translate-y-px hover:border-primary/30 hover:shadow-papel-alzado focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none motion-reduce:hover:translate-y-0 sm:flex-row sm:items-start sm:gap-6 sm:p-5 sm:pl-6"
       >
+        {/* Lomo: una franja teal a la izquierda, como la etiqueta de un libro en el estante. */}
+        <span aria-hidden className="absolute inset-y-0 left-0 w-1 bg-primary/25 transition-colors group-hover:bg-primary" />
         <div className="sm:w-44 sm:shrink-0">
           <Cota cota={r.cota} />
         </div>

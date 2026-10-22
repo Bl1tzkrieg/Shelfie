@@ -341,7 +341,7 @@ export function FormularioLibro({ libro }: FormularioLibroProps) {
       onKeyDown={alPresionarTecla}
       className="mx-auto max-w-3xl space-y-6"
     >
-      <section className="space-y-4 rounded-lg border border-border bg-card p-4 sm:p-6">
+      <section className="space-y-4 rounded-xl border border-border/80 bg-card shadow-papel p-4 sm:p-6">
         <Campo campo="cota" rotulo="Cota" obligatorio error={errores.cota}
                ayuda="Clase y librística, p. ej. 616.39 H37">
           <Input {...props("cota")} ref={cota} required maxLength={MAX_COTA} autoComplete="off"
@@ -402,7 +402,7 @@ export function FormularioLibro({ libro }: FormularioLibroProps) {
       </section>
 
       {alta && (
-        <section className="grid gap-4 rounded-lg border border-border bg-card p-4 sm:grid-cols-[10rem_1fr] sm:p-6">
+        <section className="grid gap-4 rounded-xl border border-border/80 bg-card shadow-papel p-4 sm:grid-cols-[10rem_1fr] sm:p-6">
           <Campo campo="ejemplares" rotulo="N.º de ejemplares" error={errores.ejemplares}>
             <Input {...props("ejemplares")} type="number" min={1} max={MAX_EJEMPLARES}
                    inputMode="numeric" />

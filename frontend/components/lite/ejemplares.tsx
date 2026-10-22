@@ -149,7 +149,7 @@ export function Ejemplares({ libroId, cotaLibro, ejemplares, onCambio }: Ejempla
   )
 
   return (
-    <section aria-labelledby="titulo-ejemplares" className="mx-auto max-w-3xl space-y-3 rounded-lg border border-border bg-card p-4 sm:p-6">
+    <section aria-labelledby="titulo-ejemplares" className="mx-auto max-w-3xl space-y-3 rounded-xl border border-border/80 bg-card shadow-papel p-4 sm:p-6">
       <div className="flex items-center justify-between gap-3">
         <h2 id="titulo-ejemplares" className="text-base font-semibold text-foreground">
           Ejemplares <span className="font-normal text-muted-foreground">({ejemplares.length})</span>

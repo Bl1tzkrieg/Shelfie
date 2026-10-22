@@ -107,7 +107,7 @@ function Contenido({ estado, onReintentar }: { estado: Estado; onReintentar: () 
   }
   if (estado.tipo === "error") {
     return (
-      <div role="alert" className="flex flex-col items-center gap-3 rounded-lg border border-destructive/40 p-6 text-center">
+      <div role="alert" className="flex flex-col items-center gap-3 rounded-xl border border-destructive/40 bg-card p-6 text-center shadow-papel">
         <p className="text-destructive">No se pudo cargar la ficha. Revisa la conexión con el servidor.</p>
         <Button variant="outline" onClick={onReintentar}>Reintentar</Button>
       </div>
@@ -134,14 +134,15 @@ function Contenido({ estado, onReintentar }: { estado: Estado; onReintentar: () 
 
   return (
     <article className="space-y-6">
-      <header className="space-y-2">
-        <p className="text-sm font-medium text-muted-foreground">Cota</p>
+      <header className="relative space-y-2 overflow-hidden rounded-2xl border border-border/80 bg-card p-5 pl-7 shadow-papel-alzado sm:p-7 sm:pl-9">
+        <span aria-hidden className="absolute inset-y-0 left-0 w-1.5 bg-primary" />
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Cota</p>
         <Cota cota={f.cota || null} className="block text-4xl" />
-        <h1 className="pt-2 text-2xl font-semibold leading-snug text-foreground">{f.titulo}</h1>
-        {f.subtitulo && <p className="text-lg text-muted-foreground">{f.subtitulo}</p>}
+        <h1 className="pt-2 text-2xl font-semibold leading-snug text-balance text-foreground">{f.titulo}</h1>
+        {f.subtitulo && <p className="text-lg text-pretty text-muted-foreground">{f.subtitulo}</p>}
       </header>
 
-      <dl className="divide-y divide-border rounded-lg border border-border bg-card px-4">
+      <dl className="divide-y divide-border rounded-xl border border-border/80 bg-card px-4 shadow-papel sm:px-6">
         {datos
           .filter(([, valor]) => valor !== null && valor !== "")
           .map(([rotulo, valor]) => <Dato key={rotulo} rotulo={rotulo}>{valor}</Dato>)}
@@ -154,9 +155,9 @@ function Contenido({ estado, onReintentar }: { estado: Estado; onReintentar: () 
         {ejemplares.length === 0 ? (
           <p className="text-muted-foreground">Este libro no tiene ejemplares registrados.</p>
         ) : (
-          <ul className="divide-y divide-border rounded-lg border border-border bg-card">
+          <ul className="divide-y divide-border rounded-xl border border-border/80 bg-card shadow-papel">
             {ejemplares.map((e, i) => (
-              <li key={i} className="flex flex-wrap items-baseline gap-x-6 gap-y-1 px-4 py-3">
+              <li key={i} className="flex flex-wrap items-baseline gap-x-6 gap-y-1 px-4 py-3 sm:px-6">
                 <Cota cota={e.cota} className="text-xl" />
                 {e.numero_copia && <span className="text-foreground">{e.numero_copia}</span>}
                 {e.nota && <span className="text-sm text-muted-foreground">{e.nota}</span>}

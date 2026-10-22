@@ -65,7 +65,7 @@ export function Sidebar({ enHoja = false, onNavegar }: {
                          enHoja ? "h-full w-full" : "fixed inset-y-0 left-0 z-50 hidden w-64 lg:flex")}>
       {/* Logo */}
       <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-6">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar-primary">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar-primary shadow-papel">
           <BookMarked className="h-5 w-5 text-sidebar-primary-foreground" />
         </div>
         <div className="flex min-w-0 flex-col">
@@ -89,11 +89,11 @@ export function Sidebar({ enHoja = false, onNavegar }: {
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-papel"
                   : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
               )}
             >
-              <item.icon className="h-5 w-5" />
+              <item.icon className={cn("h-5 w-5", isActive && "text-sidebar-primary")} />
               {item.name}
             </Link>
           )

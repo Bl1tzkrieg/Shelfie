@@ -81,7 +81,7 @@ export function ListaUsuarios() {
         </Button>
       </div>
 
-      <div className="hidden rounded-lg border border-border bg-card sm:block">
+      <div className="hidden rounded-xl border border-border/80 bg-card shadow-papel sm:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -122,7 +122,7 @@ export function ListaUsuarios() {
       <ul className="space-y-3 sm:hidden">
         {personal === null && <li className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></li>}
         {personal?.map((p) => (
-          <li key={p.id} className={`space-y-3 rounded-lg border border-border bg-card p-4 ${p.activo ? "" : "opacity-60"}`}>
+          <li key={p.id} className={`space-y-3 rounded-xl border border-border/80 bg-card shadow-papel p-4 ${p.activo ? "" : "opacity-60"}`}>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className="font-medium text-foreground">{p.nombre} {p.apellido}</p>

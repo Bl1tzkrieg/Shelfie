@@ -8,9 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { FondoGeometrico } from "@/components/lite/fondo-geometrico"
 import { Resultado, marcarLlegadaDeBuscar } from "@/components/lite/resultado"
 import { api } from "@/lib/api"
 import type { CampoBusqueda, PaginaBusqueda } from "@/lib/types"
+import { cn } from "@/lib/utils"
 
 const PAUSA_MS = 300
 const POR_PAGINA = 20
@@ -121,34 +123,83 @@ export function Buscador() {
     setConsulta((c) => ({ ...c, q: entrada.trim(), pagina: 1 }))
   }
 
+  // Con una consulta en curso el encabezado se reduce a una franja para no empujar los resultados.
+  const compacto = estado.tipo !== "inactivo"
+  // Transición de las medidas del encabezado; con movimiento reducido el cambio es inmediato.
+  const transicion = "duration-500 ease-out motion-reduce:transition-none"
+
   return (
     <div className="space-y-6">
-      <form onSubmit={buscarYa} role="search" className="flex flex-col gap-3 sm:flex-row">
-        <div className="relative flex-1">
-          <label htmlFor="buscar-q" className="sr-only">Buscar en el catálogo</label>
-          <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" aria-hidden />
-          <Input
-            id="buscar-q"
-            type="search"
-            autoFocus
-            autoComplete="off"
-            value={entrada}
-            onChange={(e) => escribir(e.target.value)}
-            placeholder="Título, autor, materia, cota o ISBN"
-            className="h-14 pl-12 text-lg md:text-lg"
-          />
+      <div
+        className={cn(
+          "relative isolate overflow-hidden rounded-2xl text-hero-foreground shadow-papel-flotante",
+          "transition-[padding]", transicion,
+          compacto ? "px-3 py-3 sm:px-5 sm:py-4" : "px-5 pb-8 pt-10 sm:px-10 sm:pb-12 sm:pt-16",
+        )}
+      >
+        <FondoGeometrico compacto={compacto} />
+
+        <div className="max-w-2xl">
+          <h1
+            className={cn(
+              "font-semibold tracking-tight text-balance transition-[font-size,line-height]", transicion,
+              compacto ? "px-1 text-sm/5 text-hero-muted" : "text-3xl/tight sm:text-4xl/tight",
+            )}
+          >
+            Encuentra un libro y su ubicación
+          </h1>
+          <div
+            aria-hidden={compacto}
+            className={cn(
+              "grid transition-[grid-template-rows,opacity]", transicion,
+              compacto ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100",
+            )}
+          >
+            <p className="min-h-0 overflow-hidden">
+              <span className="block pt-3 text-base text-pretty text-hero-muted sm:text-lg">
+                Busca por título, autor, materia, cota o ISBN y te mostramos en qué estante está.
+              </span>
+            </p>
+          </div>
         </div>
-        <Select value={consulta.campo} onValueChange={cambiarCampo}>
-          <SelectTrigger aria-label="Buscar en" className="h-14 w-full text-base sm:w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {CAMPOS.map((c) => (
-              <SelectItem key={c.valor} value={c.valor}>{c.rotulo}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </form>
+
+        <form
+          onSubmit={buscarYa}
+          role="search"
+          className={cn(
+            // En escritorio deja ver el estante del fondo a la derecha.
+            "flex flex-col gap-2 rounded-xl bg-card p-2 text-card-foreground shadow-papel-flotante sm:flex-row lg:max-w-2xl",
+            "transition-[margin]", transicion,
+            compacto ? "mt-2" : "mt-8",
+          )}
+        >
+          <div className="relative flex-1">
+            <label htmlFor="buscar-q" className="sr-only">Buscar en el catálogo</label>
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-primary" aria-hidden />
+            <Input
+              id="buscar-q"
+              type="search"
+              autoFocus
+              autoComplete="off"
+              value={entrada}
+              onChange={(e) => escribir(e.target.value)}
+              placeholder="Título, autor, materia, cota o ISBN"
+              className="h-12 border-transparent pl-12 text-lg shadow-none md:text-lg"
+            />
+          </div>
+          <Select value={consulta.campo} onValueChange={cambiarCampo}>
+            <SelectTrigger aria-label="Buscar en"
+                           className="h-12 w-full border-transparent bg-muted text-base shadow-none data-[size=default]:h-12 sm:w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CAMPOS.map((c) => (
+                <SelectItem key={c.valor} value={c.valor}>{c.rotulo}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </form>
+      </div>
 
       <Resultados
         estado={estado}
@@ -173,21 +224,21 @@ function Resultados({
 }) {
   if (estado.tipo === "inactivo") {
     return (
-      <p className="py-10 text-center text-muted-foreground">
-        Escribe un título, autor, materia, cota o ISBN para buscar.
+      <p className="px-2 py-4 text-center text-sm text-muted-foreground">
+        Si sabes la cota, escríbela tal cual (p. ej. 612.015) o elige «Cota» en «Buscar en».
       </p>
     )
   }
   if (estado.tipo === "cargando") {
     return (
       <div className="space-y-3" role="status" aria-label="Buscando">
-        {[0, 1, 2].map((i) => <Skeleton key={i} className="h-24 w-full" />)}
+        {[0, 1, 2].map((i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}
       </div>
     )
   }
   if (estado.tipo === "error") {
     return (
-      <div role="alert" className="flex flex-col items-center gap-3 rounded-lg border border-destructive/40 p-6 text-center">
+      <div role="alert" className="flex flex-col items-center gap-3 rounded-xl border border-destructive/40 bg-card p-6 text-center shadow-papel">
         <p className="text-destructive">No se pudo buscar. Revisa la conexión con el servidor.</p>
         <Button variant="outline" onClick={onReintentar}>Reintentar</Button>
       </div>

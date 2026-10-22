@@ -167,7 +167,7 @@ export function ListaLibros({ recarga }: { recarga: number }) {
           No se pudo cargar la lista: {respuesta.error}
         </p>
       ) : (
-        <div className="rounded-lg border border-border bg-card">
+        <div className="rounded-xl border border-border/80 bg-card shadow-papel">
           <Table aria-busy={cargando}>
             <TableHeader>
               <TableRow>

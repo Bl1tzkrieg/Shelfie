@@ -37,7 +37,7 @@ export function HistorialFicha({ filtro, recarga = 0 }: {
 
   if (!permitido) return null
   return (
-    <section aria-labelledby="historial-ficha" className="rounded-lg border border-border bg-card">
+    <section aria-labelledby="historial-ficha" className="rounded-xl border border-border/80 bg-card shadow-papel">
       <div className="flex items-center justify-between border-b border-border px-6 py-4">
         <h3 id="historial-ficha" className="flex items-center gap-2 font-semibold text-foreground">
           <History className="h-4 w-4" aria-hidden />Historial de cambios
