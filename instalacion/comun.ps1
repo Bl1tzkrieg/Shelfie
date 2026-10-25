@@ -1,6 +1,6 @@
 ﻿#Requires -Version 5.1
 <#
-    Funciones que comparten instalar.ps1, iniciar.ps1 y restaurar.ps1.
+    Funciones que comparten instalar.ps1, actualizar.ps1, iniciar.ps1 y restaurar.ps1.
     No se corre sola: los otros scripts la cargan con  . "$PSScriptRoot\comun.ps1"
 
     Todo tiene que funcionar en Windows PowerShell 5.1 (el que trae Windows 10):
@@ -124,6 +124,33 @@ function Detener-Shelfie {
         Start-Sleep -Milliseconds 500
     }
     return $false
+}
+
+function Correr-TareaDeRespaldo {
+    <# Lanza la tarea de respaldo (como lo hace Windows a diario) y espera a que termine.
+       Start-ScheduledTask vuelve enseguida: hasta que la tarea arranca, el último resultado es
+       el de antes (o 267011, «nunca corrió»). Primero se espera a que arranque (pasa por
+       Running o cambia LastRunTime; tope de 60 s) y después a que termine (tope de 10 min).
+       Devuelve 'ok', 'no-arranco', 'en-curso' o el código de error de la tarea. #>
+    $antes = (Get-ScheduledTaskInfo -TaskName $TareaRespaldo).LastRunTime
+    Start-ScheduledTask -TaskName $TareaRespaldo
+    $arranco = $false
+    $limiteArranque = (Get-Date).AddSeconds(60)
+    do {
+        Start-Sleep -Seconds 1
+        $estado = (Get-ScheduledTask -TaskName $TareaRespaldo).State
+        $ultima = (Get-ScheduledTaskInfo -TaskName $TareaRespaldo).LastRunTime
+        $arranco = ($estado -eq 'Running') -or ($ultima -ne $antes)
+    } while (-not $arranco -and (Get-Date) -lt $limiteArranque)
+    if (-not $arranco) { return 'no-arranco' }
+    $limite = (Get-Date).AddMinutes(10)
+    while ((Get-ScheduledTask -TaskName $TareaRespaldo).State -eq 'Running' -and (Get-Date) -lt $limite) {
+        Start-Sleep -Seconds 3
+    }
+    if ((Get-ScheduledTask -TaskName $TareaRespaldo).State -eq 'Running') { return 'en-curso' }
+    $resultado = (Get-ScheduledTaskInfo -TaskName $TareaRespaldo).LastTaskResult
+    if ($resultado -eq 0) { return 'ok' }
+    return "$resultado"
 }
 
 # SID conocidos (iguales en Windows en cualquier idioma).

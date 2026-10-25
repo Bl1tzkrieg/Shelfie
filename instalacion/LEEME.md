@@ -150,12 +150,39 @@ Libros → Importar MARC.
 
 ## Actualizar a una versión nueva
 
-1. Borre `backend\app`, `backend\migrations`, `backend\scripts` y `frontend\out` (así no quedan
-   archivos viejos; **no** borre `backend\.env` ni `backend\.venv`).
-2. Descomprima el zip nuevo encima de la misma carpeta, reemplazando los archivos.
-3. Vuelva a ejecutar `instalar.ps1`: detiene el servidor, actualiza las dependencias, corre
-   `alembic upgrade head`, deja las tareas al día y vuelve a iniciar. No pide la clave de
-   `postgres` si la base ya existe.
+Con el zip nuevo (`shelfie-lite-<versión>.zip`, el que genera `scripts/empaquetar.sh`; **no**
+una copia del repositorio, que no trae `frontend\out`), en PowerShell como administrador:
+
+```powershell
+cd "<carpeta donde está el zip>"
+powershell -ExecutionPolicy Bypass -File C:\Shelfie-lite\instalacion\actualizar.ps1
+```
+
+Sin `-Zip`, usa el `shelfie-lite-*.zip` más nuevo de la carpeta actual o de Descargas; con
+`-Zip "ruta\shelfie-lite-xxxxxxx.zip"`, ese. Si la instalación se hizo con
+`-PermitirPythonDeUsuario`, agréguelo también aquí. Muestra la versión instalada y la nueva,
+pide confirmación y luego:
+
+1. hace un respaldo (si falla, pregunta antes de seguir);
+2. detiene el servidor y deja `backend`, `frontend` e `instalacion` iguales a los del zip.
+   Se conservan `backend\.env` (la clave de la base), `backend\.venv`, `logs` y
+   `respaldos-previos`;
+3. ejecuta el `instalar.ps1` nuevo: dependencias, `alembic upgrade head`, permisos, tareas,
+   arranque y respaldo de prueba. No pide la clave de `postgres` ni pregunta por
+   administradores.
+
+Si se corta a mitad, vuelva a ejecutarlo con el mismo zip. Si el zip trae al lado su
+`.sha256`, se comprueba que no esté dañado.
+
+La primera vez, si la instalación todavía no tiene `actualizar.ps1`, córralo desde el zip:
+
+```powershell
+$zip = "<ruta>\shelfie-lite-xxxxxxx.zip"
+$tmp = "$env:TEMP\shelfie-nuevo"
+Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+Expand-Archive $zip $tmp
+powershell -ExecutionPolicy Bypass -File "$tmp\instalacion\actualizar.ps1" -Zip $zip -Destino C:\Shelfie-lite
+```
 
 ## Problemas frecuentes
 
@@ -164,6 +191,7 @@ Libros → Importar MARC.
 | No abre `http://localhost:8080` | Revise `logs\shelfie-AAAAMMDD.log` (se guardan 14 días). En el Programador de tareas, ejecute "Shelfie-lite" |
 | Abre en el servidor pero no desde circulación | La red debe ser privada (el instalador indica el comando) y el firewall debe tener "Shelfie-lite (TCP 8080)" |
 | El respaldo falla | El mensaje sale en Configuración; el detalle en `logs\respaldo-AAAAMMDD.log` |
+| Tras actualizar desde una versión anterior a bbfd5c7, la página se recarga sin parar | El navegador guardó archivos de la versión vieja: F12 → Application → Storage → **Clear site data** y recargar (en cada PC que ya la había abierto). Desde esa versión ya no pasa |
 | `instalar.ps1` se cortó a mitad | Corrija lo que indica el mensaje y vuelva a ejecutarlo |
 | Se perdió `backend\.env` | Vuelva a ejecutar `instalar.ps1`: crea uno nuevo y le pone la clave nueva al usuario de la base (pide la clave de `postgres`). Las sesiones abiertas se cierran |
 

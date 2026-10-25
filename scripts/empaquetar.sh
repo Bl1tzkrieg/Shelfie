@@ -2,7 +2,8 @@
 # Arma el entregable para Windows: dist/shelfie-lite-<versión>.zip con
 #   backend/      (sin .env, entornos virtuales, __pycache__, tests ni cachés)
 #   frontend/out/ (compilado aquí con npm ci && npm run build)
-#   instalacion/  (instalar.ps1, iniciar.ps1, restaurar.ps1, comun.ps1 y LEEME.md)
+#   instalacion/  (instalar.ps1, actualizar.ps1, iniciar.ps1, restaurar.ps1, comun.ps1, LEEME.md
+#                  y VERSION.txt con la versión, que muestran instalar.ps1 y actualizar.ps1)
 # Uso, desde cualquier carpeta del repo:  scripts/empaquetar.sh
 set -euo pipefail
 
@@ -64,6 +65,7 @@ tar -C "$RAIZ" \
     --exclude='backend/correo_saliente' \
     -cf - backend instalacion | tar -C "$PAQUETE" -xf -
 cp -r frontend/out "$PAQUETE/frontend/out"
+printf '%s\r\n' "$VERSION" > "$PAQUETE/instalacion/VERSION.txt"
 
 # Nada secreto ni de desarrollo puede ir en el zip.
 if find "$PAQUETE" \( -name '.env' -o -name '__pycache__' -o -name 'tests' -o -name '.venv' \) | grep -q .; then

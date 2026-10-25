@@ -180,7 +180,7 @@ frontend/
   app/            páginas (una carpeta por ruta)
   components/     lite/ (pantallas), layout/, auth/, ui/ (shadcn)
   e2e/            recorrido de Playwright
-instalacion/      instalar.ps1, iniciar.ps1, restaurar.ps1, LEEME.md
+instalacion/      instalar.ps1, actualizar.ps1, iniciar.ps1, restaurar.ps1, LEEME.md
 scripts/          empaquetar.sh (arma el zip de instalación)
 docs/             diseño y plan de Shelfie-lite; capturas/ con las pantallas
 ```

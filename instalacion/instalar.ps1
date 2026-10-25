@@ -24,12 +24,17 @@
 .PARAMETER PermitirPythonDeUsuario
     Acepta un Python instalado solo para un usuario (en C:\Users\...). No se recomienda:
     ese usuario podría cambiar código que SYSTEM ejecuta al iniciar el equipo.
+
+.PARAMETER Actualizacion
+    La pasa actualizar.ps1: no pregunta si se quiere crear otro administrador (si no hay
+    ninguno, igual lo pide).
 #>
 [CmdletBinding()]
 param(
     [string]$SuperusuarioPg = 'postgres',
     [int]$PuertoPg = 5432,
-    [switch]$PermitirPythonDeUsuario
+    [switch]$PermitirPythonDeUsuario,
+    [switch]$Actualizacion
 )
 
 $ErrorActionPreference = 'Stop'
@@ -153,6 +158,8 @@ function Correr-Python([string[]]$Argumentos, [string]$QueHace) {
 Write-Host ''
 Write-Host 'Instalación de Shelfie-lite' -ForegroundColor Cyan
 Write-Host "Carpeta: $ShelfieRaiz"
+$archivoVersion = Join-Path $PSScriptRoot 'VERSION.txt'
+if (Test-Path -LiteralPath $archivoVersion) { Write-Host "Versión: $(([System.IO.File]::ReadAllText($archivoVersion)).Trim())" }
 if (-not (Test-Path (Join-Path $ShelfieBackend 'app\main.py'))) {
     Detener-ConError "No se encontró backend\app\main.py en $ShelfieRaiz. Ejecute el script desde la carpeta descomprimida."
 }
@@ -345,6 +352,8 @@ if ($admins -eq 0) {
     Correr-Python @('-m', 'scripts.crear_admin') 'Crear el administrador'
 } else {
     Escribir-Ok "ya hay $admins administrador(es)"
+}
+if ($admins -gt 0 -and -not $Actualizacion) {
     $respuesta = Read-Host '   ¿Crear otro administrador o cambiar una contraseña? [s/N]'
     if ($respuesta.Trim().ToLower() -eq 's') { Correr-Python @('-m', 'scripts.crear_admin') 'Crear el administrador' }
 }
@@ -462,29 +471,12 @@ if (Esperar-Shelfie 90) {
     Escribir-Aviso "Shelfie-lite no respondió en 90 segundos. Revise el log en $ShelfieLogs"
 }
 Escribir-Info 'Probando el respaldo (como lo hará la tarea programada)…'
-$antes = (Get-ScheduledTaskInfo -TaskName $TareaRespaldo).LastRunTime
-Start-ScheduledTask -TaskName $TareaRespaldo
-# Start-ScheduledTask vuelve enseguida: hasta que la tarea arranca, el último resultado es el
-# de antes (o 267011, «nunca corrió»). Primero se espera a que arranque (pasa por Running o
-# cambia LastRunTime; tope de 60 s) y después a que termine (tope de 10 minutos).
-$arranco = $false
-$limiteArranque = (Get-Date).AddSeconds(60)
-do {
-    Start-Sleep -Seconds 1
-    $estado = (Get-ScheduledTask -TaskName $TareaRespaldo).State
-    $ultima = (Get-ScheduledTaskInfo -TaskName $TareaRespaldo).LastRunTime
-    $arranco = ($estado -eq 'Running') -or ($ultima -ne $antes)
-} while (-not $arranco -and (Get-Date) -lt $limiteArranque)
-$limite = (Get-Date).AddMinutes(10)
-while ((Get-ScheduledTask -TaskName $TareaRespaldo).State -eq 'Running' -and (Get-Date) -lt $limite) {
-    Start-Sleep -Seconds 3
-}
-$resultado = (Get-ScheduledTaskInfo -TaskName $TareaRespaldo).LastTaskResult
-if (-not $arranco) {
+$resultado = Correr-TareaDeRespaldo
+if ($resultado -eq 'no-arranco') {
     Escribir-Aviso "La tarea de respaldo no arrancó en 60 segundos. Pruébela con 'Respaldar ahora' en Configuración."
-} elseif ((Get-ScheduledTask -TaskName $TareaRespaldo).State -eq 'Running') {
+} elseif ($resultado -eq 'en-curso') {
     Escribir-Aviso "El respaldo de prueba sigue en curso después de 10 minutos. Revise el resultado en Configuración."
-} elseif ($resultado -eq 0) { Escribir-Ok 'respaldo de prueba correcto' }
+} elseif ($resultado -eq 'ok') { Escribir-Ok 'respaldo de prueba correcto' }
 else { Escribir-Aviso "El respaldo de prueba falló (código $resultado). Detalle en Configuración y en $ShelfieLogs" }
 
 # --- Resumen -------------------------------------------------------------------------

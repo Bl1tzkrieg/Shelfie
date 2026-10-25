@@ -21,7 +21,9 @@
   --muted-foreground: oklch(0.50 0.03 245);
   --accent: oklch(0.93 0.03 185);
   --accent-foreground: oklch(0.25 0.08 185);
-  --destructive: oklch(0.577 0.245 27.325);
+  /* 0.50 y no 0.577: el texto rojo sobre su propio fondo al 10 % (el aviso de respaldo)
+     llega a 5.2:1; con 0.577 daba 3.8:1. */
+  --destructive: oklch(0.50 0.21 27.325);
   --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(0.90 0.02 220);
   --input: oklch(0.92 0.01 220);
