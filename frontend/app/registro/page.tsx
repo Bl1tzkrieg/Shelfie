@@ -144,7 +144,7 @@ function Acciones({ ajustes }: { ajustes: AjustesRegistro | null }) {
 
   return (
     <div className="space-y-4">
-      <form onSubmit={buscar} className="grid gap-3 rounded-lg border border-border bg-card p-4 sm:grid-cols-2 lg:grid-cols-4">
+      <form onSubmit={buscar} className="grid gap-3 rounded-lg border border-border bg-card shadow-papel p-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-1.5">
           <Label htmlFor="f-modulo">Módulo</Label>
           <Select value={modulo} onValueChange={(v) => navegar({ modulo: v, accion: null })}>
@@ -199,7 +199,7 @@ function Acciones({ ajustes }: { ajustes: AjustesRegistro | null }) {
         </div>
       </form>
 
-      <section aria-live="polite" className="rounded-lg border border-border bg-card">
+      <section aria-live="polite" className="rounded-lg border border-border bg-card shadow-papel">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <p className="text-sm text-muted-foreground tabular-nums">
             {pagina_ ? `${pagina_.total} ${pagina_.total === 1 ? "acción" : "acciones"}` : "…"}
@@ -256,7 +256,7 @@ function Ajustes({ ajustes, onGuardado }: { ajustes: AjustesRegistro; onGuardado
 
   return (
     <form onSubmit={guardar} className="max-w-2xl space-y-4">
-      <div className="divide-y divide-border rounded-lg border border-border bg-card">
+      <div className="divide-y divide-border rounded-lg border border-border bg-card shadow-papel">
         {Object.entries(ajustes.descripciones).map(([modulo, descripcion]) => (
           <div key={modulo} className="flex items-start gap-3 p-4">
             <Switch id={`m-${modulo}`} checked={modulos[modulo] ?? true} disabled={!puedeEditar}

@@ -23,7 +23,9 @@ export function Disponibilidad({ disponibles, ejemplares }: { disponibles: numbe
 export function TituloResultado({ titulo, acciones }: { titulo: TituloPublico; acciones?: React.ReactNode }) {
   const detalle = [titulo.autor, titulo.ano_publicacion].filter(Boolean).join(" · ")
   return (
-    <li className="flex gap-4 rounded-lg border border-border bg-card p-4">
+    <li className="relative flex gap-4 overflow-hidden rounded-xl border border-border/80 bg-card p-4 pl-5 shadow-papel sm:p-5 sm:pl-6">
+      {/* Lomo: una franja teal a la izquierda, como la etiqueta de un libro en el estante. */}
+      <span aria-hidden className="absolute inset-y-0 left-0 w-1 bg-primary/25" />
       <div className="hidden h-20 w-14 shrink-0 items-center justify-center rounded bg-secondary sm:flex" aria-hidden>
         <BookOpen className="h-6 w-6 text-secondary-foreground/60" />
       </div>
@@ -35,7 +37,7 @@ export function TituloResultado({ titulo, acciones }: { titulo: TituloPublico; a
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <Disponibilidad disponibles={titulo.disponibles} ejemplares={titulo.ejemplares} />
           {titulo.ubicaciones.length > 0 && (
-            <span className="font-mono text-xs text-muted-foreground">{titulo.ubicaciones.join(", ")}</span>
+            <span className="font-mono text-sm font-semibold tracking-tight text-primary">{titulo.ubicaciones.join(", ")}</span>
           )}
         </div>
       </div>

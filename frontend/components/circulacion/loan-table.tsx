@@ -149,7 +149,7 @@ export function LoanTable({ loans, maxRenovaciones = 2, onChange }: LoanTablePro
 
   return (
     <>
-      <div className="rounded-lg border border-border bg-card">
+      <div className="rounded-lg border border-border bg-card shadow-papel">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>

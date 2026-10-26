@@ -161,7 +161,7 @@ function Editor({ plantilla, puedeEditar, onGuardada }:
         {errorPrevia ? (
           <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{errorPrevia}</p>
         ) : previa ? (
-          <div className="rounded-lg border bg-card">
+          <div className="rounded-lg border bg-card shadow-papel">
             <p className="border-b px-4 py-2.5 text-sm font-medium text-foreground">{previa.asunto}</p>
             <pre className="whitespace-pre-wrap px-4 py-3 font-sans text-sm text-foreground">{previa.cuerpo}</pre>
           </div>

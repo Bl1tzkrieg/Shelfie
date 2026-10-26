@@ -70,7 +70,7 @@ export function CuentaLector({ carnet, onChange }: CuentaLectorProps) {
 
   if (!cuenta) {
     return (
-      <div className="mb-6 rounded-lg border border-border bg-card py-8 text-center text-sm text-muted-foreground">
+      <div className="mb-6 rounded-lg border border-border bg-card shadow-papel py-8 text-center text-sm text-muted-foreground">
         Cargando cuenta…
       </div>
     )
@@ -79,7 +79,7 @@ export function CuentaLector({ carnet, onChange }: CuentaLectorProps) {
   const debe = cuenta.saldo > 0
 
   return (
-    <div className="mb-6 rounded-lg border border-border bg-card">
+    <div className="mb-6 rounded-lg border border-border bg-card shadow-papel">
       <div className="flex flex-col gap-3 border-b border-border px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="font-semibold text-foreground">Cuenta del lector</h3>

@@ -47,7 +47,7 @@ export function CampoMarc({
       id={`campo-${campo.id}`}
       data-tag={campo.tag}
       className={cn(
-        "rounded-lg border bg-card p-3",
+        "rounded-lg border bg-card shadow-papel p-3",
         conError ? "border-destructive/60 bg-destructive/5" : "border-border"
       )}
     >

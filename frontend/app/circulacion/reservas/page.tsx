@@ -223,7 +223,7 @@ function GestionDeReservas() {
       </div>
 
       {reservas === null ? (
-        <div className="rounded-lg border bg-card py-16 text-center text-muted-foreground">
+        <div className="rounded-lg border bg-card shadow-papel py-16 text-center text-muted-foreground">
           <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
           Cargando reservas…
         </div>
@@ -349,7 +349,7 @@ function Titulo({ r }: { r: { biblioId: string; title: string; author: string | 
 
 function Tabla({ cabeceras, children }: { cabeceras: string[]; children: React.ReactNode }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-card">
+    <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-papel">
       <table className="w-full text-sm">
         <thead className="bg-muted/50 text-left text-muted-foreground">
           <tr>
@@ -415,7 +415,7 @@ function ParaSacar({
         Busca estos ejemplares en el estante y apártalos. Escanearlos en la devolución hace lo mismo.
       </p>
       {titulos.map((t) => (
-        <div key={t.biblioId} className="rounded-lg border border-border bg-card p-4">
+        <div key={t.biblioId} className="rounded-lg border border-border bg-card shadow-papel p-4">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <Titulo r={t} />
@@ -512,7 +512,7 @@ function Cola({
   return (
     <div className="space-y-4">
       {porTitulo.map((grupo) => (
-        <div key={grupo[0].biblioId} className="overflow-hidden rounded-lg border border-border bg-card">
+        <div key={grupo[0].biblioId} className="overflow-hidden rounded-lg border border-border bg-card shadow-papel">
           <div className="flex items-baseline justify-between gap-3 border-b border-border bg-muted/40 px-4 py-2.5">
             <div>
               <Titulo r={grupo[0]} />

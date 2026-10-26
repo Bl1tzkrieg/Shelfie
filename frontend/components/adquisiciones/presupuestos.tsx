@@ -79,7 +79,7 @@ export function PresupuestosPanel() {
         <Vacio>Sin presupuestos. Crea uno para el ejercicio y repártelo en fondos (por área, sede o colección).</Vacio>
       ) : (
         presupuestos.map((p) => (
-          <section key={p.id} className="rounded-lg border bg-card">
+          <section key={p.id} className="rounded-lg border bg-card shadow-papel">
             <div className="flex flex-col gap-2 border-b px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h3 className="flex flex-wrap items-center gap-2 font-semibold text-foreground">

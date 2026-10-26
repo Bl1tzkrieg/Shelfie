@@ -116,7 +116,7 @@ export function EditorMarc({
 
   if (!campos || !plantilla) {
     return (
-      <div className="rounded-lg border bg-card py-12 text-center text-muted-foreground">
+      <div className="rounded-lg border bg-card shadow-papel py-12 text-center text-muted-foreground">
         Cargando plantilla…
       </div>
     )
@@ -162,7 +162,7 @@ export function EditorMarc({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-card p-4">
+      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border bg-card shadow-papel p-4">
         <div className="space-y-1">
           <label className="text-xs font-medium text-muted-foreground" htmlFor="marc-plantilla">
             Plantilla

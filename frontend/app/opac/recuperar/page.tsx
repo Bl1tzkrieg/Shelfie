@@ -7,6 +7,7 @@ import { Loader2, MailCheck } from "lucide-react"
 import { toast } from "sonner"
 
 import { MINIMO_CLAVE } from "@/components/auth/cambiar-clave-dialog"
+import { PanelEntrada } from "@/components/opac/panel-entrada"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -24,11 +25,9 @@ export default function RecuperarPage() {
 function Recuperar() {
   const token = useSearchParams().get("token")
   return (
-    <div className="mx-auto max-w-sm py-8">
-      <div className="rounded-xl border border-border bg-card p-8 shadow-sm">
-        {token ? <NuevaClave token={token} /> : <PedirEnlace />}
-      </div>
-    </div>
+    <PanelEntrada>
+      {token ? <NuevaClave token={token} /> : <PedirEnlace />}
+    </PanelEntrada>
   )
 }
 

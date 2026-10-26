@@ -45,11 +45,11 @@ function Cabecera({ nombre }: { nombre: string | null }) {
   }
 
   return (
-    <header className="border-b border-border bg-card">
+    <header className="border-b border-border/70 bg-card/95 shadow-papel">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 sm:px-6">
         <Link href="/opac" className="flex items-center gap-3">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary">
-            <BookMarked className="h-5 w-5 text-primary-foreground" />
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-hero shadow-papel">
+            <BookMarked className="h-5 w-5 text-sidebar-primary" aria-hidden />
           </span>
           <span className="leading-tight">
             <span className="block text-sm font-semibold text-foreground">{nombre ?? "Biblioteca"}</span>
@@ -71,7 +71,7 @@ function Cabecera({ nombre }: { nombre: string | null }) {
                   <UserRound className="mr-1.5 h-4 w-4" />
                   {lector.nombre}
                   {lector.para_retirar > 0 && (
-                    <span className="ml-1.5 rounded-full bg-accent px-1.5 text-xs font-semibold text-accent-foreground">
+                    <span className="ml-1.5 rounded-full bg-aviso px-1.5 text-xs font-semibold text-aviso-foreground">
                       {lector.para_retirar}
                     </span>
                   )}
@@ -120,11 +120,11 @@ function BuscadorCabecera({ inicial }: { inicial: string }) {
       }}
     >
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-primary" />
         <Input
           aria-label="Buscar en el catálogo"
           placeholder="Título, autor, materia o ISBN"
-          className="pl-9"
+          className="bg-background pl-9"
           value={texto}
           onChange={(e) => setTexto(e.target.value)}
         />

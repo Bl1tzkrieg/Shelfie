@@ -125,7 +125,7 @@ export default function SuscripcionPage() {
           Seriadas
         </Link>
 
-        <div className="flex flex-col gap-4 rounded-lg border bg-card p-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex flex-col gap-4 rounded-lg border bg-card shadow-papel p-5 lg:flex-row lg:items-start lg:justify-between">
           <dl className="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
             <div><dt className="text-muted-foreground">Estado</dt><dd className="flex gap-1">
               <Badge variant={activa ? "secondary" : "outline"}>{s.estado}</Badge>
@@ -184,7 +184,7 @@ export default function SuscripcionPage() {
             </div>
           ) : (
             porAno.map(([ano, lista]) => (
-              <div key={ano} className="overflow-hidden rounded-lg border bg-card">
+              <div key={ano} className="overflow-hidden rounded-lg border bg-card shadow-papel">
                 <div className="flex items-baseline justify-between border-b bg-muted/40 px-4 py-2">
                   <span className="font-semibold text-foreground">{ano}</span>
                   <span className="text-xs text-muted-foreground">

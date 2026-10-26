@@ -87,7 +87,8 @@ export default function RegistroPage() {
         </Link>
       </nav>
 
-      <header className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+      <header className="relative flex flex-col gap-6 overflow-hidden rounded-2xl border border-border/80 bg-card p-5 pl-7 shadow-papel-alzado sm:p-7 sm:pl-9 lg:flex-row lg:items-start lg:justify-between">
+        <span aria-hidden className="absolute inset-y-0 left-0 w-1.5 bg-primary" />
         <div className="min-w-0 space-y-2">
           <h1 className="text-balance text-2xl font-semibold text-foreground sm:text-3xl">
             {ficha.titulo}
@@ -149,7 +150,7 @@ export default function RegistroPage() {
         <div className="min-w-0 space-y-6">
           {ficha.resumen && <p className="max-w-prose text-pretty leading-relaxed text-foreground">{ficha.resumen}</p>}
 
-          <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[10rem_1fr]">
+          <dl className="grid gap-x-6 gap-y-2 rounded-xl border border-border/80 bg-card p-4 text-sm shadow-papel sm:grid-cols-[10rem_1fr] sm:p-6">
             {datos.filter(([, v]) => v).map(([k, v]) => (
               <div key={k} className="contents">
                 <dt className="text-muted-foreground">{k}</dt>
@@ -180,7 +181,7 @@ export default function RegistroPage() {
         {ficha.por_sede.length > 0 && (
           <aside aria-label="Disponibilidad por sede" className="space-y-2">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Por sede</h2>
-            <ul className="divide-y divide-border rounded-lg border border-border bg-card">
+            <ul className="divide-y divide-border rounded-xl border border-border/80 bg-card shadow-papel">
               {ficha.por_sede.map((s) => (
                 <li key={s.sede} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
                   <span className="min-w-0 text-foreground">{s.sede}</span>
@@ -201,18 +202,20 @@ export default function RegistroPage() {
         ) : (
           <>
           {/* En el teléfono, una tarjeta por ejemplar: el estado no puede quedar fuera de la pantalla. */}
-          <ul className="divide-y divide-border rounded-lg border border-border bg-card sm:hidden">
+          <ul className="divide-y divide-border rounded-xl border border-border/80 bg-card shadow-papel sm:hidden">
             {ficha.ejemplares_detalle.map((e) => (
               <li key={e.id} className="px-4 py-3 text-sm">
                 <p className={e.disponible ? "font-medium text-primary" : "text-muted-foreground"}>{e.estado}</p>
                 <p className="text-foreground">{e.sede}{e.numeracion && ` · ${e.numeracion}`}</p>
                 <p className="text-xs text-muted-foreground">
-                  {[e.signatura, e.tipo].filter(Boolean).join(" · ")}
+                  {e.signatura && <span className="font-mono text-sm font-semibold tracking-tight text-primary">{e.signatura}</span>}
+                  {e.signatura && e.tipo && " · "}
+                  {e.tipo}
                 </p>
               </li>
             ))}
           </ul>
-          <div className="hidden overflow-x-auto rounded-lg border border-border bg-card sm:block">
+          <div className="hidden overflow-x-auto rounded-xl border border-border/80 bg-card shadow-papel sm:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -227,7 +230,9 @@ export default function RegistroPage() {
                 {ficha.ejemplares_detalle.map((e) => (
                   <TableRow key={e.id}>
                     <TableCell>{e.sede}</TableCell>
-                    <TableCell className="font-mono text-xs">{e.signatura ?? "—"}</TableCell>
+                    <TableCell className={e.signatura ? "font-mono text-sm font-semibold tracking-tight text-primary" : "text-muted-foreground"}>
+                      {e.signatura ?? "—"}
+                    </TableCell>
                     {conNumeracion && <TableCell>{e.numeracion ?? "—"}</TableCell>}
                     <TableCell>{e.tipo ?? "—"}</TableCell>
                     <TableCell className={e.disponible ? "font-medium text-primary" : "text-muted-foreground"}>

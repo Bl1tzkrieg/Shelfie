@@ -110,7 +110,7 @@ export function ReservasLector() {
           const e = estado(r)
           const pendiente = r.status === "Pendiente"
           return (
-            <li key={r.id} className={e.destacado ? "rounded-lg border border-accent/50 bg-accent/10 p-4" : "rounded-lg border border-border bg-card p-4"}>
+            <li key={r.id} className={e.destacado ? "rounded-lg border border-aviso/50 bg-aviso/10 p-4" : "rounded-lg border border-border bg-card shadow-papel p-4"}>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                 <div className="min-w-0 flex-1">
                   <Link href={`/opac/registro/${r.biblioId}`} className="font-medium text-foreground hover:text-primary hover:underline">

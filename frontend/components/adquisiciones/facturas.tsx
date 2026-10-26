@@ -66,7 +66,7 @@ export function FacturasPanel() {
       ) : facturas.length === 0 ? (
         <Vacio>{soloAbiertas ? "No hay facturas abiertas." : "Todavía no se registraron facturas."}</Vacio>
       ) : (
-        <div className="overflow-x-auto rounded-lg border bg-card">
+        <div className="overflow-x-auto rounded-lg border bg-card shadow-papel">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left text-muted-foreground">
               <tr>

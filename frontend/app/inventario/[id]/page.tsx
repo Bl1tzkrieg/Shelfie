@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils"
 
 const CLASES_TONO = {
   bien: "border-primary/30 bg-primary/5 text-primary",
-  revisar: "border-accent/40 bg-accent/10 text-accent-foreground",
+  revisar: "border-aviso/40 bg-aviso/10 text-aviso-foreground",
   problema: "border-destructive/30 bg-destructive/5 text-destructive",
 }
 
@@ -168,7 +168,7 @@ export default function InventarioPage() {
 
 function Tarjeta({ titulo, valor, pie, alerta = false }: { titulo: string; valor: number; pie?: string; alerta?: boolean }) {
   return (
-    <div className={cn("rounded-lg border bg-card p-4", alerta ? "border-destructive/30" : "border-border")}>
+    <div className={cn("rounded-lg border bg-card shadow-papel p-4", alerta ? "border-destructive/30" : "border-border")}>
       <p className="text-sm text-muted-foreground">{titulo}</p>
       <p className={cn("mt-1 text-2xl font-semibold tabular-nums", alerta ? "text-destructive" : "text-foreground")}>{valor}</p>
       {pie && <p className="text-xs text-muted-foreground">{pie}</p>}
@@ -212,7 +212,7 @@ function Lector({ onLeer, recientes }: { onLeer: (codigos: string[]) => Promise<
 
   return (
     <section aria-labelledby="leer" className="grid gap-4 lg:grid-cols-2">
-      <div className="space-y-3 rounded-lg border border-border bg-card p-4">
+      <div className="space-y-3 rounded-lg border border-border bg-card shadow-papel p-4">
         <h2 id="leer" className="flex items-center gap-2 font-semibold text-foreground"><ScanBarcode className="h-4 w-4" />Leer</h2>
         <form onSubmit={async (e) => {
           e.preventDefault()
@@ -246,7 +246,7 @@ function Lector({ onLeer, recientes }: { onLeer: (codigos: string[]) => Promise<
           </div>
         </details>
       </div>
-      <div className="rounded-lg border border-border bg-card p-4" aria-live="polite">
+      <div className="rounded-lg border border-border bg-card shadow-papel p-4" aria-live="polite">
         <h3 className="mb-2 text-sm font-medium text-muted-foreground">Recién leídos</h3>
         {recientes.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">Lo que leas aparece aquí.</p>
@@ -287,7 +287,7 @@ function Faltantes({ inv }: { inv: InventarioDetalle }) {
       {inv.esperados === 0 ? "No hay ejemplares esperados en este alcance." : "No falta nada."}</p>
   }
   return (
-    <div className="rounded-lg border border-border bg-card">
+    <div className="rounded-lg border border-border bg-card shadow-papel">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <p className="text-sm text-muted-foreground">En orden de estante. Están Disponibles en el sistema pero no se leyeron.</p>
         <Button variant="outline" size="sm" disabled={exportando} onClick={async () => {
@@ -334,7 +334,7 @@ function Faltantes({ inv }: { inv: InventarioDetalle }) {
 function Lecturas({ filas, vacio, nota }: { filas: LecturaInventario[]; vacio: string; nota?: string }) {
   if (filas.length === 0) return <p className="py-8 text-center text-sm text-muted-foreground">{vacio}</p>
   return (
-    <div className="rounded-lg border border-border bg-card">
+    <div className="rounded-lg border border-border bg-card shadow-papel">
       {nota && <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground">{nota}</p>}
       <ul className="divide-y divide-border">
         {filas.map((l, n) => (

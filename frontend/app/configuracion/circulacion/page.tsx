@@ -74,7 +74,7 @@ export default function ReglasYCalendarioPage() {
           </Link>
 
           {!listo ? (
-            <div className="rounded-lg border bg-card py-16 text-center text-muted-foreground">
+            <div className="rounded-lg border bg-card shadow-papel py-16 text-center text-muted-foreground">
               {error ? `No se pudo cargar: ${error}` : "Cargando reglas y calendario…"}
             </div>
           ) : (
@@ -237,7 +237,7 @@ function Seccion({
   children: React.ReactNode
 }) {
   return (
-    <section className="rounded-lg border border-border bg-card">
+    <section className="rounded-lg border border-border bg-card shadow-papel">
       <div className="border-b border-border px-6 py-4">
         <div className="flex items-center gap-3">
           <Icono className="h-5 w-5 text-primary" />

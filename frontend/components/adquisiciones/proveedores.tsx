@@ -51,7 +51,7 @@ export function ProveedoresPanel() {
       ) : proveedores.length === 0 ? (
         <Vacio>Todavía no hay proveedores.</Vacio>
       ) : (
-        <div className="overflow-x-auto rounded-lg border bg-card">
+        <div className="overflow-x-auto rounded-lg border bg-card shadow-papel">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left text-muted-foreground">
               <tr>

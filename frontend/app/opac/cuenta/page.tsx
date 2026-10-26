@@ -84,7 +84,7 @@ function Cuenta() {
       {(lector.para_retirar > 0 || lector.vencidos > 0 || lector.bloqueado) && (
         <ul className="space-y-2 text-sm">
           {lector.para_retirar > 0 && (
-            <li className="rounded-md border border-accent/50 bg-accent/10 px-4 py-2">
+            <li className="rounded-md border border-aviso/50 bg-aviso/10 px-4 py-2">
               {lector.para_retirar === 1 ? "Una reserva está lista" : `${lector.para_retirar} reservas están listas`} para retirar.
             </li>
           )}

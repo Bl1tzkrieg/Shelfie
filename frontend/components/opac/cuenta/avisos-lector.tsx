@@ -34,7 +34,7 @@ export function AvisosLector() {
     <ul className="space-y-3">
       {avisos.map((a) => (
         <li key={a.id}>
-          <details className="rounded-lg border border-border bg-card">
+          <details className="rounded-lg border border-border bg-card shadow-papel">
             <summary className="flex cursor-pointer flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-3">
               <span className="font-medium text-foreground">{a.asunto}</span>
               <span className="text-xs text-muted-foreground">

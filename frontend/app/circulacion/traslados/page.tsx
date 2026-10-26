@@ -208,7 +208,7 @@ function GestionDeTraslados() {
         {VISTAS.map((v) => (
           <TabsContent key={v} value={v} className="mt-4">
             {filas === null ? (
-              <div className="rounded-lg border bg-card py-12 text-center text-muted-foreground">
+              <div className="rounded-lg border bg-card shadow-papel py-12 text-center text-muted-foreground">
                 <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
                 Cargando…
               </div>
@@ -236,7 +236,7 @@ function Contador({ n, alerta = false }: { n?: number; alerta?: boolean }) {
     <span
       className={cn(
         "ml-1.5 rounded-full px-1.5 text-xs tabular-nums",
-        alerta ? "bg-accent text-accent-foreground" : "bg-muted-foreground/15",
+        alerta ? "bg-aviso text-aviso-foreground" : "bg-muted-foreground/15",
       )}
     >
       {n}
@@ -272,7 +272,7 @@ function TablaTraslados({
     )
   }
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-card">
+    <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-papel">
       <table className="w-full text-sm">
         <thead className="bg-muted/50 text-left text-muted-foreground">
           <tr>

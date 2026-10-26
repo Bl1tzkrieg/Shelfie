@@ -78,7 +78,7 @@ export function UserFilters({
       </div>
 
       {showFilters && (
-        <div className="rounded-lg border border-border bg-card p-4">
+        <div className="rounded-lg border border-border bg-card shadow-papel p-4">
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Tipo de Usuario</label>

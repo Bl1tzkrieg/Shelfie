@@ -51,7 +51,7 @@ export function BookCard({ book, viewMode, onPrestar, onReservar }: BookCardProp
 
   if (viewMode === "list") {
     return (
-      <div className="flex gap-4 rounded-lg border border-border bg-card p-4 transition-colors hover:bg-muted/50">
+      <div className="flex gap-4 rounded-lg border border-border bg-card shadow-papel p-4 transition-colors hover:bg-muted/50">
         <div className="flex h-24 w-16 flex-shrink-0 items-center justify-center rounded bg-primary/10">
           <BookOpen className="h-8 w-8 text-primary" />
         </div>
@@ -111,7 +111,7 @@ export function BookCard({ book, viewMode, onPrestar, onReservar }: BookCardProp
   }
 
   return (
-    <div className="group flex flex-col rounded-lg border border-border bg-card transition-colors hover:bg-muted/50">
+    <div className="group flex flex-col rounded-lg border border-border bg-card shadow-papel transition-colors hover:bg-muted/50">
       <div className="flex h-40 items-center justify-center rounded-t-lg bg-primary/5">
         <BookOpen className="h-16 w-16 text-primary/40" />
       </div>

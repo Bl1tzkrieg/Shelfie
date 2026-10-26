@@ -101,7 +101,7 @@ export function SugerenciasPanel() {
       ) : sugerencias.length === 0 ? (
         <Vacio>No hay sugerencias con este filtro.</Vacio>
       ) : (
-        <div className="divide-y divide-border rounded-lg border bg-card">
+        <div className="divide-y divide-border rounded-lg border bg-card shadow-papel">
           {sugerencias.map((s) => (
             <div key={s.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">

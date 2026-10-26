@@ -36,7 +36,7 @@ const DUPLICADOS: Record<Duplicados, string> = {
 
 const ACCION: Record<ResultadoImportacion["registros"][number]["accion"], [string, string]> = {
   nuevo: ["Nuevo", "bg-primary/10 text-primary"],
-  reemplazar: ["Reemplaza", "bg-accent/30 text-accent-foreground"],
+  reemplazar: ["Reemplaza", "bg-aviso/30 text-aviso-foreground"],
   omitir: ["Se omite", "bg-muted text-muted-foreground"],
   error: ["Error", "bg-destructive/10 text-destructive"],
 }

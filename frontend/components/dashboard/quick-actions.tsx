@@ -17,7 +17,7 @@ interface QuickActionsProps {
 
 const colorConfig = {
   primary: "bg-primary/10 text-primary",
-  accent: "bg-accent/20 text-accent-foreground",
+  aviso: "bg-aviso/20 text-aviso-foreground",
   secondary: "bg-secondary text-secondary-foreground",
 }
 
@@ -30,7 +30,7 @@ export function QuickActions({ onChange }: QuickActionsProps) {
   const { tienePermiso } = useSesion()
 
   return (
-    <div className="rounded-xl border border-border bg-card">
+    <div className="rounded-xl border border-border bg-card shadow-papel">
       <div className="border-b border-border px-6 py-4">
         <h3 className="font-semibold text-foreground">Acciones Rápidas</h3>
         <p className="text-sm text-muted-foreground">Operaciones frecuentes</p>
@@ -57,7 +57,7 @@ export function QuickActions({ onChange }: QuickActionsProps) {
           onClick={() => setUsuarioAbierto(true)}
           className="group flex w-full items-center gap-4 rounded-lg p-3 text-left transition-colors hover:bg-muted"
         >
-          <Icono color="accent">
+          <Icono color="aviso">
             <UserPlus className="h-5 w-5" />
           </Icono>
           <Texto titulo="Registrar Usuario" descripcion="Agregar nuevo lector al sistema" />

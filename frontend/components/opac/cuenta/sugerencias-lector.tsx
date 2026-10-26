@@ -67,7 +67,7 @@ export function SugerenciasLector() {
 
   return (
     <div className="grid gap-8 lg:grid-cols-[22rem_1fr]">
-      <form onSubmit={enviar} className="space-y-3 rounded-lg border border-border bg-card p-4">
+      <form onSubmit={enviar} className="space-y-3 rounded-lg border border-border bg-card shadow-papel p-4">
         <div>
           <h3 className="font-medium text-foreground">Sugerir una compra</h3>
           <p className="text-sm text-muted-foreground">¿Falta un libro? Cuéntanos cuál.</p>
@@ -112,7 +112,7 @@ export function SugerenciasLector() {
         ) : (
           <ul className="space-y-3">
             {sugerencias.map((s) => (
-              <li key={s.id} className="rounded-lg border border-border bg-card p-4">
+              <li key={s.id} className="rounded-lg border border-border bg-card shadow-papel p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-medium text-foreground">{s.titulo}</p>

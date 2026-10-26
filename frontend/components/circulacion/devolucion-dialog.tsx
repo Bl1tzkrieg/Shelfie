@@ -109,7 +109,7 @@ export function DevolucionDialog({ onSuccess }: { onSuccess?: () => void }) {
 
 const ESTILO: Record<TonoInstruccion, { clase: string; icono: typeof Truck }> = {
   reserva: { clase: "border-primary/40 bg-primary/10 text-primary", icono: BookmarkCheck },
-  traslado: { clase: "border-accent/50 bg-accent/15 text-accent-foreground", icono: Truck },
+  traslado: { clase: "border-aviso/50 bg-aviso/15 text-aviso-foreground", icono: Truck },
   estante: { clase: "border-border bg-muted text-foreground", icono: Library },
 }
 

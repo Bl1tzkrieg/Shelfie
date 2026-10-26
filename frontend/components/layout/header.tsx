@@ -51,7 +51,7 @@ export function Header({ title, description }: HeaderProps) {
   }
 
   return (
-    <header className="sticky top-14 z-30 flex h-16 items-center justify-between gap-3 border-b border-border bg-card px-4 sm:px-6 lg:top-0">
+    <header className="sticky top-14 z-30 flex h-16 items-center justify-between gap-3 border-b border-border/70 bg-card/95 px-4 shadow-papel backdrop-blur-sm sm:px-6 lg:top-0">
       <div className="min-w-0">
         <h1 className="truncate text-lg font-semibold text-foreground">{title}</h1>
         {description && <p className="hidden truncate text-sm text-muted-foreground sm:block">{description}</p>}

@@ -17,7 +17,7 @@ export function AvisosUsuario({ carnet }: { carnet: string }) {
 
   if (!avisos || avisos.length === 0) return null
   return (
-    <div className="rounded-lg border border-border bg-card">
+    <div className="rounded-lg border border-border bg-card shadow-papel">
       <div className="flex items-center justify-between border-b border-border px-6 py-4">
         <h3 className="font-semibold text-foreground">Avisos enviados</h3>
         <Link href="/configuracion/avisos" className="text-sm text-primary hover:underline">Cola de correos</Link>

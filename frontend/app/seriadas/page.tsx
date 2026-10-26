@@ -122,7 +122,7 @@ function Contenido() {
           ) : suscripciones.length === 0 ? (
             <Vacio>No hay suscripciones {soloActivas ? "activas" : ""}.</Vacio>
           ) : (
-            <div className="overflow-x-auto rounded-lg border bg-card">
+            <div className="overflow-x-auto rounded-lg border bg-card shadow-papel">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-left text-muted-foreground">
                   <tr>
@@ -171,7 +171,7 @@ function Contenido() {
           {esperados.length === 0 ? (
             <Vacio>No se espera ningún número.</Vacio>
           ) : (
-            <div className="divide-y divide-border rounded-lg border bg-card">
+            <div className="divide-y divide-border rounded-lg border bg-card shadow-papel">
               {esperados.map((f) => (
                 <div key={f.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -198,7 +198,7 @@ function Contenido() {
             <Vacio>Nada atrasado: todo llegó dentro de los días de gracia.</Vacio>
           ) : (
             porProveedor.map(([proveedor, lista]) => (
-              <section key={proveedor} className="rounded-lg border bg-card">
+              <section key={proveedor} className="rounded-lg border bg-card shadow-papel">
                 <div className="flex items-center justify-between border-b px-4 py-3">
                   <h3 className="font-semibold text-foreground">{proveedor}</h3>
                   {lista[0].proveedor_email && lista[0].proveedor_id && (

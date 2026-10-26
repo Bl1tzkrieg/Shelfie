@@ -64,7 +64,7 @@ export default function InventariosPage() {
             Todavía no hay inventarios. Empieza uno por sede o por un tramo de signaturas.
           </div>
         ) : (
-          <ul className="divide-y divide-border rounded-lg border border-border bg-card">
+          <ul className="divide-y divide-border rounded-lg border border-border bg-card shadow-papel">
             {inventarios.map((i) => (
               <li key={i.id}>
                 <Link href={`/inventario/${i.id}`} className="flex flex-col gap-1 px-4 py-3 hover:bg-muted/30 sm:flex-row sm:items-center sm:justify-between">

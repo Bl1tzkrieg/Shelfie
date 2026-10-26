@@ -38,7 +38,7 @@ export function MultasLector() {
       </div>
 
       {cuenta.movimientos.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border border-border bg-card">
+        <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-papel">
           <Table>
             <TableHeader>
               <TableRow>

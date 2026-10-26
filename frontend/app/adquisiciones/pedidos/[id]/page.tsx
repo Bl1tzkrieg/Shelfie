@@ -102,7 +102,7 @@ export default function PedidoPage() {
           Pedidos
         </Link>
 
-        <div className="flex flex-col gap-4 rounded-lg border bg-card p-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex flex-col gap-4 rounded-lg border bg-card shadow-papel p-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
               <EstadoPedidoBadge estado={pedido.estado} />
@@ -165,7 +165,7 @@ export default function PedidoPage() {
           </div>
         </div>
 
-        <div className="overflow-x-auto rounded-lg border bg-card">
+        <div className="overflow-x-auto rounded-lg border bg-card shadow-papel">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left text-muted-foreground">
               <tr>

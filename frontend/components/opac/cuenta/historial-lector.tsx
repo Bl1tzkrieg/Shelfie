@@ -22,7 +22,7 @@ export function HistorialLector() {
   if (filas.length === 0) return <p className="py-8 text-center text-muted-foreground">Aún no has devuelto nada.</p>
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-card">
+    <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-papel">
       <Table>
         <TableHeader>
           <TableRow>

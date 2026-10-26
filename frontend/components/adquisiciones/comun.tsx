@@ -16,7 +16,7 @@ export const bs = (n: number) => `Bs. ${n.toFixed(2)}`
 
 const ESTADO_PEDIDO: Record<EstadoPedido, { texto: string; clase: string }> = {
   Abierta: { texto: "Abierto", clase: "bg-secondary text-secondary-foreground" },
-  Cerrada: { texto: "Por recibir", clase: "bg-accent/20 text-accent-foreground" },
+  Cerrada: { texto: "Por recibir", clase: "bg-aviso/20 text-aviso-foreground" },
   Recibida: { texto: "Recibido", clase: "bg-primary/10 text-primary" },
   Cancelada: { texto: "Cancelado", clase: "bg-muted text-muted-foreground" },
 }
@@ -54,11 +54,11 @@ export function BarraFondo({ fondo, className }: { fondo: Fondo; className?: str
         aria-label={`Gastado ${bs(fondo.gastado)}, comprometido ${bs(fondo.comprometido)}, disponible ${bs(fondo.disponible)}`}
       >
         <div className="bg-primary" style={{ width: pct(fondo.gastado) }} />
-        <div className="bg-accent" style={{ width: pct(fondo.comprometido) }} />
+        <div className="bg-aviso" style={{ width: pct(fondo.comprometido) }} />
       </div>
       <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
         <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-primary" />Gastado {bs(fondo.gastado)}</span>
-        <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-accent" />Comprometido {bs(fondo.comprometido)}</span>
+        <span><span className="mr-1 inline-block h-2 w-2 rounded-full bg-aviso" />Comprometido {bs(fondo.comprometido)}</span>
         <span className={cn(excedido && "font-medium text-destructive")}>Disponible {bs(fondo.disponible)}</span>
       </div>
     </div>
@@ -114,7 +114,7 @@ export function fechaCorta(iso: string | null) {
 
 export function Kpi({ titulo, valor, alerta = false }: { titulo: string; valor: number | string; alerta?: boolean }) {
   return (
-    <div className="rounded-lg border bg-card p-5">
+    <div className="rounded-lg border bg-card shadow-papel p-5">
       <p className="text-sm text-muted-foreground">{titulo}</p>
       <p className={cn("mt-1 text-2xl font-bold tabular-nums", alerta && "text-destructive")}>{valor}</p>
     </div>

@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils"
 const ESTILO: Record<EstadoFasciculo, string> = {
   Esperado: "bg-secondary text-secondary-foreground",
   Recibido: "bg-primary/10 text-primary",
-  Reclamado: "bg-accent/25 text-accent-foreground",
+  Reclamado: "bg-aviso/25 text-aviso-foreground",
   Faltante: "bg-muted text-muted-foreground line-through",
 }
 

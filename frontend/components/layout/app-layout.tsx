@@ -24,7 +24,7 @@ export function AppLayout({ children, permiso }: AppLayoutProps) {
     <div className="min-h-screen bg-background">
       <Sidebar />
       {/* En pantallas angostas la barra lateral se abre como menú deslizable. */}
-      <div className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-sidebar px-4 lg:hidden">
+      <div className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-sidebar-border bg-sidebar px-4 lg:hidden">
         <Button variant="ghost" size="icon" className="text-sidebar-foreground"
                 aria-label="Abrir el menú" onClick={() => setMenuAbierto(true)}>
           <Menu className="h-5 w-5" />

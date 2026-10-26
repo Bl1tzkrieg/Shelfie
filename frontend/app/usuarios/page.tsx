@@ -162,19 +162,19 @@ export default function UsuariosPage() {
 
       <div className="p-6">
         <div className="mb-6 grid gap-4 sm:grid-cols-4">
-          <div className="rounded-lg border border-border bg-card p-4">
+          <div className="rounded-lg border border-border bg-card shadow-papel p-4">
             <p className="text-sm text-muted-foreground">Total Usuarios</p>
             <p className="mt-1 text-2xl font-semibold text-foreground">{mapeados.length}</p>
           </div>
-          <div className="rounded-lg border border-border bg-card p-4">
+          <div className="rounded-lg border border-border bg-card shadow-papel p-4">
             <p className="text-sm text-muted-foreground">Activos</p>
             <p className="mt-1 text-2xl font-semibold text-primary">{activos}</p>
           </div>
-          <div className="rounded-lg border border-destructive/30 bg-card p-4">
+          <div className="rounded-lg border border-destructive/30 bg-card shadow-papel p-4">
             <p className="text-sm text-muted-foreground">Con deuda</p>
             <p className="mt-1 text-2xl font-semibold text-destructive">{conMultas}</p>
           </div>
-          <div className="rounded-lg border border-border bg-card p-4">
+          <div className="rounded-lg border border-border bg-card shadow-papel p-4">
             <p className="text-sm text-muted-foreground">Con Préstamos Activos</p>
             <p className="mt-1 text-2xl font-semibold text-foreground">{conPrestamos}</p>
           </div>
@@ -235,7 +235,7 @@ export default function UsuariosPage() {
         </div>
 
         {isLoading ? (
-          <div className="rounded-lg border bg-card py-10 text-center text-muted-foreground">
+          <div className="rounded-lg border bg-card shadow-papel py-10 text-center text-muted-foreground">
             Cargando el padrón de usuarios...
           </div>
         ) : (

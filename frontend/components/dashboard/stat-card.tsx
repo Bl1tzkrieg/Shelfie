@@ -15,7 +15,7 @@ interface StatCardProps {
 
 export function StatCard({ title, value, subtitle, icon: Icon, trend, className }: StatCardProps) {
   return (
-    <div className={cn("rounded-xl border border-border bg-card p-6", className)}>
+    <div className={cn("rounded-xl border border-border bg-card shadow-papel p-6", className)}>
       <div className="flex items-start justify-between">
         <div>
           <p className="text-sm font-medium text-muted-foreground">{title}</p>

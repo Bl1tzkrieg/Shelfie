@@ -63,7 +63,7 @@ export default function ConfiguracionPage() {
       <AppLayout permiso="configuracion">
         <Header title="Configuración" description="Ajustes del sistema de biblioteca" />
         <div className="p-6">
-          <div className="rounded-lg border bg-card py-16 text-center text-muted-foreground">
+          <div className="rounded-lg border bg-card shadow-papel py-16 text-center text-muted-foreground">
             {cargando ? "Cargando configuración..." : "No se pudo cargar la configuración."}
           </div>
         </div>
@@ -224,7 +224,7 @@ function Seccion({
   children: React.ReactNode
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card">
+    <div className="rounded-lg border border-border bg-card shadow-papel">
       <div className="border-b border-border px-6 py-4">
         <div className="flex items-center gap-3">
           <Icono className="h-5 w-5 text-primary" />

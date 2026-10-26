@@ -89,7 +89,7 @@ export function ListasLector() {
           Guarda títulos en listas desde su ficha: para la tesis, para leer en vacaciones…
         </p>
       ) : (
-        <ul className="divide-y divide-border rounded-lg border border-border bg-card">
+        <ul className="divide-y divide-border rounded-lg border border-border bg-card shadow-papel">
           {listas.map((l) => (
             <li key={l.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
               {l.publica ? <Globe className="h-4 w-4 text-primary" aria-label="Pública" />

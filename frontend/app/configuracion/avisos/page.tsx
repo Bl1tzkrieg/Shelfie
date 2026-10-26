@@ -86,7 +86,7 @@ function Contenido() {
 
 function Cifra({ titulo, valor, alerta }: { titulo: string; valor: number; alerta?: boolean }) {
   return (
-    <div className={alerta ? "rounded-lg border border-destructive/40 bg-card p-4" : "rounded-lg border bg-card p-4"}>
+    <div className={alerta ? "rounded-lg border border-destructive/40 bg-card shadow-papel p-4" : "rounded-lg border bg-card shadow-papel p-4"}>
       <p className="text-sm text-muted-foreground">{titulo}</p>
       <p className={alerta ? "text-2xl font-semibold tabular-nums text-destructive" : "text-2xl font-semibold tabular-nums text-foreground"}>
         {valor}

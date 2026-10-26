@@ -337,7 +337,7 @@ function CatalogoContenido() {
             </div>
 
             {respuesta === null ? (
-              <div className="rounded-lg border bg-card py-12 text-center text-muted-foreground">
+              <div className="rounded-lg border bg-card shadow-papel py-12 text-center text-muted-foreground">
                 Cargando catálogo…
               </div>
             ) : resultados.length === 0 ? (

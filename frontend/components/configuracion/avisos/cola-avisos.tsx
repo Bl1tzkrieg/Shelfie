@@ -98,7 +98,7 @@ export function ColaAvisos({ puedeEditar, onCambio }: { puedeEditar: boolean; on
           {filtro ? "No hay avisos en ese estado." : "Todavía no se generó ningún aviso."}
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border bg-card">
+        <div className="overflow-x-auto rounded-lg border bg-card shadow-papel">
           <Table>
             <TableHeader>
               <TableRow>

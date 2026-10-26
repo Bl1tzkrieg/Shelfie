@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Search } from "lucide-react"
 
+import { FondoGeometrico } from "@/components/layout/fondo-geometrico"
 import { useLector } from "@/components/opac/lector-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -21,29 +22,35 @@ export default function OpacInicio() {
   }, [])
 
   return (
-    <div className="space-y-12">
-      <section className="mx-auto max-w-2xl pt-6 text-center sm:pt-12">
-        <h1 className="text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-          ¿Qué quieres leer?
-        </h1>
-        <p className="mt-3 text-pretty text-muted-foreground">
-          Busca libros, revistas y tesis. Mira en qué sede están y resérvalos desde aquí.
-        </p>
+    <div className="space-y-10">
+      <section className="relative isolate overflow-hidden rounded-2xl px-5 pb-8 pt-10 text-hero-foreground shadow-papel-flotante sm:px-10 sm:pb-12 sm:pt-16">
+        <FondoGeometrico />
+        <div className="max-w-2xl">
+          <h1 className="text-balance text-3xl/tight font-semibold tracking-tight sm:text-4xl/tight">
+            ¿Qué quieres leer?
+          </h1>
+          {/* Solo lo que el OPAC hace: buscar, ver los ejemplares libres por sede y, con la
+              cuenta del lector, reservar y renovar. */}
+          <p className="mt-3 text-pretty text-base text-hero-muted sm:text-lg">
+            Busca por título, autor, materia o ISBN y mira cuántos ejemplares hay libres en cada
+            sede. Con tu carnet puedes reservar y renovar tus préstamos.
+          </p>
+        </div>
         <form
           role="search"
-          className="mt-8 flex gap-2"
+          className="mt-8 flex flex-col gap-2 rounded-xl bg-card p-2 text-card-foreground shadow-papel-flotante sm:flex-row lg:max-w-2xl"
           onSubmit={(e) => {
             e.preventDefault()
             router.push(`/opac/buscar?q=${encodeURIComponent(texto.trim())}`)
           }}
         >
           <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-primary" />
             <Input
               autoFocus
               aria-label="Buscar en el catálogo"
               placeholder="Título, autor, materia o ISBN"
-              className="h-12 pl-10 text-base"
+              className="h-12 border-transparent pl-10 text-base shadow-none"
               value={texto}
               onChange={(e) => setTexto(e.target.value)}
             />
@@ -53,7 +60,7 @@ export default function OpacInicio() {
       </section>
 
       {lector && (lector.para_retirar > 0 || lector.vencidos > 0) && (
-        <section className="mx-auto max-w-2xl rounded-lg border border-accent/40 bg-accent/10 p-4 text-sm">
+        <section className="max-w-2xl rounded-xl border border-aviso/40 bg-aviso/10 p-4 text-sm shadow-papel">
           {lector.para_retirar > 0 && (
             <p>
               <strong>{lector.para_retirar === 1 ? "Una reserva te espera" : `${lector.para_retirar} reservas te esperan`}</strong>{" "}
@@ -72,7 +79,7 @@ export default function OpacInicio() {
       )}
 
       {materias.length > 0 && (
-        <section aria-labelledby="materias" className="mx-auto max-w-4xl">
+        <section aria-labelledby="materias">
           <h2 id="materias" className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Explorar por materia
           </h2>
@@ -81,7 +88,7 @@ export default function OpacInicio() {
               <li key={m}>
                 <Link
                   href={`/opac/buscar?materia=${encodeURIComponent(m)}`}
-                  className="inline-block rounded-full border border-border bg-card px-3 py-1.5 text-sm text-foreground transition-colors hover:border-primary hover:text-primary"
+                  className="inline-block rounded-full border border-border bg-card px-3 py-1.5 text-sm text-foreground shadow-papel transition-colors hover:border-primary hover:text-primary"
                 >
                   {m}
                 </Link>

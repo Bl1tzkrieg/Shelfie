@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { BookMarked, Loader2 } from "lucide-react"
 
 import { useSesion } from "@/components/auth/sesion-provider"
+import { FondoGeometrico } from "@/components/layout/fondo-geometrico"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -53,11 +54,12 @@ function FormularioLogin() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 shadow-sm">
+    <div className="relative isolate flex min-h-screen items-center justify-center overflow-hidden p-4">
+      <FondoGeometrico pantalla />
+      <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-card p-8 shadow-papel-flotante">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary">
-            <BookMarked className="h-6 w-6 text-primary-foreground" />
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-hero shadow-papel-alzado">
+            <BookMarked className="h-6 w-6 text-sidebar-primary" aria-hidden />
           </div>
           <div>
             <h1 className="text-xl font-semibold text-foreground">Shelfie</h1>

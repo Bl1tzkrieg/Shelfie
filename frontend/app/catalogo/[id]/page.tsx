@@ -38,7 +38,7 @@ import type { Ejemplar, RegistroMarc, RegistroMarcGuardado, ReservaGestion } fro
 const estadoClases: Record<string, string> = {
   Disponible: "bg-primary/10 text-primary",
   Prestado: "bg-destructive/10 text-destructive",
-  Reservado: "bg-accent/20 text-accent-foreground",
+  Reservado: "bg-aviso/20 text-aviso-foreground",
   EnTransito: "bg-secondary text-secondary-foreground",
   Perdido: "bg-destructive/10 text-destructive",
 }
@@ -152,7 +152,7 @@ function FichaCatalogo() {
       <AppLayout>
         <Header title="Ficha bibliográfica" />
         <div className="p-6">
-          <div className="rounded-lg border bg-card py-16 text-center text-muted-foreground">
+          <div className="rounded-lg border bg-card shadow-papel py-16 text-center text-muted-foreground">
             Cargando ficha...
           </div>
         </div>
@@ -217,7 +217,7 @@ function FichaCatalogo() {
                 onGuardar={guardarMarc}
               />
             ) : (
-              <div className="rounded-lg border bg-card py-12 text-center text-muted-foreground">
+              <div className="rounded-lg border bg-card shadow-papel py-12 text-center text-muted-foreground">
                 Cargando registro MARC…
               </div>
             )}
@@ -225,7 +225,7 @@ function FichaCatalogo() {
 
           <TabsContent value="ficha">
 
-            <div className="mb-6 rounded-lg border border-border bg-card p-6">
+            <div className="mb-6 rounded-lg border border-border bg-card shadow-papel p-6">
               <div className="flex flex-col gap-6 sm:flex-row">
                 <div className="flex h-40 w-32 shrink-0 items-center justify-center rounded-lg bg-primary/5">
                   <BookOpen className="h-16 w-16 text-primary/40" />
@@ -292,7 +292,7 @@ function FichaCatalogo() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-border bg-card">
+            <div className="rounded-lg border border-border bg-card shadow-papel">
               <div className="flex items-center justify-between gap-3 border-b border-border px-6 py-4">
                 <div>
                   <h3 className="font-semibold text-foreground">Ejemplares</h3>
@@ -387,7 +387,7 @@ function FichaCatalogo() {
             </div>
 
             {reservas.length > 0 && (
-              <div className="mt-6 rounded-lg border border-border bg-card">
+              <div className="mt-6 rounded-lg border border-border bg-card shadow-papel">
                 <div className="flex items-center justify-between gap-3 border-b border-border px-6 py-4">
                   <div>
                     <h3 className="font-semibold text-foreground">Reservas</h3>
@@ -414,7 +414,7 @@ function FichaCatalogo() {
                       <span
                         className={cn(
                           "rounded-full px-2.5 py-1 text-xs font-medium",
-                          r.status === "EnEspera" ? "bg-accent/20 text-accent-foreground" : "bg-muted text-muted-foreground",
+                          r.status === "EnEspera" ? "bg-aviso/20 text-aviso-foreground" : "bg-muted text-muted-foreground",
                         )}
                       >
                         {ESTADO_RESERVA[r.status] ?? r.status}

@@ -79,7 +79,7 @@ export function PedidosPanel() {
       ) : pedidos.length === 0 ? (
         <Vacio>No hay pedidos con este filtro.</Vacio>
       ) : (
-        <div className="overflow-x-auto rounded-lg border bg-card">
+        <div className="overflow-x-auto rounded-lg border bg-card shadow-papel">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left text-muted-foreground">
               <tr>
@@ -111,7 +111,7 @@ export function PedidosPanel() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">{p.titulos}</td>
-                  <td className={cn("px-4 py-3 text-right tabular-nums", p.recibidos < p.ejemplares && p.estado === "Cerrada" && "text-accent-foreground")}>
+                  <td className={cn("px-4 py-3 text-right tabular-nums", p.recibidos < p.ejemplares && p.estado === "Cerrada" && "text-aviso-foreground")}>
                     {p.recibidos} / {p.ejemplares}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">{bs(p.total)}</td>

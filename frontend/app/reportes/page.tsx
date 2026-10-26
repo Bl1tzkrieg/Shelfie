@@ -112,7 +112,7 @@ export default function ReportesPage() {
       <div className="p-6">
         <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {tarjetas.map((t) => (
-            <div key={t.etiqueta} className="rounded-lg border border-border bg-card p-4">
+            <div key={t.etiqueta} className="rounded-lg border border-border bg-card shadow-papel p-4">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                   <t.icon className="h-5 w-5 text-primary" />
@@ -126,7 +126,7 @@ export default function ReportesPage() {
           ))}
         </div>
 
-        <div className="mb-8 rounded-lg border border-border bg-card p-6">
+        <div className="mb-8 rounded-lg border border-border bg-card shadow-papel p-6">
           <h3 className="text-lg font-semibold text-foreground">Generar Reporte Personalizado</h3>
           <p className="mt-1 text-sm text-muted-foreground">
             Selecciona los parámetros para generar un reporte a medida
@@ -207,7 +207,7 @@ export default function ReportesPage() {
                 return (
                   <div
                     key={reporte.id}
-                    className="flex items-start gap-4 rounded-lg border border-border bg-card p-4 transition-colors hover:bg-muted/50"
+                    className="flex items-start gap-4 rounded-lg border border-border bg-card shadow-papel p-4 transition-colors hover:bg-muted/50"
                   >
                     <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10">
                       <Icono className="h-6 w-6 text-primary" />

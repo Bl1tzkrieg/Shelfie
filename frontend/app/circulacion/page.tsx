@@ -93,15 +93,15 @@ export default function CirculacionPage() {
 
       <div className="p-6">
         <div className="mb-6 grid grid-cols-1 gap-6 md:grid-cols-3">
-          <div className="rounded-lg border bg-card p-6">
+          <div className="rounded-lg border bg-card shadow-papel p-6">
             <h3 className="mb-2 text-sm font-medium text-muted-foreground">Préstamos Activos</h3>
             <p className="text-3xl font-bold">{activeLoans.length}</p>
           </div>
-          <div className="rounded-lg border bg-card p-6">
+          <div className="rounded-lg border bg-card shadow-papel p-6">
             <h3 className="mb-2 text-sm font-medium text-muted-foreground">Vencidos</h3>
             <p className="text-3xl font-bold text-destructive">{overdueCount}</p>
           </div>
-          <div className="rounded-lg border bg-card p-6">
+          <div className="rounded-lg border bg-card shadow-papel p-6">
             <h3 className="mb-2 text-sm font-medium text-muted-foreground">Devueltos</h3>
             <p className="text-3xl font-bold text-foreground">{historyLoans.length}</p>
           </div>
@@ -138,7 +138,7 @@ export default function CirculacionPage() {
         </div>
 
         {isLoading ? (
-          <div className="rounded-lg border bg-card py-10 text-center text-muted-foreground">
+          <div className="rounded-lg border bg-card shadow-papel py-10 text-center text-muted-foreground">
             Cargando información desde la base de datos...
           </div>
         ) : (

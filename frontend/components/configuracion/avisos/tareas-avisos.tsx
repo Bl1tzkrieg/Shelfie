@@ -61,7 +61,7 @@ function Correo({ resumen, puedeEditar }: { resumen: ResumenAvisos; puedeEditar:
   return (
     <section className="space-y-3">
       <h3 className="font-semibold text-foreground">Correo</h3>
-      <div className="grid gap-4 rounded-lg border bg-card p-4 md:grid-cols-2">
+      <div className="grid gap-4 rounded-lg border bg-card shadow-papel p-4 md:grid-cols-2">
         <dl className="space-y-1.5 text-sm">
           <div className="flex gap-2">
             <dt className="w-24 shrink-0 text-muted-foreground">Envío</dt>
@@ -137,7 +137,7 @@ function Ajustes({ inicial, puedeEditar, onCambio }:
   return (
     <section className="space-y-3">
       <h3 className="font-semibold text-foreground">Cuándo se avisa</h3>
-      <form onSubmit={guardar} className="grid gap-4 rounded-lg border bg-card p-4 md:grid-cols-2">
+      <form onSubmit={guardar} className="grid gap-4 rounded-lg border bg-card shadow-papel p-4 md:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="aviso-antes">Recordatorio antes del vencimiento (días)</Label>
           <Input id="aviso-antes" type="number" min={0} max={30} value={antes} disabled={!puedeEditar}
@@ -227,7 +227,7 @@ function Tareas({ resumen, puedeEditar, onCambio }:
       {!tareas ? (
         <Loader2 className="mx-auto my-6 h-5 w-5 animate-spin text-muted-foreground" />
       ) : (
-        <ul className="divide-y rounded-lg border bg-card">
+        <ul className="divide-y rounded-lg border bg-card shadow-papel">
           {tareas.map((t) => (
             <li key={t.clave} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center">
               <div className="min-w-0 flex-1">
@@ -254,7 +254,7 @@ function Tareas({ resumen, puedeEditar, onCambio }:
       )}
 
       {historial.length > 0 && (
-        <details className="rounded-lg border bg-card">
+        <details className="rounded-lg border bg-card shadow-papel">
           <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Últimas corridas</summary>
           <div className="overflow-x-auto border-t">
             <Table>

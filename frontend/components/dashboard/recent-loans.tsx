@@ -24,7 +24,7 @@ const statusConfig = {
 
 export function RecentLoans({ loans = [], isLoading = false }: RecentLoansProps) {
   return (
-    <div className="rounded-xl border border-border bg-card">
+    <div className="rounded-xl border border-border bg-card shadow-papel">
       <div className="flex items-center justify-between border-b border-border px-6 py-4">
         <div>
           <h3 className="font-semibold text-foreground">Préstamos Recientes</h3>

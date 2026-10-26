@@ -89,7 +89,7 @@ export function PrestamosLector() {
       )}
       <ul className="space-y-3">
         {prestamos.map((p) => (
-          <li key={p.id} className={cn("flex flex-col gap-3 rounded-lg border bg-card p-4 sm:flex-row sm:items-center",
+          <li key={p.id} className={cn("flex flex-col gap-3 rounded-lg border bg-card shadow-papel p-4 sm:flex-row sm:items-center",
                                       p.vencido ? "border-destructive/40" : "border-border")}>
             <div className="min-w-0 flex-1">
               <Link href={`/opac/registro/${p.biblio_id}`} className="font-medium text-foreground hover:text-primary hover:underline">

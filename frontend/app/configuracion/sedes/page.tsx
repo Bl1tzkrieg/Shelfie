@@ -109,11 +109,11 @@ export default function SedesPage() {
           </div>
 
           {sedes === null ? (
-            <div className="rounded-lg border bg-card py-16 text-center text-muted-foreground">
+            <div className="rounded-lg border bg-card shadow-papel py-16 text-center text-muted-foreground">
               Cargando sedes…
             </div>
           ) : (
-            <div className="overflow-hidden rounded-lg border border-border bg-card">
+            <div className="overflow-hidden rounded-lg border border-border bg-card shadow-papel">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-left text-muted-foreground">
                   <tr>

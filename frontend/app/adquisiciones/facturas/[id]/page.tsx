@@ -96,7 +96,7 @@ export default function FacturaPage() {
                   después de cerrarlos.
                 </Vacio>
               ) : (
-                <div className="overflow-x-auto rounded-lg border bg-card">
+                <div className="overflow-x-auto rounded-lg border bg-card shadow-papel">
                   <table className="w-full text-sm">
                     <thead className="bg-muted/50 text-left text-muted-foreground">
                       <tr>
@@ -138,7 +138,7 @@ export default function FacturaPage() {
               {recepciones.length === 0 ? (
                 <Vacio>Todavía no se recibió nada contra esta factura.</Vacio>
               ) : (
-                <div className="overflow-x-auto rounded-lg border bg-card">
+                <div className="overflow-x-auto rounded-lg border bg-card shadow-papel">
                   <table className="w-full text-sm">
                     <thead className="bg-muted/50 text-left text-muted-foreground">
                       <tr>
@@ -188,7 +188,7 @@ export default function FacturaPage() {
           </div>
 
           <aside className="space-y-4">
-            <div className="rounded-lg border bg-card p-5">
+            <div className="rounded-lg border bg-card shadow-papel p-5">
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="font-semibold text-foreground">Totales</h3>
                 {factura.cerrada ? <Badge variant="outline">Cerrada</Badge> : <Badge variant="secondary">Abierta</Badge>}
@@ -270,7 +270,7 @@ function DatosFactura({ factura, fondos, onGuardado }: { factura: Factura; fondo
   }
 
   return (
-    <form onSubmit={guardar} className="space-y-3 rounded-lg border bg-card p-5">
+    <form onSubmit={guardar} className="space-y-3 rounded-lg border bg-card shadow-papel p-5">
       <h3 className="font-semibold text-foreground">Envío y notas</h3>
       <div className="space-y-2">
         <Label htmlFor="factura-envio">Costo de envío (Bs.)</Label>

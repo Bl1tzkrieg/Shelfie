@@ -75,7 +75,7 @@ const userTypeLabels = {
 
 const userTypeColors = {
   student: "bg-primary/10 text-primary",
-  teacher: "bg-accent/20 text-accent-foreground",
+  teacher: "bg-aviso/20 text-aviso-foreground",
   staff: "bg-secondary text-secondary-foreground",
 }
 
@@ -116,7 +116,7 @@ export function UserTable({ users, onEditar, onChange, onPermisos }: UserTablePr
 
   return (
     <>
-      <div className="rounded-lg border border-border bg-card">
+      <div className="rounded-lg border border-border bg-card shadow-papel">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
